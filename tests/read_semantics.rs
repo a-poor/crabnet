@@ -125,6 +125,46 @@ fn boolean_predicates_preserve_three_valued_logic() {
 }
 
 #[test]
+fn boolean_contexts_do_not_coerce_non_boolean_json_values() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (:BooleanContext {name: 'true', value: true}), \
+                    (:BooleanContext {name: 'false', value: false}), \
+                    (:BooleanContext {name: 'number', value: 1}), \
+                    (:BooleanContext {name: 'text', value: 'true'}), \
+                    (:BooleanContext {name: 'null', value: null}), \
+                    (:BooleanContext {name: 'missing'})",
+        )
+        .unwrap();
+
+    let direct = database
+        .execute(
+            "MATCH (sample:BooleanContext) WHERE sample.value \
+             RETURN sample.name AS name",
+        )
+        .unwrap();
+    assert_eq!(direct.rows, [vec![json!("true")]]);
+
+    let indeterminate = database
+        .execute(
+            "MATCH (sample:BooleanContext) \
+             WHERE (sample.value AND true) IS NULL \
+             RETURN sample.name AS name ORDER BY name",
+        )
+        .unwrap();
+    assert_eq!(
+        indeterminate.rows,
+        [
+            vec![json!("missing")],
+            vec![json!("null")],
+            vec![json!("number")],
+            vec![json!("text")],
+        ]
+    );
+}
+
+#[test]
 fn every_supported_ordering_comparison_is_exercised() {
     let mut database = Database::in_memory().unwrap();
     database
@@ -527,4 +567,15 @@ fn graph_functions_validate_arity_arguments_and_entity_kinds() {
         database.execute("MATCH (node:Node) RETURN madeUp(node)"),
         Err(Error::Unsupported(_))
     ));
+
+    for query in [
+        "MATCH (node:Node) RETURN madeUp()",
+        "MATCH (node:Node) RETURN madeUp(node, node)",
+        "MATCH (node:Node) RETURN coalesce(node.name, 'fallback')",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Unsupported(_))),
+            "unknown functions should be classified before validating a graph-function signature: {query}"
+        );
+    }
 }

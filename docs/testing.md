@@ -39,6 +39,14 @@ end-to-end result test for user-visible semantics.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
+- `tests/arithmetic_and_distinct.rs` locks down numeric expression typing,
+  precedence, invalid-operand nulls, typed ordering, and post-decode semantic
+  `DISTINCT`, including pagination and ordering-scope boundaries.
+- `tests/membership_and_string_predicates.rs` covers typed `IN` membership and
+  the three string predicates across parameters, structured values, empty
+  collections/strings, Unicode, null, and wrong-kind operands.
+- `tests/entity_values.rs` covers whole node and relationship result values,
+  recursive properties, identity, and stored-direction endpoints.
 - `tests/write_semantics.rs` holds focused write result/state contracts that do
   not need the longer scenarios in `engine.rs`.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
@@ -52,16 +60,24 @@ end-to-end result test for user-visible semantics.
   rollback.
 
 For a new query feature, prefer a vertical set of tests: one successful
-end-to-end example, relevant zero-row or `null` behavior, multiplicity and
-direction boundaries, parameterized values, a nearby semantic or unsupported
-case, and rollback plus final graph state when the feature writes.
+end-to-end example, relevant zero-row or `null` behavior, dynamic wrong-kind
+operands without coercion, multiplicity and direction boundaries,
+parameterized values, a nearby semantic or unsupported case, and rollback plus
+final graph state when the feature writes.
 
 ## Rows are bags
 
-Unless a query specifies ordering, Cypher result rows are a bag (multiset),
-not a set and not an ordered sequence. Tests for unordered results may
-canonicalize and sort rows for comparison, but they must preserve duplicate
-rows. Never deduplicate the result to make an assertion convenient.
+Unless a read query specifies `RETURN DISTINCT`, Cypher result rows preserve
+bag (multiset) multiplicity. Unless it specifies `ORDER BY`, their order is
+unspecified. Tests for unordered results may canonicalize and sort rows for
+comparison, but they must preserve duplicate rows. Never deduplicate the
+result merely to make an assertion convenient; distinct tests must instead
+exercise Crabnet's recursive typed equivalence directly.
+
+For `RETURN DISTINCT`, assert that semantic deduplication happens before
+`SKIP`/`OFFSET` and `LIMIT`, and keep `ORDER BY` within the projected expression
+scope. This catches accidental SQLite JSON/text distinctness and incorrect
+pre-dedup pagination.
 
 Use exact row order only when the query has a meaningful `ORDER BY`, or when
 cardinality makes order irrelevant. Generated entity IDs should normally be
@@ -75,6 +91,8 @@ During the red/green loop, run one test by its exact name:
 ```console
 cargo test --test engine match_create_runs_once_per_input_row -- --exact
 cargo test --test read_semantics property_to_property_equality_is_type_aware -- --exact
+cargo test --test arithmetic_and_distinct dynamic_arithmetic_is_numeric_only_and_null_propagating -- --exact
+cargo test --test membership_and_string_predicates in_preserves_typed_membership_and_three_valued_null_semantics -- --exact
 cargo test --test write_semantics create_duplicate_property_keys_fail_before_any_mutation -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
 ```
@@ -83,6 +101,8 @@ Then run the adjacent integration or unit group:
 
 ```console
 cargo test --test engine match_create
+cargo test --test arithmetic_and_distinct
+cargo test --test membership_and_string_predicates
 cargo test --lib planner::sqlite
 ```
 
@@ -133,3 +153,6 @@ proportional to their value.
 Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
+
+The next active test slice is milestone 4: `WITH` clause boundaries, aliases,
+scope loss, filtering, ordering, and pagination between pipeline stages.

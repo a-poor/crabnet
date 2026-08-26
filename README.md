@@ -54,10 +54,13 @@ Within those shapes, the first iteration supports:
 - at most one node label; zero or one relationship type in `MATCH`, and exactly
   one type for each created relationship
 - literal maps and named `$parameters` for properties
-- inline property matching and `WHERE` scalar comparisons/boolean expressions
-- scalar, whole-node, and whole-relationship `RETURN`, aliases, and
-  `elementId`, `labels`, and `type` projections
-- `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only returns
+- inline property matching and `WHERE` typed comparisons, boolean expressions,
+  `IN`, `STARTS WITH`, `CONTAINS`, and `ENDS WITH`
+- scalar, computed scalar, whole-node, and whole-relationship read projections,
+  including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
+  `elementId`, `labels`, and `type`
+- `RETURN DISTINCT`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only
+  returns
 - typed `CypherValue` result cells for null, booleans, integers, floats,
   strings, lists, maps, nodes, and relationships
 
@@ -87,7 +90,8 @@ one immediate transaction; any runtime failure rolls the whole statement back.
 Notable omissions include multiple or boolean labels/types, variable-length
 traversal, path bindings and path result values, `OPTIONAL MATCH`, parameter-map
 matching, `RETURN *`, `SET`, `DELETE`, `MERGE`, `WITH`, `UNION`,
-`RETURN DISTINCT`, and `ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after `CREATE`.
+exponentiation (`^`), concatenation (`||`), and computed projections or
+`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after `CREATE`.
 
 ## Planning and execution
 
@@ -100,6 +104,11 @@ The planner is deliberately small and layered:
 - `database.rs` executes reads directly. For mutations, it materializes all
   input rows before the first insert and applies the ordered `CREATE` operations
   once per row.
+
+Read-only `RETURN DISTINCT` is a deliberate hybrid boundary: SQLite produces
+and orders candidate rows, Crabnet decodes them to `CypherValue` and performs
+semantic row deduplication in Rust, then applies pagination. With `DISTINCT`,
+`ORDER BY` is restricted to projected expressions or their aliases.
 
 `crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
 slots and graph operators without turning incidental SQLite aliases or SQL
@@ -156,3 +165,7 @@ Run the full acceptance suite with:
 ```console
 cargo test --all-targets
 ```
+
+The milestone 3 expression contracts have focused coverage in
+`tests/arithmetic_and_distinct.rs` and
+`tests/membership_and_string_predicates.rs`.

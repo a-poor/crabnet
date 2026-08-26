@@ -11,7 +11,7 @@ pub(crate) enum EntityKind {
     Relationship,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ValueExpr {
     Literal(Value),
     Parameter(String),
@@ -86,7 +86,7 @@ pub(crate) enum Direction {
     Undirected,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BinaryOp {
     Or,
     And,
@@ -96,16 +96,25 @@ pub(crate) enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    In,
+    StartsWith,
+    EndsWith,
+    Contains,
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum UnaryOp {
     Plus,
     Minus,
     Not,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Expr {
     Value(ValueExpr),
     Entity(SlotId),
@@ -202,6 +211,7 @@ pub(crate) struct SortItem {
 pub(crate) struct Projection {
     pub(crate) columns: Vec<String>,
     pub(crate) expressions: Vec<Expr>,
+    pub(crate) distinct: bool,
     pub(crate) order_by: Vec<SortItem>,
     pub(crate) offset: Option<ValueExpr>,
     pub(crate) limit: Option<ValueExpr>,

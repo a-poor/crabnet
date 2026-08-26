@@ -77,6 +77,9 @@ pub(crate) struct SqlQuery {
     pub(crate) columns: Vec<String>,
     pub(crate) output_shapes: Vec<OutputShape>,
     bindings: Vec<SqlBinding>,
+    distinct: bool,
+    post_offset: Option<ValueExpr>,
+    post_limit: Option<ValueExpr>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +92,36 @@ impl SqlQuery {
     pub(crate) fn resolve_bindings(&self, parameters: &Parameters) -> Result<Vec<SqlValue>> {
         resolve_bindings(&self.bindings, parameters)
     }
+
+    pub(crate) fn distinct(&self) -> bool {
+        self.distinct
+    }
+
+    pub(crate) fn resolve_post_pagination(
+        &self,
+        parameters: &Parameters,
+    ) -> Result<(usize, Option<usize>)> {
+        let offset = self
+            .post_offset
+            .as_ref()
+            .map(|value| resolve_page(value, parameters))
+            .transpose()?
+            .unwrap_or(0);
+        let limit = self
+            .post_limit
+            .as_ref()
+            .map(|value| resolve_page(value, parameters))
+            .transpose()?;
+        Ok((offset, limit))
+    }
+}
+
+fn resolve_page(value: &ValueExpr, parameters: &Parameters) -> Result<usize> {
+    let SqlValue::Integer(value) = SqlBinding::Page(value.clone()).resolve(parameters)? else {
+        unreachable!("page bindings always resolve to SQLite integers")
+    };
+    usize::try_from(value)
+        .map_err(|_| Error::Semantic("SKIP and LIMIT are too large for this platform".into()))
 }
 
 pub(crate) struct RowSource {
@@ -156,14 +189,16 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
         sql.push_str(&items.join(", "));
     }
 
-    if projection.limit.is_some() || projection.offset.is_some() {
+    if !projection.distinct && (projection.limit.is_some() || projection.offset.is_some()) {
         sql.push_str(" LIMIT ");
         match &projection.limit {
             Some(limit) => sql.push_str(&compiler.push_binding(SqlBinding::Page(limit.clone()))),
             None => sql.push_str("-1"),
         }
     }
-    if let Some(offset) = &projection.offset {
+    if !projection.distinct
+        && let Some(offset) = &projection.offset
+    {
         sql.push_str(" OFFSET ");
         sql.push_str(&compiler.push_binding(SqlBinding::Page(offset.clone())));
     }
@@ -174,6 +209,15 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
         columns: projection.columns.clone(),
         output_shapes,
         bindings: compiler.bindings,
+        distinct: projection.distinct,
+        post_offset: projection
+            .distinct
+            .then(|| projection.offset.clone())
+            .flatten(),
+        post_limit: projection
+            .distinct
+            .then(|| projection.limit.clone())
+            .flatten(),
     })
 }
 
@@ -287,7 +331,7 @@ impl Compiler {
                     }
                 }
                 MatchOperator::Filter(expression) => {
-                    let predicate = self.raw_expression(expression)?;
+                    let predicate = self.predicate_expression(expression)?;
                     self.filters.push(format!("({predicate})"));
                 }
             }
@@ -349,27 +393,42 @@ impl Compiler {
     }
 
     fn output_expression(&mut self, expression: &Expr) -> Result<(String, OutputShape)> {
+        if let Expr::Entity(slot) = expression {
+            let kind = self.entity_kind(*slot)?;
+            return Ok((self.encoded_entity(*slot, kind)?, OutputShape::Entity(kind)));
+        }
+
+        let (value, value_type) = self.scalar_parts(expression)?;
+        Ok((encoded_scalar(&value, &value_type), OutputShape::Json))
+    }
+
+    fn raw_expression(&mut self, expression: &Expr) -> Result<String> {
+        self.scalar_parts(expression).map(|parts| parts.0)
+    }
+
+    fn predicate_expression(&mut self, expression: &Expr) -> Result<String> {
+        let (_, value_type) = self.scalar_parts(expression)?;
+        Ok(boolean_value(&value_type))
+    }
+
+    fn scalar_parts(&mut self, expression: &Expr) -> Result<(String, String)> {
         match expression {
-            Expr::Entity(slot) => {
-                let kind = self.entity_kind(*slot)?;
-                Ok((self.encoded_entity(*slot, kind)?, OutputShape::Entity(kind)))
+            Expr::Entity(_) => Err(Error::Unsupported(
+                "graph entities in scalar expressions".to_owned(),
+            )),
+            Expr::Value(value) => {
+                let scalar = self.push_binding(SqlBinding::Scalar(value.clone()));
+                let json = self.push_binding(SqlBinding::Json(value.clone()));
+                Ok((scalar, format!("json_type(json({json}))")))
             }
             Expr::Property(slot, key) => {
                 let alias = self.alias(*slot)?.to_owned();
-                let path = self.push_binding(SqlBinding::Text(key.clone()));
-                Ok((
-                    format!("COALESCE({alias}.props -> ('$.' || json_quote({path})), 'null')"),
-                    OutputShape::Json,
-                ))
+                Ok(self.property_parts(&alias, key))
             }
-            Expr::ElementId(slot) => Ok((
-                format!("json_quote({}.id)", self.alias(*slot)?),
-                OutputShape::Json,
-            )),
-            Expr::RelationshipType(slot) => Ok((
-                format!("json_quote({}.edge_type)", self.alias(*slot)?),
-                OutputShape::Json,
-            )),
+            Expr::ElementId(slot) => Ok((format!("{}.id", self.alias(*slot)?), "'text'".into())),
+            Expr::RelationshipType(slot) => {
+                Ok((format!("{}.edge_type", self.alias(*slot)?), "'text'".into()))
+            }
             Expr::Labels(slot) => {
                 let alias = self.alias(*slot)?;
                 Ok((
@@ -377,34 +436,7 @@ impl Compiler {
                         "CASE WHEN {alias}.label IS NULL THEN '[]' \
                          ELSE json_array({alias}.label) END"
                     ),
-                    OutputShape::Json,
-                ))
-            }
-            Expr::Value(value) => Ok((
-                self.push_binding(SqlBinding::Json(value.clone())),
-                OutputShape::Json,
-            )),
-            _ => Err(Error::Data(
-                "logical projection contains a non-output expression".into(),
-            )),
-        }
-    }
-
-    fn raw_expression(&mut self, expression: &Expr) -> Result<String> {
-        match expression {
-            Expr::Entity(_) => Err(Error::Unsupported("graph entities in ORDER BY".to_owned())),
-            Expr::Value(value) => Ok(self.push_binding(SqlBinding::Scalar(value.clone()))),
-            Expr::Property(slot, key) => {
-                let alias = self.alias(*slot)?.to_owned();
-                Ok(self.property_parts(&alias, key).0)
-            }
-            Expr::ElementId(slot) => Ok(format!("{}.id", self.alias(*slot)?)),
-            Expr::RelationshipType(slot) => Ok(format!("{}.edge_type", self.alias(*slot)?)),
-            Expr::Labels(slot) => {
-                let alias = self.alias(*slot)?;
-                Ok(format!(
-                    "CASE WHEN {alias}.label IS NULL THEN '[]' \
-                     ELSE json_array({alias}.label) END"
+                    "'array'".into(),
                 ))
             }
             Expr::Binary {
@@ -412,44 +444,187 @@ impl Compiler {
                 operator,
                 right,
             } => {
-                if matches!(operator, BinaryOp::Equal | BinaryOp::NotEqual) {
-                    return self
-                        .typed_comparison(left, right, *operator)?
-                        .ok_or_else(|| Error::Unsupported("complex equality expression".into()));
+                let predicate = match operator {
+                    BinaryOp::Equal | BinaryOp::NotEqual => {
+                        let (left_value, left_type) = self.scalar_parts(left)?;
+                        let (right_value, right_type) = self.scalar_parts(right)?;
+                        typed_sql_comparison(
+                            &left_value,
+                            &left_type,
+                            &right_value,
+                            &right_type,
+                            *operator,
+                        )
+                    }
+                    BinaryOp::Less
+                    | BinaryOp::LessEqual
+                    | BinaryOp::Greater
+                    | BinaryOp::GreaterEqual => {
+                        let (left_value, left_type) = self.scalar_parts(left)?;
+                        let (right_value, right_type) = self.scalar_parts(right)?;
+                        typed_sql_ordering(
+                            &left_value,
+                            &left_type,
+                            &right_value,
+                            &right_type,
+                            *operator,
+                        )
+                    }
+                    BinaryOp::In => self.membership_expression(left, right)?,
+                    BinaryOp::StartsWith | BinaryOp::EndsWith | BinaryOp::Contains => {
+                        self.string_predicate(left, right, *operator)?
+                    }
+                    BinaryOp::Or | BinaryOp::And => {
+                        let (_, left_type) = self.scalar_parts(left)?;
+                        let (_, right_type) = self.scalar_parts(right)?;
+                        let left = boolean_value(&left_type);
+                        let right = boolean_value(&right_type);
+                        let operator = match operator {
+                            BinaryOp::Or => "OR",
+                            BinaryOp::And => "AND",
+                            _ => unreachable!(),
+                        };
+                        format!("({left} {operator} {right})")
+                    }
+                    BinaryOp::Add
+                    | BinaryOp::Subtract
+                    | BinaryOp::Multiply
+                    | BinaryOp::Divide
+                    | BinaryOp::Remainder => {
+                        return self.numeric_binary(left, right, *operator);
+                    }
+                };
+                Ok(boolean_parts(predicate))
+            }
+            Expr::Unary { operator, operand } => match operator {
+                UnaryOp::Not => {
+                    let (_, operand_type) = self.scalar_parts(operand)?;
+                    let operand = boolean_value(&operand_type);
+                    Ok(boolean_parts(format!("(NOT ({operand}))")))
                 }
-                let left = self.raw_expression(left)?;
-                let right = self.raw_expression(right)?;
-                let operator = match operator {
-                    BinaryOp::Or => "OR",
-                    BinaryOp::And => "AND",
-                    BinaryOp::Less => "<",
-                    BinaryOp::LessEqual => "<=",
-                    BinaryOp::Greater => ">",
-                    BinaryOp::GreaterEqual => ">=",
-                    BinaryOp::Equal | BinaryOp::NotEqual => unreachable!(),
-                };
-                Ok(format!("({left} {operator} {right})"))
-            }
-            Expr::Unary { operator, operand } => {
-                let operand = self.raw_expression(operand)?;
-                let operator = match operator {
-                    UnaryOp::Plus => "+",
-                    UnaryOp::Minus => "-",
-                    UnaryOp::Not => "NOT ",
-                };
-                Ok(format!("({operator}{operand})"))
-            }
+                UnaryOp::Plus | UnaryOp::Minus => self.numeric_unary(operand, *operator),
+            },
             Expr::IsNull {
                 expression,
                 negated,
             } => {
                 let expression = self.raw_expression(expression)?;
-                Ok(format!(
-                    "({expression} IS {}NULL)",
+                Ok(boolean_parts(format!(
+                    "(({expression}) IS {}NULL)",
                     if *negated { "NOT " } else { "" }
-                ))
+                )))
             }
         }
+    }
+
+    fn numeric_binary(
+        &mut self,
+        left: &Expr,
+        right: &Expr,
+        operator: BinaryOp,
+    ) -> Result<(String, String)> {
+        let (left_value, left_type) = self.scalar_parts(left)?;
+        let (right_value, right_type) = self.scalar_parts(right)?;
+        let compatible = format!(
+            "({left_type}) IN ('integer', 'real') AND \
+             ({right_type}) IN ('integer', 'real')"
+        );
+        let operation = if operator == BinaryOp::Remainder {
+            format!(
+                "CASE WHEN ({left_type}) = 'integer' AND ({right_type}) = 'integer' \
+                 THEN (({left_value}) % ({right_value})) \
+                 ELSE (({left_value}) - \
+                       CAST(({left_value}) / ({right_value}) AS INTEGER) * ({right_value})) END"
+            )
+        } else {
+            let symbol = match operator {
+                BinaryOp::Add => "+",
+                BinaryOp::Subtract => "-",
+                BinaryOp::Multiply => "*",
+                BinaryOp::Divide => "/",
+                BinaryOp::Remainder => unreachable!(),
+                _ => unreachable!("only arithmetic operators reach numeric_binary"),
+            };
+            format!("(({left_value}) {symbol} ({right_value}))")
+        };
+        let value = format!(
+            "(CASE \
+             WHEN ({left_value}) IS NULL OR ({right_value}) IS NULL THEN NULL \
+             WHEN {compatible} THEN ({operation}) \
+             ELSE NULL END)"
+        );
+        Ok(numeric_parts(value))
+    }
+
+    fn numeric_unary(&mut self, operand: &Expr, operator: UnaryOp) -> Result<(String, String)> {
+        let (operand_value, operand_type) = self.scalar_parts(operand)?;
+        let symbol = match operator {
+            UnaryOp::Plus => "+",
+            UnaryOp::Minus => "-",
+            UnaryOp::Not => unreachable!("NOT is handled as a boolean operator"),
+        };
+        let value = format!(
+            "(CASE \
+             WHEN ({operand_value}) IS NULL THEN NULL \
+             WHEN ({operand_type}) IN ('integer', 'real') THEN {symbol}({operand_value}) \
+             ELSE NULL END)"
+        );
+        Ok(numeric_parts(value))
+    }
+
+    fn membership_expression(&mut self, left: &Expr, right: &Expr) -> Result<String> {
+        let (left_value, left_type) = self.scalar_parts(left)?;
+        let (right_value, right_type) = self.scalar_parts(right)?;
+        let list = format!("CASE WHEN ({right_type}) = 'array' THEN ({right_value}) ELSE '[]' END");
+        let member_value = "member.value";
+        let member_type = "member.type";
+        let equal = typed_sql_comparison(
+            &left_value,
+            &left_type,
+            member_value,
+            member_type,
+            BinaryOp::Equal,
+        );
+
+        Ok(format!(
+            "(CASE \
+             WHEN ({right_type}) IS NULL OR ({right_type}) = 'null' THEN NULL \
+             WHEN ({right_type}) <> 'array' THEN NULL \
+             WHEN EXISTS (SELECT 1 FROM json_each({list}) AS member WHERE ({equal})) THEN 1 \
+             WHEN NOT EXISTS (SELECT 1 FROM json_each({list})) THEN 0 \
+             WHEN ({left_type}) IS NULL OR ({left_type}) = 'null' THEN NULL \
+             WHEN EXISTS (SELECT 1 FROM json_each({list}) AS member \
+                          WHERE member.type = 'null') THEN NULL \
+             ELSE 0 END)"
+        ))
+    }
+
+    fn string_predicate(
+        &mut self,
+        left: &Expr,
+        right: &Expr,
+        operator: BinaryOp,
+    ) -> Result<String> {
+        let (left_value, left_type) = self.scalar_parts(left)?;
+        let (right_value, right_type) = self.scalar_parts(right)?;
+        let predicate = match operator {
+            BinaryOp::StartsWith => format!("instr(({left_value}), ({right_value})) = 1"),
+            BinaryOp::EndsWith => format!(
+                "length(({left_value})) >= length(({right_value})) AND \
+                 substr(({left_value}), length(({left_value})) - length(({right_value})) + 1) \
+                 = (({right_value}) COLLATE BINARY)"
+            ),
+            BinaryOp::Contains => format!("instr(({left_value}), ({right_value})) > 0"),
+            _ => unreachable!("only string predicates reach string_predicate"),
+        };
+
+        Ok(format!(
+            "(CASE \
+             WHEN ({left_type}) IS NULL OR ({left_type}) = 'null' \
+               OR ({right_type}) IS NULL OR ({right_type}) = 'null' THEN NULL \
+             WHEN ({left_type}) <> 'text' OR ({right_type}) <> 'text' THEN NULL \
+             ELSE ({predicate}) END)"
+        ))
     }
 
     fn property_parts(&mut self, alias: &str, key: &str) -> (String, String) {
@@ -459,64 +634,6 @@ impl Compiler {
             format!("json_extract({alias}.props, {json_path})"),
             format!("json_type({alias}.props, {json_path})"),
         )
-    }
-
-    fn typed_comparison(
-        &mut self,
-        left: &Expr,
-        right: &Expr,
-        operator: BinaryOp,
-    ) -> Result<Option<String>> {
-        if let Expr::Property(slot, key) = left {
-            let alias = self.alias(*slot)?.to_owned();
-            let (property, property_type) = self.property_parts(&alias, key);
-            if let Expr::Value(expected) = right {
-                return Ok(Some(self.typed_value_comparison(
-                    property,
-                    property_type,
-                    expected.clone(),
-                    operator,
-                )));
-            }
-            if let Expr::Property(right_slot, right_key) = right {
-                let right_alias = self.alias(*right_slot)?.to_owned();
-                let (right_value, right_type) = self.property_parts(&right_alias, right_key);
-                return Ok(Some(typed_sql_comparison(
-                    &property,
-                    &property_type,
-                    &right_value,
-                    &right_type,
-                    operator,
-                )));
-            }
-        }
-
-        if let (Expr::Value(expected), Expr::Property(slot, key)) = (left, right) {
-            let alias = self.alias(*slot)?.to_owned();
-            let (property, property_type) = self.property_parts(&alias, key);
-            return Ok(Some(self.typed_value_comparison(
-                property,
-                property_type,
-                expected.clone(),
-                operator,
-            )));
-        }
-
-        if let (Expr::Value(left), Expr::Value(right)) = (left, right) {
-            let left_scalar = self.push_binding(SqlBinding::Scalar(left.clone()));
-            let left_json = self.push_binding(SqlBinding::Json(left.clone()));
-            let right_scalar = self.push_binding(SqlBinding::Scalar(right.clone()));
-            let right_json = self.push_binding(SqlBinding::Json(right.clone()));
-            return Ok(Some(typed_sql_comparison(
-                &left_scalar,
-                &format!("json_type(json({left_json}))"),
-                &right_scalar,
-                &format!("json_type(json({right_json}))"),
-                operator,
-            )));
-        }
-
-        Ok(None)
     }
 
     fn typed_value_comparison(
@@ -544,6 +661,40 @@ impl Compiler {
     }
 }
 
+fn encoded_scalar(value: &str, value_type: &str) -> String {
+    format!(
+        "(CASE \
+         WHEN ({value}) IS NULL OR ({value_type}) IS NULL OR ({value_type}) = 'null' THEN 'null' \
+         WHEN ({value_type}) = 'true' THEN 'true' \
+         WHEN ({value_type}) = 'false' THEN 'false' \
+         WHEN ({value_type}) = 'text' THEN json_quote(({value})) \
+         ELSE json(({value})) END)"
+    )
+}
+
+fn boolean_parts(value: String) -> (String, String) {
+    let value_type = format!(
+        "(CASE WHEN ({value}) IS NULL THEN 'null' \
+         WHEN ({value}) THEN 'true' ELSE 'false' END)"
+    );
+    (value, value_type)
+}
+
+fn boolean_value(value_type: &str) -> String {
+    format!(
+        "(CASE WHEN ({value_type}) = 'true' THEN 1 \
+         WHEN ({value_type}) = 'false' THEN 0 ELSE NULL END)"
+    )
+}
+
+fn numeric_parts(value: String) -> (String, String) {
+    let value_type = format!(
+        "(CASE WHEN ({value}) IS NULL THEN 'null' \
+         WHEN typeof(({value})) = 'integer' THEN 'integer' ELSE 'real' END)"
+    );
+    (value, value_type)
+}
+
 fn typed_sql_comparison(
     left: &str,
     left_type: &str,
@@ -563,6 +714,33 @@ fn typed_sql_comparison(
         _ => unreachable!("typed comparisons are only generated for equality operators"),
     };
     format!("(CASE WHEN ({left}) IS NULL OR ({right}) IS NULL THEN NULL ELSE {comparison} END)")
+}
+
+fn typed_sql_ordering(
+    left: &str,
+    left_type: &str,
+    right: &str,
+    right_type: &str,
+    operator: BinaryOp,
+) -> String {
+    let compatible_types = format!(
+        "((({left_type}) IN ('integer', 'real') AND ({right_type}) IN ('integer', 'real')) \
+         OR (({left_type}) = 'text' AND ({right_type}) = 'text') \
+         OR (({left_type}) IN ('true', 'false') AND ({right_type}) IN ('true', 'false')))"
+    );
+    let operator = match operator {
+        BinaryOp::Less => "<",
+        BinaryOp::LessEqual => "<=",
+        BinaryOp::Greater => ">",
+        BinaryOp::GreaterEqual => ">=",
+        _ => unreachable!("typed ordering only handles ordering operators"),
+    };
+    format!(
+        "(CASE \
+         WHEN ({left}) IS NULL OR ({right}) IS NULL THEN NULL \
+         WHEN {compatible_types} THEN (({left}) {operator} ({right})) \
+         ELSE NULL END)"
+    )
 }
 
 #[cfg(test)]
@@ -619,5 +797,38 @@ mod tests {
         );
         assert!(plan.sql.contains("'from', r1.from_node"));
         assert!(plan.sql.contains("'to', r1.to_node"));
+    }
+
+    #[test]
+    fn distinct_is_a_post_decode_stage_and_defers_pagination() {
+        let query = lower::lower(
+            "MATCH (node) RETURN DISTINCT node.value AS value \
+             ORDER BY value SKIP 2 LIMIT 3",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.distinct());
+        assert!(!plan.sql.contains("SELECT DISTINCT"));
+        assert!(!plan.sql.contains(" LIMIT "));
+        assert!(!plan.sql.contains(" OFFSET "));
+    }
+
+    #[test]
+    fn membership_and_string_predicates_use_typed_json_operations() {
+        let query = lower::lower(
+            "MATCH (node) \
+             WHERE node.name STARTS WITH $prefix AND node.value IN $allowed \
+             RETURN node.name",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.sql.contains("instr("));
+        assert!(plan.sql.contains("json_each("));
+        assert!(plan.sql.contains("json_type("));
+        assert!(!plan.sql.contains(" LIKE "));
+        assert!(!plan.sql.contains("prefix"));
+        assert!(!plan.sql.contains("allowed"));
     }
 }

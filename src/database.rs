@@ -80,10 +80,11 @@ impl Database {
         match planner::compile(cypher)? {
             Plan::Read(plan) => {
                 let bindings = plan.resolve_bindings(parameters)?;
+                let post_pagination = plan.resolve_post_pagination(parameters)?;
                 let mut statement = self.connection.prepare(&plan.sql)?;
                 debug_assert!(statement.readonly());
                 debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
-                let rows = statement
+                let mut rows = statement
                     .query_map(params_from_iter(bindings.iter()), |row| {
                         (0..plan.output_shapes.len())
                             .map(|index| row.get::<_, String>(index))
@@ -99,6 +100,15 @@ impl Database {
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
+                if plan.distinct() {
+                    rows = distinct_rows(rows);
+                    let (offset, limit) = post_pagination;
+                    rows = rows
+                        .into_iter()
+                        .skip(offset)
+                        .take(limit.unwrap_or(usize::MAX))
+                        .collect();
+                }
                 Ok(QueryResult {
                     columns: plan.columns,
                     rows,
@@ -207,6 +217,55 @@ impl Database {
             rows,
             summary,
         })
+    }
+}
+
+fn distinct_rows(rows: Vec<Vec<CypherValue>>) -> Vec<Vec<CypherValue>> {
+    let mut distinct: Vec<Vec<CypherValue>> = Vec::with_capacity(rows.len());
+    for row in rows {
+        if !distinct
+            .iter()
+            .any(|existing| cypher_rows_equivalent(existing, &row))
+        {
+            distinct.push(row);
+        }
+    }
+    distinct
+}
+
+fn cypher_rows_equivalent(left: &[CypherValue], right: &[CypherValue]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| cypher_values_equivalent(left, right))
+}
+
+fn cypher_values_equivalent(left: &CypherValue, right: &CypherValue) -> bool {
+    match (left, right) {
+        (CypherValue::Null, CypherValue::Null) => true,
+        (CypherValue::Boolean(left), CypherValue::Boolean(right)) => left == right,
+        (CypherValue::Integer(left), CypherValue::Integer(right)) => left == right,
+        (CypherValue::Float(left), CypherValue::Float(right)) => left == right,
+        (CypherValue::Integer(integer), CypherValue::Float(float))
+        | (CypherValue::Float(float), CypherValue::Integer(integer)) => {
+            float.is_finite() && float.fract() == 0.0 && (*float as i128) == i128::from(*integer)
+        }
+        (CypherValue::String(left), CypherValue::String(right)) => left == right,
+        (CypherValue::List(left), CypherValue::List(right)) => cypher_rows_equivalent(left, right),
+        (CypherValue::Map(left), CypherValue::Map(right)) => {
+            left.len() == right.len()
+                && left.iter().all(|(key, left)| {
+                    right
+                        .get(key)
+                        .is_some_and(|right| cypher_values_equivalent(left, right))
+                })
+        }
+        (CypherValue::Node(left), CypherValue::Node(right)) => left.element_id == right.element_id,
+        (CypherValue::Relationship(left), CypherValue::Relationship(right)) => {
+            left.element_id == right.element_id
+        }
+        _ => false,
     }
 }
 
@@ -496,6 +555,18 @@ fn validate_schema(connection: &Connection) -> Result<()> {
 mod tests {
     use super::*;
     use rusqlite::OptionalExtension;
+
+    #[test]
+    fn distinct_numeric_equivalence_does_not_round_large_integers_through_f64() {
+        assert!(cypher_values_equivalent(
+            &CypherValue::Integer(1),
+            &CypherValue::Float(1.0)
+        ));
+        assert!(!cypher_values_equivalent(
+            &CypherValue::Integer(9_007_199_254_740_993),
+            &CypherValue::Float(9_007_199_254_740_992.0)
+        ));
+    }
 
     #[test]
     fn schema_enables_foreign_keys_and_checks_both_endpoints() {

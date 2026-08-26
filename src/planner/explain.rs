@@ -150,6 +150,7 @@ fn render_mutation(mutation: &Mutation) -> String {
 }
 
 fn render_projection(renderer: &mut Renderer, projection: &Projection) {
+    renderer.line(2, format!("distinct: {}", projection.distinct));
     renderer.line(2, "columns:");
     for (column, expression) in projection.columns.iter().zip(&projection.expressions) {
         renderer.line(
@@ -323,6 +324,15 @@ fn binary_op_name(operator: BinaryOp) -> &'static str {
         BinaryOp::LessEqual => "less-than-or-equal",
         BinaryOp::Greater => "greater-than",
         BinaryOp::GreaterEqual => "greater-than-or-equal",
+        BinaryOp::In => "in",
+        BinaryOp::StartsWith => "starts-with",
+        BinaryOp::EndsWith => "ends-with",
+        BinaryOp::Contains => "contains",
+        BinaryOp::Add => "add",
+        BinaryOp::Subtract => "subtract",
+        BinaryOp::Multiply => "multiply",
+        BinaryOp::Divide => "divide",
+        BinaryOp::Remainder => "remainder",
     }
 }
 
@@ -368,6 +378,7 @@ mod tests {
   mutations:
     none
   projection:
+    distinct: false
     columns:
       "friend" = property(%2, "name")
       "kind" = relationship-type(%1)
@@ -405,6 +416,7 @@ mod tests {
     create-node slot=%1 label="Person" properties=map{"name": parameter("friend")}
     create-relationship slot=%2 type="KNOWS" from=%0 to=%1 properties=map{"metadata": map{"source": literal("seed")}, "since": literal(2024)}
   projection:
+    distinct: false
     columns:
       "relationship_id" = element-id(%2)
       "friend" = property(%1, "name")
@@ -421,5 +433,16 @@ mod tests {
         let explanation = explain_logical("MATCH (node) RETURN node AS result").unwrap();
 
         assert!(explanation.contains("\"result\" = entity(%0)"));
+    }
+
+    #[test]
+    fn explains_distinct_and_computed_projections() {
+        let explanation = explain_logical(
+            "MATCH (node) RETURN DISTINCT node.score + 1 AS adjusted ORDER BY adjusted",
+        )
+        .unwrap();
+
+        assert!(explanation.contains("distinct: true"));
+        assert!(explanation.contains("\"adjusted\" = add(property(%0, \"score\"), literal(1))"));
     }
 }

@@ -9,14 +9,29 @@ conformance or a roadmap for unsupported features.
 Query results use bag semantics. Matching the same bindings through multiple
 input rows produces multiple result rows; Crabnet does not implicitly
 deduplicate them. Comma-separated, disconnected patterns therefore produce a
-Cartesian product. `RETURN DISTINCT` is not supported.
+Cartesian product unless a read query explicitly uses `RETURN DISTINCT`.
+
+Read-only `RETURN DISTINCT` deduplicates the complete projected row after its
+cells have been decoded to `CypherValue`. This is a Rust execution stage, not
+SQLite text or JSON equality. Its semantic equivalence rules are:
+
+- all null cells are one equivalence class, including missing and explicit-null
+  properties after evaluation;
+- integers and exactly equivalent integral floats share an equivalence class,
+  while booleans remain distinct from numeric `0` and `1`;
+- list and map comparison applies these rules recursively; and
+- nodes and relationships compare by their respective opaque element IDs.
+
+For a distinct query, `SKIP`/`OFFSET` and `LIMIT` are applied after semantic
+deduplication. `ORDER BY` may refer only to a projected expression or its
+alias; ordering by an unprojected expression is a semantic error.
 
 Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
 relative order of equal sort keys is unspecified. `SKIP`/`OFFSET` and `LIMIT`
 are applied after ordering when an order is present. Projection modifiers,
 including ordering and pagination, are not currently supported after
-`CREATE`.
+`CREATE`; neither is `RETURN DISTINCT` after `CREATE`.
 
 ## Values and properties
 
@@ -69,8 +84,10 @@ Supported predicates use three-valued logic: true, false, or null. A `WHERE`
 clause retains only rows for which its predicate is true. False and null both
 remove the row. Comparisons involving null, including `null = null`, evaluate
 to null. `IS NULL` and `IS NOT NULL` are the supported way to test for null.
-Supported `AND`, `OR`, and `NOT` expressions propagate null according to
-SQLite's three-valued boolean rules.
+Boolean contexts accept only JSON booleans: null, missing, numeric, string,
+list, and map values become null rather than inheriting SQLite truthiness.
+Supported `AND`, `OR`, and `NOT` expressions then propagate those values with
+three-valued boolean logic.
 
 Equality uses JSON type information to avoid SQLite's broad coercions:
 
@@ -84,8 +101,44 @@ Equality uses JSON type information to avoid SQLite's broad coercions:
 For the current implementation, same-kind list and map equality ultimately
 uses their stored JSON representation. Full Cypher structural equality rules,
 including whether map key order must be ignored in every storage situation,
-remain unresolved. The semantics of ordering comparisons across unlike JSON
-types are also unresolved and should not be relied upon.
+remain unresolved.
+
+Ordering comparisons are deliberately narrower than SQLite's storage-class
+ordering. Integers and floats are mutually comparable as numbers; strings are
+comparable only with strings; and booleans are comparable only with booleans.
+A null or missing operand, or any incompatible or unsupported pair of value
+kinds, produces null. Crabnet does not coerce text to numbers or booleans to
+numbers for either equality or ordering.
+
+## Membership and string predicates
+
+`IN` uses the same typed equality rules for each list member. It does not
+coerce element kinds or expand duplicate members into duplicate result rows.
+An empty right-hand list produces false even when the left side is null. For a
+nonempty list, a matching member produces true; otherwise a null/missing left
+operand or a null member makes the result null, and a definite miss produces
+false. A null, missing, or non-list right-hand operand produces null rather
+than being treated as an empty or singleton list.
+
+`STARTS WITH`, `CONTAINS`, and `ENDS WITH` require two strings and return a
+boolean. They are case-sensitive, treat `%` and `_` literally, and support
+empty and Unicode strings. If either operand is null, missing, or not a string,
+the result is null; there is no string coercion. These predicates and `IN` may
+appear in `WHERE` or as computed read projections, where their result is a
+typed boolean or null cell.
+
+## Numeric arithmetic and computed projections
+
+Read predicates and projections support binary `+`, `-`, `*`, `/`, and `%`,
+plus unary `+` and `-`, with the parser's normal precedence and left
+associativity. Integer-only operations retain integer results, including
+truncating integer division, while an operation with a float operand produces
+a float. Null, missing, boolean, string, list, or map operands produce null;
+Crabnet never dynamically coerces them to numbers.
+
+Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
+rejections. Computed scalar projections are currently read-only: the
+post-`CREATE` result stage does not yet execute them.
 
 ## Labels and relationship types
 

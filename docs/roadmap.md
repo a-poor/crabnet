@@ -25,7 +25,8 @@ Crabnet already has more than a greenfield skeleton:
 - fixed-length node/relationship patterns compile to parameterized SQLite;
 - the physical schema uses `nodes` and `edges`, while Cypher-facing code uses
   the word *relationship*;
-- scalar projections, typed JSON properties, predicates, ordering, pagination,
+- computed scalar projections, typed JSON properties, comparisons, membership,
+  string predicates, arithmetic, semantic distinctness, ordering, pagination,
   and named parameters cover a useful read subset;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically; and
@@ -107,17 +108,27 @@ returns round-trip without confusing graph entities with ordinary maps. Path
 values remain deliberately deferred to the traversal and hybrid-execution
 milestones.
 
-### 3. Finish the fixed-length read core
+### 3. Finish the fixed-length read core — complete
 
-- Add `IN`, `STARTS WITH`, `CONTAINS`, `ENDS WITH`, arithmetic needed by common
-  predicates/projections, and `RETURN DISTINCT`.
-- Finish projection and expression error matrices, including property-to-
-  property comparisons and function arity/kind checking.
-- Keep relationship uniqueness per fixed pattern and preserve parallel-edge and
-  path multiplicity.
+- Read predicates now include typed `IN`, `STARTS WITH`, `CONTAINS`, and
+  `ENDS WITH`, with explicit three-valued behavior and no dynamic coercion.
+- Read projections and predicates support numeric `+`, `-`, `*`, `/`, `%`, and
+  unary `+`/`-`; exponentiation (`^`) and concatenation (`||`) remain explicit
+  planning errors.
+- Ordering comparisons are type-aware: integers and floats interoperate,
+  strings compare with strings, booleans compare with booleans, and null or
+  incompatible operands produce null.
+- Read-only `RETURN DISTINCT` performs semantic, post-decode row deduplication
+  in Rust. Pagination follows deduplication, and a distinct query may order only
+  by projected expressions or aliases.
+- Relationship uniqueness remains per fixed pattern, while parallel-edge and
+  path multiplicity remain intact for non-distinct queries.
 
-Gate: the fixed-pattern subset has a broad semantic corpus and no known silent
-coercion or multiplicity gaps.
+Gate complete: the fixed-pattern subset has a broad semantic corpus in
+`tests/arithmetic_and_distinct.rs` and
+`tests/membership_and_string_predicates.rs`, alongside the existing read and
+entity suites, with dynamic invalid operands covered as null rather than
+silently coerced.
 
 ### 4. Model clauses and scopes as a pipeline
 
@@ -196,11 +207,10 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the typed-value and whole-entity gate from milestone 2 complete, the next
-active work is milestone 3: finish the fixed-length read core and its expression
-semantics. Small contract gaps may still be tightened when a focused test
-exposes them. Path values remain planned for the traversal and hybrid-executor
-milestones rather than being implied by the completed entity-value work. The
-day-to-day test loop is documented in [testing.md](testing.md);
-planned-but-inactive cases stay in the coverage backlog instead of
-accumulating as ignored tests.
+With the typed-value gate from milestone 2 and the fixed-length read gate from
+milestone 3 complete, the next active work is milestone 4: model clauses and
+scopes as a pipeline, beginning with `WITH`. Small contract gaps may still be
+tightened when a focused test exposes them. Path values remain planned for the
+traversal and hybrid-executor milestones. The day-to-day test loop is
+documented in [testing.md](testing.md); planned-but-inactive cases stay in the
+coverage backlog instead of accumulating as ignored tests.

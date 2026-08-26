@@ -518,12 +518,11 @@ impl<'source> Lowerer<'source> {
                 "projection modifiers after CREATE",
             ));
         }
-        if !after_write && let Some(quantifier) = &projection.quantifier {
-            match quantifier.kind {
-                SetQuantifier::All => {}
-                _ => return Err(unsupported(quantifier.span, "RETURN DISTINCT")),
-            }
-        }
+        let distinct = match projection.quantifier.as_ref().map(|value| value.kind) {
+            None | Some(SetQuantifier::All) => false,
+            Some(SetQuantifier::Distinct) => true,
+            Some(_) => return Err(unsupported(projection.span, "RETURN quantifier")),
+        };
 
         let mut columns = Vec::with_capacity(projection.items.len());
         let mut expressions = Vec::with_capacity(projection.items.len());
@@ -533,6 +532,17 @@ impl<'source> Lowerer<'source> {
                 return Err(unsupported(item.span, "RETURN *"));
             };
             let lowered = self.output_expression(expression)?;
+            if after_write
+                && matches!(
+                    lowered,
+                    Expr::Binary { .. } | Expr::Unary { .. } | Expr::IsNull { .. }
+                )
+            {
+                return Err(unsupported(
+                    expression.span,
+                    "computed projection after CREATE",
+                ));
+            }
             columns.push(column_name(self.source, expression, alias.as_ref()));
             expressions.push(lowered.clone());
             if let Some(alias) = alias {
@@ -560,6 +570,12 @@ impl<'source> Lowerer<'source> {
                 } else {
                     self.scalar_expression(&item.expression)?
                 };
+                if distinct && !expressions.contains(&expression) {
+                    return Err(semantic(
+                        item.expression.span,
+                        "ORDER BY expressions must be projected when RETURN DISTINCT is used",
+                    ));
+                }
                 let direction = match item.direction.as_ref().map(|value| value.kind) {
                     None | Some(AstSortDirection::Ascending) => SortDirection::Ascending,
                     Some(AstSortDirection::Descending) => SortDirection::Descending,
@@ -587,6 +603,7 @@ impl<'source> Lowerer<'source> {
         Ok(Projection {
             columns,
             expressions,
+            distinct,
             order_by,
             offset: offset_expression,
             limit,
@@ -605,16 +622,22 @@ impl<'source> Lowerer<'source> {
             ExprKind::Variable(_) => Ok(Expr::Entity(self.resolve_variable(expression)?)),
             ExprKind::Function(function) => self.function_expression(function, expression.span),
             ExprKind::Parenthesized(inner) => self.output_expression(inner),
-            _ => input_value(expression).map(Expr::Value),
+            _ => self.scalar_expression(expression),
         }
     }
 
     fn scalar_expression(&self, expression: &AstExpr) -> Result<Expr> {
-        // Keep constant unary/parenthesized expressions as one ValueExpr. The
-        // SQL backend needs that shape to apply JSON-aware equality rules to
-        // predicates such as `node.value = -1`.
-        if let Ok(value) = input_value(expression) {
-            return Ok(Expr::Value(value));
+        // The positive spelling of i64::MIN does not fit Crabnet's integer
+        // domain, so preserve a directly negated integer literal as one value.
+        // Other unary expressions stay in the scalar IR and receive the same
+        // runtime type gates as property and parameter operands.
+        if let ExprKind::Unary { operator, operand } = &expression.kind
+            && operator.kind == AstUnaryOperator::Minus
+            && matches!(operand.kind, ExprKind::Literal(_))
+            && let ExprKind::Literal(literal) = &operand.kind
+            && matches!(literal.kind, LiteralKind::Integer(_))
+        {
+            return input_value(expression).map(Expr::Value);
         }
         match &expression.kind {
             ExprKind::Literal(_)
@@ -642,6 +665,15 @@ impl<'source> Lowerer<'source> {
                     BinaryOperator::LessEqual => BinaryOp::LessEqual,
                     BinaryOperator::Greater => BinaryOp::Greater,
                     BinaryOperator::GreaterEqual => BinaryOp::GreaterEqual,
+                    BinaryOperator::In => BinaryOp::In,
+                    BinaryOperator::StartsWith => BinaryOp::StartsWith,
+                    BinaryOperator::EndsWith => BinaryOp::EndsWith,
+                    BinaryOperator::Contains => BinaryOp::Contains,
+                    BinaryOperator::Add => BinaryOp::Add,
+                    BinaryOperator::Subtract => BinaryOp::Subtract,
+                    BinaryOperator::Multiply => BinaryOp::Multiply,
+                    BinaryOperator::Divide => BinaryOp::Divide,
+                    BinaryOperator::Remainder => BinaryOp::Remainder,
                     _ => return Err(unsupported(operator.span, "binary operator")),
                 };
                 Ok(Expr::Binary {
@@ -686,17 +718,24 @@ impl<'source> Lowerer<'source> {
 
     fn function_expression(&self, function: &FunctionInvocation, span: Span) -> Result<Expr> {
         let name = simple_function_name(function, span)?;
-        let slot = self.single_entity_argument(function, span)?;
         match name.as_str() {
-            "elementid" => Ok(Expr::ElementId(slot)),
-            "type" => match self.kind(slot) {
-                EntityKind::Relationship => Ok(Expr::RelationshipType(slot)),
-                EntityKind::Node => Err(semantic(span, "type() requires a relationship")),
-            },
-            "labels" => match self.kind(slot) {
-                EntityKind::Node => Ok(Expr::Labels(slot)),
-                EntityKind::Relationship => Err(semantic(span, "labels() requires a node")),
-            },
+            "elementid" => Ok(Expr::ElementId(
+                self.single_entity_argument(function, span)?,
+            )),
+            "type" => {
+                let slot = self.single_entity_argument(function, span)?;
+                match self.kind(slot) {
+                    EntityKind::Relationship => Ok(Expr::RelationshipType(slot)),
+                    EntityKind::Node => Err(semantic(span, "type() requires a relationship")),
+                }
+            }
+            "labels" => {
+                let slot = self.single_entity_argument(function, span)?;
+                match self.kind(slot) {
+                    EntityKind::Node => Ok(Expr::Labels(slot)),
+                    EntityKind::Relationship => Err(semantic(span, "labels() requires a node")),
+                }
+            }
             _ => Err(unsupported(span, format!("function `{name}`"))),
         }
     }

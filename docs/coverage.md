@@ -42,19 +42,23 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | --- | --- | --- |
 | Literals and named parameters | Covered | Null, bool, signed integer, float/numeric comparison, string, list, and map values; missing read/write parameters are structured errors |
 | Property access | Covered | Preserves JSON value kinds, returns null for missing properties, and binds unusual property names safely |
-| `=`, `<>`, `<`, `<=`, `>`, `>=` | Partial | Every operator has property-to-value coverage, and property-to-property equality has numeric, bool/number, list/text, and structured cases; property-to-property ordering and broader null boundaries still need tests |
-| `AND`, `OR`, `NOT` and parentheses | Covered | Three-valued predicate behavior in `boolean_predicates_preserve_three_valued_logic` |
+| `=`, `<>`, `<`, `<=`, `>`, `>=` | Covered | Equality is JSON-kind aware; ordering permits number/number, string/string, and boolean/boolean only. Null, missing, and incompatible ordering operands produce null; property-to-property cases are covered in `read_semantics.rs` and `arithmetic_and_distinct.rs` |
+| Boolean contexts, `AND`, `OR`, `NOT`, and parentheses | Covered | Only JSON booleans enter boolean contexts; other dynamic kinds become null instead of using SQLite truthiness. Three-valued behavior and the type gate are covered in `read_semantics.rs` |
 | `IS NULL`, `IS NOT NULL` | Covered | Missing and explicit JSON null both project as null; `= null` does not match |
-| Unary `+` and `-` | Partial | Signed constants and i64 bounds are covered; property operands and invalid operand types need direct tests |
+| Numeric `+`, `-`, `*`, `/`, `%`, and unary `+`/`-` | Covered | Computed read predicates/projections preserve integer/float results and precedence; null, missing, and non-numeric dynamic operands produce null without coercion in `arithmetic_and_distinct.rs` |
+| Exponentiation (`^`) and concatenation (`\|\|`) | Rejected | Both parser operators fail with a structured planning error rather than being approximated |
+| `IN` | Covered | Typed scalar and structured membership, list parameters, empty lists, null members, and non-list RHS behavior are covered in `membership_and_string_predicates.rs` |
+| `STARTS WITH`, `CONTAINS`, `ENDS WITH` | Covered | Case-sensitive, literal string behavior plus empty, Unicode, parameter, null, and wrong-kind operands are covered in `membership_and_string_predicates.rs` |
 | Aliases and column names | Covered | Aliased projections and source-text fallback names are exercised |
 | `ORDER BY`, `SKIP`/`OFFSET`, `LIMIT` | Covered | Ascending/descending and alias ordering, both offset spellings, offset without limit, zero boundaries, named pagination parameters, and validation are covered |
 | `RETURN ALL` | Covered | `offset_without_limit_and_return_all_are_supported` locks down its accepted projection behavior |
+| Computed read projections | Covered | Supported comparison, boolean, membership, string-predicate, and arithmetic expressions return typed `CypherValue` cells |
 | `elementId()`, `labels()`, `type()` | Covered | Read and post-create results plus arity, argument, unknown-variable, and wrong-kind diagnostics are covered |
 | Whole node and relationship values | Covered | `CypherValue::Node` and `CypherValue::Relationship` preserve labels/types, recursive properties, opaque IDs, and stored-direction endpoints for reads, writes, unlabeled nodes, and reverse traversal; see `entity_values.rs` |
 | Ordinary maps versus graph entities | Covered | Entity-shaped map data remains `CypherValue::Map` in `an_entity_shaped_map_remains_a_map` |
 | Whole path values | Rejected | `CypherValue` has no path representation yet, and path bindings remain unsupported |
-| `RETURN DISTINCT`, `RETURN *`, aggregates | Rejected | Projection IR has no distinct or aggregate operators yet |
-| Arithmetic, `IN`, and string predicates | Rejected | Binary support is currently boolean logic and comparison only |
+| Read-only `RETURN DISTINCT` | Covered | Full projected rows are decoded and semantically deduplicated in Rust; recursive numeric equivalence, nulls, booleans, entity identity, pagination order, and projected-only `ORDER BY` are covered in `arithmetic_and_distinct.rs` |
+| `RETURN *` and aggregates | Rejected | Wildcard and aggregate projection operators are not implemented yet |
 | General scalar/list/map functions | Rejected | Only the three graph functions above are recognized |
 
 ## Writes and execution guarantees
@@ -70,7 +74,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `SET`, `REMOVE`, `DELETE`, `DETACH DELETE` | Rejected | `DELETE` is explicitly tested as non-mutating when unsupported |
 | `MERGE` and `ON CREATE` / `ON MATCH` | Rejected | No match-or-create operator exists yet |
 | Undirected or untyped relationship creation | Rejected | Creation requires exactly one type and a concrete direction |
-| Projection modifiers after `CREATE` | Rejected | `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
+| Computed projections and projection modifiers after `CREATE` | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
 | Normalized logical-plan explanation | Covered | `crabnet::explain` has exact contracts for a representative read and matched `CREATE`; it intentionally excludes incidental backend SQL formatting |
 
 ## Prioritized next-test backlog
@@ -79,8 +83,8 @@ Add a case here before or alongside implementation work. Once work starts, turn 
 smallest relevant case into a normal failing test, run it by name while iterating, and
 move the row into the matrix when green.
 
-1. Property-to-property ordering plus null/missing boundaries for both equality and
-   ordering.
+1. Milestone 4 clause-pipeline acceptance tests for `WITH`: alias scope, scope
+   loss, filtering, ordering, skip, and limit between segments.
 2. The parser gap for a labeled node immediately following a relationship-local
    `WHERE` predicate; promote the existing partial coverage after the parser accepts it.
 3. Relationship-property matching across boolean/numeric and nested structured values.
@@ -88,7 +92,7 @@ move the row into the matrix when green.
    per valid relationship sequence rather than collapsing endpoints.
 5. A normalized physical-plan rendering and a few reviewed SQL/binding fixtures once
    that debug surface exists.
-6. Clause-pipeline acceptance tests for `WITH`, then aggregation, `UNWIND`, and
-   `OPTIONAL MATCH`; keep them active only when their milestone begins.
+6. Aggregation, `UNWIND`, and `OPTIONAL MATCH` acceptance tests when milestone 6
+   begins; do not mix their scope rules into milestone 4 prematurely.
 7. Curated openCypher TCK and differential tests after the selected scenarios' setup
    clauses and any required path values can be represented faithfully.
