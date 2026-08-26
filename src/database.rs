@@ -1,10 +1,12 @@
 use std::path::Path;
 
-use rusqlite::{Connection, params, params_from_iter};
+use rusqlite::{Connection, Transaction, TransactionBehavior, params, params_from_iter};
 
 use crate::{
     Parameters, QueryResult, QuerySummary, Result,
-    planner::{self, Plan, ResolvedCreatePlan},
+    planner::{
+        self, EntityKind, Plan, ResolvedExpr, ResolvedMutation, ResolvedMutationPlan, SlotId,
+    },
 };
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
@@ -20,9 +22,9 @@ CREATE TABLE nodes (
         CHECK (json_valid(props) AND json_type(props) = 'object')
 ) STRICT;
 
-CREATE TABLE paths (
+CREATE TABLE edges (
     id TEXT PRIMARY KEY NOT NULL,
-    path_type TEXT NOT NULL CHECK (path_type <> ''),
+    edge_type TEXT NOT NULL CHECK (edge_type <> ''),
     from_node TEXT NOT NULL
         REFERENCES nodes(id) ON DELETE RESTRICT,
     to_node TEXT NOT NULL
@@ -33,10 +35,10 @@ CREATE TABLE paths (
 
 CREATE INDEX nodes_by_label
     ON nodes(label);
-CREATE INDEX paths_from_type_to
-    ON paths(from_node, path_type, to_node);
-CREATE INDEX paths_to_type_from
-    ON paths(to_node, path_type, from_node);
+CREATE INDEX edges_from_type_to
+    ON edges(from_node, edge_type, to_node);
+CREATE INDEX edges_to_type_from
+    ON edges(to_node, edge_type, from_node);
 
 PRAGMA application_id = 1129464130;
 PRAGMA user_version = 1;
@@ -107,63 +109,307 @@ impl Database {
                     summary: QuerySummary::default(),
                 })
             }
-            Plan::Create(plan) => {
+            Plan::Mutate(plan) => {
                 // Resolving every property and RETURN expression here keeps a
                 // missing/invalid parameter from starting a partial write.
                 let plan = plan.resolve(parameters)?;
-                self.execute_create(plan)
+                self.execute_mutation(plan)
             }
         }
     }
 
-    fn execute_create(&mut self, plan: ResolvedCreatePlan) -> Result<QueryResult> {
-        let transaction = self.connection.transaction()?;
-        let mut node_ids = Vec::with_capacity(plan.nodes.len());
-        for node in &plan.nodes {
-            let properties = node.properties.to_string();
-            let id = transaction.query_row(
-                "INSERT INTO nodes (id, label, props)
-                 VALUES (lower(hex(randomblob(16))), ?1, json(?2))
-                 RETURNING id",
-                params![node.label.as_deref(), properties],
-                |row| row.get::<_, String>(0),
-            )?;
-            node_ids.push(id);
+    fn execute_mutation(&mut self, plan: ResolvedMutationPlan) -> Result<QueryResult> {
+        // IMMEDIATE obtains the SQLite write reservation up front. MATCH and
+        // CREATE still share one transaction, but do not risk a deferred
+        // read-to-write upgrade failing halfway through the statement.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut input_rows = materialize_input(&transaction, &plan)?;
+        let mut rows = Vec::with_capacity(input_rows.len());
+        let mut summary = QuerySummary::default();
+
+        for input_row in &mut input_rows {
+            for mutation in &plan.mutations {
+                match mutation {
+                    ResolvedMutation::CreateNode {
+                        slot,
+                        label,
+                        properties,
+                    } => {
+                        let properties_text = properties.to_string();
+                        let id = transaction.query_row(
+                            "INSERT INTO nodes (id, label, props)
+                             VALUES (lower(hex(randomblob(16))), ?1, json(?2))
+                             RETURNING id",
+                            params![label.as_deref(), properties_text],
+                            |row| row.get::<_, String>(0),
+                        )?;
+                        input_row.set(
+                            &plan.slots,
+                            *slot,
+                            EntityValue::Node {
+                                id,
+                                label: label.clone(),
+                                properties: properties.clone(),
+                            },
+                        )?;
+                        summary.nodes_created += 1;
+                    }
+                    ResolvedMutation::CreateRelationship {
+                        slot,
+                        relationship_type,
+                        from,
+                        to,
+                        properties,
+                    } => {
+                        let from = input_row.node_id(*from)?.to_owned();
+                        let to = input_row.node_id(*to)?.to_owned();
+                        let properties_text = properties.to_string();
+                        let id = transaction.query_row(
+                            "INSERT INTO edges (id, edge_type, from_node, to_node, props)
+                             VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, json(?4))
+                             RETURNING id",
+                            params![relationship_type, from, to, properties_text],
+                            |row| row.get::<_, String>(0),
+                        )?;
+                        input_row.set(
+                            &plan.slots,
+                            *slot,
+                            EntityValue::Relationship {
+                                id,
+                                relationship_type: relationship_type.clone(),
+                                properties: properties.clone(),
+                            },
+                        )?;
+                        summary.relationships_created += 1;
+                    }
+                }
+            }
+
+            if let Some(projection) = &plan.projection {
+                rows.push(
+                    projection
+                        .expressions
+                        .iter()
+                        .map(|expression| input_row.evaluate(expression))
+                        .collect::<Result<Vec<_>>>()?,
+                );
+            }
         }
 
-        let mut relationship_ids = Vec::with_capacity(plan.relationships.len());
-        for relationship in &plan.relationships {
-            let from = node_ids.get(relationship.from).ok_or_else(|| {
-                crate::Error::Data("relationship has an invalid start-node slot".into())
-            })?;
-            let to = node_ids.get(relationship.to).ok_or_else(|| {
-                crate::Error::Data("relationship has an invalid end-node slot".into())
-            })?;
-            let properties = relationship.properties.to_string();
-            let id = transaction.query_row(
-                "INSERT INTO paths (id, path_type, from_node, to_node, props)
-                 VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, json(?4))
-                 RETURNING id",
-                params![relationship.relationship_type, from, to, properties],
-                |row| row.get::<_, String>(0),
-            )?;
-            relationship_ids.push(id);
-        }
-
-        let rows = plan
-            .result_row(&node_ids, &relationship_ids)?
-            .into_iter()
-            .collect();
-        let result = QueryResult {
-            columns: plan.columns(),
-            rows,
-            summary: QuerySummary {
-                nodes_created: plan.nodes.len(),
-                relationships_created: plan.relationships.len(),
-            },
-        };
+        let columns = plan
+            .projection
+            .as_ref()
+            .map(|projection| projection.columns.clone())
+            .unwrap_or_default();
         transaction.commit()?;
-        Ok(result)
+        Ok(QueryResult {
+            columns,
+            rows,
+            summary,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+enum EntityValue {
+    Node {
+        id: String,
+        label: Option<String>,
+        properties: serde_json::Value,
+    },
+    Relationship {
+        id: String,
+        relationship_type: String,
+        properties: serde_json::Value,
+    },
+}
+
+impl EntityValue {
+    fn kind(&self) -> EntityKind {
+        match self {
+            Self::Node { .. } => EntityKind::Node,
+            Self::Relationship { .. } => EntityKind::Relationship,
+        }
+    }
+
+    fn properties(&self) -> &serde_json::Value {
+        match self {
+            Self::Node { properties, .. } | Self::Relationship { properties, .. } => properties,
+        }
+    }
+}
+
+struct ExecutionRow {
+    entities: Vec<Option<EntityValue>>,
+}
+
+impl ExecutionRow {
+    fn empty(slot_count: usize) -> Self {
+        Self {
+            entities: vec![None; slot_count],
+        }
+    }
+
+    fn set(&mut self, slots: &[EntityKind], slot: SlotId, entity: EntityValue) -> Result<()> {
+        let expected = slots
+            .get(slot.0)
+            .ok_or_else(|| crate::Error::Data(format!("unknown logical slot {}", slot.0)))?;
+        if *expected != entity.kind() {
+            return Err(crate::Error::Data(format!(
+                "logical slot {} received the wrong entity kind",
+                slot.0
+            )));
+        }
+        let destination = self
+            .entities
+            .get_mut(slot.0)
+            .ok_or_else(|| crate::Error::Data(format!("unknown execution slot {}", slot.0)))?;
+        if destination.replace(entity).is_some() {
+            return Err(crate::Error::Data(format!(
+                "logical slot {} was populated twice",
+                slot.0
+            )));
+        }
+        Ok(())
+    }
+
+    fn entity(&self, slot: SlotId) -> Result<&EntityValue> {
+        self.entities
+            .get(slot.0)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| crate::Error::Data(format!("logical slot {} is empty", slot.0)))
+    }
+
+    fn node_id(&self, slot: SlotId) -> Result<&str> {
+        match self.entity(slot)? {
+            EntityValue::Node { id, .. } => Ok(id),
+            EntityValue::Relationship { .. } => Err(crate::Error::Data(format!(
+                "logical slot {} is not a node",
+                slot.0
+            ))),
+        }
+    }
+
+    fn evaluate(&self, expression: &ResolvedExpr) -> Result<serde_json::Value> {
+        match expression {
+            ResolvedExpr::Value(value) => Ok(value.clone()),
+            ResolvedExpr::Property(slot, key) => self
+                .entity(*slot)?
+                .properties()
+                .as_object()
+                .and_then(|properties| properties.get(key))
+                .cloned()
+                .map_or(Ok(serde_json::Value::Null), Ok),
+            ResolvedExpr::ElementId(slot) => match self.entity(*slot)? {
+                EntityValue::Node { id, .. } | EntityValue::Relationship { id, .. } => {
+                    Ok(serde_json::Value::String(id.clone()))
+                }
+            },
+            ResolvedExpr::Labels(slot) => match self.entity(*slot)? {
+                EntityValue::Node { label, .. } => Ok(serde_json::Value::Array(
+                    label
+                        .iter()
+                        .cloned()
+                        .map(serde_json::Value::String)
+                        .collect(),
+                )),
+                EntityValue::Relationship { .. } => Err(crate::Error::Data(format!(
+                    "logical slot {} is not a node",
+                    slot.0
+                ))),
+            },
+            ResolvedExpr::RelationshipType(slot) => match self.entity(*slot)? {
+                EntityValue::Relationship {
+                    relationship_type, ..
+                } => Ok(serde_json::Value::String(relationship_type.clone())),
+                EntityValue::Node { .. } => Err(crate::Error::Data(format!(
+                    "logical slot {} is not a relationship",
+                    slot.0
+                ))),
+            },
+        }
+    }
+}
+
+fn materialize_input(
+    transaction: &Transaction<'_>,
+    plan: &ResolvedMutationPlan,
+) -> Result<Vec<ExecutionRow>> {
+    let Some(input) = &plan.input else {
+        return Ok(vec![ExecutionRow::empty(plan.slots.len())]);
+    };
+
+    let mut statement = transaction.prepare(&input.sql)?;
+    debug_assert!(statement.readonly());
+    let mut cursor = statement.query(params_from_iter(input.bindings.iter()))?;
+    let mut input_rows = Vec::new();
+    while let Some(row) = cursor.next()? {
+        let mut execution_row = ExecutionRow::empty(plan.slots.len());
+        for (column, (slot, kind)) in input.slots.iter().enumerate() {
+            let encoded = row.get::<_, String>(column)?;
+            let entity = decode_entity(&encoded, *kind)?;
+            execution_row.set(&plan.slots, *slot, entity)?;
+        }
+        input_rows.push(execution_row);
+    }
+    Ok(input_rows)
+}
+
+fn decode_entity(encoded: &str, kind: EntityKind) -> Result<EntityValue> {
+    let value = serde_json::from_str::<serde_json::Value>(encoded).map_err(|error| {
+        crate::Error::Data(format!("matched entity is malformed JSON: {error}"))
+    })?;
+    let serde_json::Value::Object(mut fields) = value else {
+        return Err(crate::Error::Data(
+            "matched entity record is not an object".into(),
+        ));
+    };
+    let id = take_string(&mut fields, "id")?;
+    let properties = fields
+        .remove("props")
+        .ok_or_else(|| crate::Error::Data("matched entity is missing `props`".into()))?;
+    if !properties.is_object() {
+        return Err(crate::Error::Data(
+            "matched entity properties are not an object".into(),
+        ));
+    }
+
+    match kind {
+        EntityKind::Node => {
+            let label = match fields.remove("label") {
+                Some(serde_json::Value::String(label)) => Some(label),
+                Some(serde_json::Value::Null) => None,
+                _ => {
+                    return Err(crate::Error::Data(
+                        "matched node has an invalid label".into(),
+                    ));
+                }
+            };
+            Ok(EntityValue::Node {
+                id,
+                label,
+                properties,
+            })
+        }
+        EntityKind::Relationship => Ok(EntityValue::Relationship {
+            id,
+            relationship_type: take_string(&mut fields, "type")?,
+            properties,
+        }),
+    }
+}
+
+fn take_string(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Result<String> {
+    match fields.remove(key) {
+        Some(serde_json::Value::String(value)) => Ok(value),
+        _ => Err(crate::Error::Data(format!(
+            "matched entity is missing string field `{key}`"
+        ))),
     }
 }
 
@@ -213,7 +459,7 @@ fn initialize(connection: &mut Connection) -> Result<()> {
 
 fn validate_schema(connection: &Connection) -> Result<()> {
     connection.prepare("SELECT id, label, props FROM nodes LIMIT 0")?;
-    connection.prepare("SELECT id, path_type, from_node, to_node, props FROM paths LIMIT 0")?;
+    connection.prepare("SELECT id, edge_type, from_node, to_node, props FROM edges LIMIT 0")?;
     Ok(())
 }
 
@@ -251,7 +497,7 @@ mod tests {
         database
             .connection
             .execute(
-                "INSERT INTO paths (id, path_type, from_node, to_node)
+                "INSERT INTO edges (id, edge_type, from_node, to_node)
                  VALUES ('valid', 'ARBITRARY_TYPE', 'one', 'two')",
                 [],
             )
@@ -265,7 +511,7 @@ mod tests {
         let error = database
             .connection
             .execute(
-                "INSERT INTO paths (id, path_type, from_node, to_node)
+                "INSERT INTO edges (id, edge_type, from_node, to_node)
                  VALUES ('bad', 'ANY_TYPE', 'one', 'missing')",
                 [],
             )
@@ -275,7 +521,7 @@ mod tests {
         let error = database
             .connection
             .execute(
-                "INSERT INTO paths (id, path_type, from_node, to_node)
+                "INSERT INTO edges (id, edge_type, from_node, to_node)
                  VALUES ('also-bad', 'ANY_TYPE', 'missing', 'one')",
                 [],
             )
@@ -311,9 +557,11 @@ mod tests {
     #[test]
     fn initialization_does_not_downstamp_a_future_schema() {
         let mut connection = Connection::open_in_memory().unwrap();
+        let future_version = SCHEMA_VERSION + 1;
         connection
             .execute_batch(&format!(
-                "PRAGMA application_id = {APPLICATION_ID}; PRAGMA user_version = 2;"
+                "PRAGMA application_id = {APPLICATION_ID}; \
+                 PRAGMA user_version = {future_version};"
             ))
             .unwrap();
 
@@ -322,7 +570,7 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 2);
+        assert_eq!(version, future_version);
     }
 
     #[test]
@@ -367,5 +615,57 @@ mod tests {
             .query_row("SELECT count(*) FROM nodes", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn a_late_matched_row_failure_rolls_back_every_rows_writes() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:Source {number: 1}), (:Source {number: 2})")
+            .unwrap();
+        database
+            .connection
+            .execute_batch(
+                "CREATE TRIGGER reject_second_edge
+                 BEFORE INSERT ON edges
+                 WHEN (SELECT count(*) FROM edges) = 1
+                 BEGIN
+                   SELECT RAISE(ABORT, 'rejected second edge for rollback test');
+                 END;",
+            )
+            .unwrap();
+
+        assert!(
+            database
+                .execute(
+                    "MATCH (source:Source) \
+                     CREATE (source)-[:GENERATED]->(:Sink)"
+                )
+                .is_err()
+        );
+
+        let edges: i64 = database
+            .connection
+            .query_row("SELECT count(*) FROM edges", [], |row| row.get(0))
+            .unwrap();
+        let sinks: i64 = database
+            .connection
+            .query_row(
+                "SELECT count(*) FROM nodes WHERE label = 'Sink'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let sources: i64 = database
+            .connection
+            .query_row(
+                "SELECT count(*) FROM nodes WHERE label = 'Source'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(edges, 0);
+        assert_eq!(sinks, 0);
+        assert_eq!(sources, 2);
     }
 }

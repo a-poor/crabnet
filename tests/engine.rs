@@ -442,3 +442,304 @@ fn an_unsupported_write_does_not_mutate_the_graph() {
         .unwrap();
     assert_eq!(remaining.rows, [vec![json!("Ada")]]);
 }
+
+#[test]
+fn match_create_uses_existing_nodes_and_returns_the_created_relationship() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (:Person {name: 'Alice'}), (:Person {name: 'Bob'}), \
+                     (:Person {name: 'Carol'})",
+        )
+        .unwrap();
+
+    let values = parameters([("since", json!(2024))]);
+    let created = database
+        .execute_with(
+            "MATCH (alice:Person {name: 'Alice'}), (bob:Person {name: 'Bob'}) \
+             CREATE (alice)-[knows:KNOWS {since: $since}]->(bob) \
+             RETURN alice.name AS from, type(knows) AS kind, \
+                    knows.since AS since, bob.name AS to, \
+                    elementId(knows) AS relationship_id",
+            &values,
+        )
+        .unwrap();
+
+    assert_eq!(
+        created.columns,
+        ["from", "kind", "since", "to", "relationship_id"]
+    );
+    assert_eq!(created.rows.len(), 1);
+    assert_eq!(
+        created.rows[0][..4],
+        [json!("Alice"), json!("KNOWS"), json!(2024), json!("Bob")]
+    );
+    assert_eq!(created.rows[0][4].as_str().unwrap().len(), 32);
+    assert_eq!(created.summary.nodes_created, 0);
+    assert_eq!(created.summary.relationships_created, 1);
+
+    let matched = database
+        .execute(
+            "MATCH (alice:Person)-[knows:KNOWS]->(bob:Person) \
+             RETURN alice.name AS from, knows.since AS since, bob.name AS to",
+        )
+        .unwrap();
+    assert_eq!(
+        matched.rows,
+        [vec![json!("Alice"), json!(2024), json!("Bob")]]
+    );
+}
+
+#[test]
+fn match_create_runs_once_per_input_row() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (:Person {name: 'Ada'}), (:Person {name: 'Grace'}), \
+                     (:Project {name: 'Compiler'})",
+        )
+        .unwrap();
+
+    let created = database
+        .execute(
+            "MATCH (person:Person), (project:Project {name: 'Compiler'}) \
+             CREATE (person)-[contribution:CONTRIBUTED {role: 'author'}]->(project) \
+             RETURN person.name AS person, contribution.role AS role, \
+                    elementId(contribution) AS id",
+        )
+        .unwrap();
+
+    let mut rows = created.rows;
+    rows.sort_by(|left, right| left[0].as_str().unwrap().cmp(right[0].as_str().unwrap()));
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0][..2], [json!("Ada"), json!("author")]);
+    assert_eq!(rows[1][..2], [json!("Grace"), json!("author")]);
+    assert_eq!(rows[0][2].as_str().unwrap().len(), 32);
+    assert_eq!(rows[1][2].as_str().unwrap().len(), 32);
+    assert_ne!(rows[0][2], rows[1][2]);
+    assert_eq!(created.summary.nodes_created, 0);
+    assert_eq!(created.summary.relationships_created, 2);
+}
+
+#[test]
+fn match_create_can_add_fresh_nodes_and_no_match_is_a_noop() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:Person {name: 'Alice'})")
+        .unwrap();
+
+    let created = database
+        .execute(
+            "MATCH (alice:Person {name: 'Alice'}) \
+             CREATE (alice)-[:KNOWS]->(bob:Person {name: 'Bob'}) \
+             RETURN alice.name AS from, bob.name AS to, labels(bob) AS labels",
+        )
+        .unwrap();
+    assert_eq!(
+        created.rows,
+        [vec![json!("Alice"), json!("Bob"), json!(["Person"])]]
+    );
+    assert_eq!(created.summary.nodes_created, 1);
+    assert_eq!(created.summary.relationships_created, 1);
+
+    let not_created = database
+        .execute(
+            "MATCH (missing:Person {name: 'Nobody'}) \
+             CREATE (missing)-[:KNOWS]->(:Person {name: 'Never'}) \
+             RETURN missing.name",
+        )
+        .unwrap();
+    assert!(not_created.rows.is_empty());
+    assert_eq!(not_created.summary.nodes_created, 0);
+    assert_eq!(not_created.summary.relationships_created, 0);
+
+    let people = database
+        .execute("MATCH (person:Person) RETURN person.name AS name")
+        .unwrap();
+    let mut names = people.rows;
+    names.sort_by(|left, right| left[0].as_str().unwrap().cmp(right[0].as_str().unwrap()));
+    assert_eq!(names, [vec![json!("Alice")], vec![json!("Bob")]]);
+}
+
+#[test]
+fn match_create_validates_the_whole_write_before_mutating() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:Person {name: 'Alice'}), (:Person {name: 'Bob'})")
+        .unwrap();
+
+    assert!(matches!(
+        database.execute(
+            "MATCH (person:Person {name: 'Alice'}) \
+             CREATE (person:Person)-[:KNOWS]->(:Person)"
+        ),
+        Err(Error::Semantic(_))
+    ));
+    assert!(matches!(
+        database.execute("MATCH (person:Person) CREATE (person)"),
+        Err(Error::Semantic(_))
+    ));
+    assert!(matches!(
+        database.execute(
+            "MATCH (from)-[relationship:KNOWS]->(to) \
+             CREATE (from)-[relationship:OTHER]->(to)"
+        ),
+        Err(Error::Semantic(_))
+    ));
+
+    let values = parameters([("present", json!(true))]);
+    assert!(matches!(
+        database.execute_with(
+            "MATCH (person:Person) \
+             CREATE (person)-[:KNOWS {ok: $present, bad: $missing}]->(:Person)",
+            &values,
+        ),
+        Err(Error::MissingParameter(name)) if name == "missing"
+    ));
+    assert!(matches!(
+        database.execute_with(
+            "MATCH (:Missing) CREATE (:Thing) RETURN $missing",
+            &Parameters::new(),
+        ),
+        Err(Error::MissingParameter(name)) if name == "missing"
+    ));
+
+    let no_match = database
+        .execute("MATCH (:Missing) CREATE (:Thing)")
+        .unwrap();
+    assert!(no_match.rows.is_empty());
+    assert_eq!(no_match.summary.nodes_created, 0);
+    assert_eq!(no_match.summary.relationships_created, 0);
+
+    let relationships = database
+        .execute("MATCH ()-[relationship]->() RETURN elementId(relationship)")
+        .unwrap();
+    assert!(relationships.rows.is_empty());
+    let people = database
+        .execute("MATCH (person:Person) RETURN person.name")
+        .unwrap();
+    assert_eq!(people.rows.len(), 2);
+}
+
+#[test]
+fn match_create_keeps_matched_relationships_in_scope() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (from:Node {name: 'from'})-\
+             [old:OLD {version: 1}]->(to:Node {name: 'to'})",
+        )
+        .unwrap();
+
+    let created = database
+        .execute(
+            "MATCH (from:Node)-[old:OLD]->(to:Node) \
+             CREATE (from)-[new:NEW {version: 2}]->(to) \
+             RETURN type(old) AS old_type, old.version AS old_version, \
+                    type(new) AS new_type, new.version AS new_version",
+        )
+        .unwrap();
+
+    assert_eq!(
+        created.rows,
+        [vec![json!("OLD"), json!(1), json!("NEW"), json!(2)]]
+    );
+    assert_eq!(created.summary.nodes_created, 0);
+    assert_eq!(created.summary.relationships_created, 1);
+}
+
+#[test]
+fn match_create_reuses_one_fresh_node_across_pattern_parts() {
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE (:Anchor {name: 'root'})").unwrap();
+
+    let created = database
+        .execute(
+            "MATCH (anchor:Anchor {name: 'root'}) \
+             CREATE (bridge:Bridge {name: 'shared'}), \
+                    (anchor)-[:OUT]->(bridge), \
+                    (bridge)-[:BACK]->(anchor) \
+             RETURN elementId(bridge) AS bridge_id",
+        )
+        .unwrap();
+    assert_eq!(created.rows.len(), 1);
+    assert_eq!(created.summary.nodes_created, 1);
+    assert_eq!(created.summary.relationships_created, 2);
+
+    let matched = database
+        .execute(
+            "MATCH (anchor:Anchor)-[:OUT]->(bridge:Bridge)-[:BACK]->(anchor) \
+             RETURN elementId(bridge) AS bridge_id",
+        )
+        .unwrap();
+    assert_eq!(matched.rows, created.rows);
+}
+
+#[test]
+fn match_create_supports_self_relationships_and_left_arrows() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:Node {name: 'one'}), (:Node {name: 'two'})")
+        .unwrap();
+
+    let self_relationship = database
+        .execute(
+            "MATCH (node:Node {name: 'one'}) \
+             CREATE (node)-[relationship:SELF]->(node) \
+             RETURN node.name AS name, type(relationship) AS kind",
+        )
+        .unwrap();
+    assert_eq!(self_relationship.rows, [vec![json!("one"), json!("SELF")]]);
+
+    database
+        .execute(
+            "MATCH (one:Node {name: 'one'}), (two:Node {name: 'two'}) \
+             CREATE (one)<-[:LEFT]-(two)",
+        )
+        .unwrap();
+    let direction = database
+        .execute(
+            "MATCH (two:Node)-[:LEFT]->(one:Node) \
+             RETURN two.name AS from, one.name AS to",
+        )
+        .unwrap();
+    assert_eq!(direction.rows, [vec![json!("two"), json!("one")]]);
+}
+
+#[test]
+fn match_input_is_materialized_before_create_runs() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:Seed {number: 1}), (:Seed {number: 2})")
+        .unwrap();
+
+    let created = database
+        .execute("MATCH (:Seed) CREATE (:Seed {created: true})")
+        .unwrap();
+    assert_eq!(created.summary.nodes_created, 2);
+
+    let all = database
+        .execute("MATCH (seed:Seed) RETURN elementId(seed)")
+        .unwrap();
+    assert_eq!(all.rows.len(), 4);
+    let generated = database
+        .execute("MATCH (seed:Seed {created: true}) RETURN elementId(seed)")
+        .unwrap();
+    assert_eq!(generated.rows.len(), 2);
+}
+
+#[test]
+fn signed_constants_keep_typed_equality_in_where() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:Number {value: -1}), (:Number {value: 1})")
+        .unwrap();
+
+    let negative = database
+        .execute(
+            "MATCH (number:Number) WHERE number.value = -1 \
+             RETURN number.value AS value",
+        )
+        .unwrap();
+    assert_eq!(negative.rows, [vec![json!(-1)]]);
+}

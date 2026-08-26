@@ -1,8 +1,9 @@
 //! An experimental, embedded property-graph database backed by SQLite.
 //!
 //! Crabnet currently implements a deliberately small openCypher subset. The
-//! query is parsed with `open-cypher`, validated, lowered to parameterized SQL,
-//! and then executed by SQLite.
+//! query is parsed with `open-cypher` and lowered to a row-oriented logical
+//! plan. Reads and matched write inputs become parameterized SQL; mutations are
+//! then applied transactionally to each input row.
 
 mod database;
 mod error;
