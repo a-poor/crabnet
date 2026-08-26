@@ -21,9 +21,9 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Feature | Status | Current contract / evidence |
 | --- | --- | --- |
 | Standalone `RETURN` | Covered | Typed literals, collections, maps, and named parameters in `return_without_match_supports_typed_values_and_parameters` |
-| `MATCH ... RETURN` | Covered | Node and relationship matching throughout `engine.rs` and `read_semantics.rs` |
-| `CREATE` with optional `RETURN` | Covered | Typed nodes and directed relationships in `creates_and_matches_nodes_with_typed_properties` and `creates_and_matches_a_directed_relationship` |
-| `MATCH ... CREATE` with optional `RETURN` | Covered | Executes once per materialized input row, reuses bindings, handles no-match, and is atomic; covered by the `match_create_*` tests |
+| `MATCH ... RETURN` | Covered | Scalar and whole-entity results throughout `engine.rs`, `read_semantics.rs`, and `entity_values.rs` |
+| `CREATE` with optional `RETURN` | Covered | Typed nodes and directed relationships, including whole created-entity results in `create_return_uses_the_same_whole_entity_values` |
+| `MATCH ... CREATE` with optional `RETURN` | Covered | Executes once per materialized input row, reuses bindings, handles no-match, and is atomic; whole matched and created entities also cross the Rust execution stage in `match_create_carries_matched_and_created_entities_through_rust_execution` |
 | Node scan, optional single label, inline property map | Covered | Includes missing/null values and typed list/map equality (`missing_and_null_properties_follow_null_semantics`, `inline_structured_properties_keep_json_types`) |
 | Fixed-length relationship patterns | Covered | Outgoing, incoming, undirected, self-loop, and three-hop patterns, including parallel-path multiplicity; see `creates_and_matches_a_directed_relationship`, `undirected_matches_check_both_orientations_without_duplicating_self_loops`, and `parallel_three_hop_paths_preserve_row_multiplicity` |
 | Typed and untyped relationship scans | Covered | Multiple runtime types retain their own `type(r)` values in `untyped_relationship_matches_retain_each_runtime_type` |
@@ -50,7 +50,9 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `ORDER BY`, `SKIP`/`OFFSET`, `LIMIT` | Covered | Ascending/descending and alias ordering, both offset spellings, offset without limit, zero boundaries, named pagination parameters, and validation are covered |
 | `RETURN ALL` | Covered | `offset_without_limit_and_return_all_are_supported` locks down its accepted projection behavior |
 | `elementId()`, `labels()`, `type()` | Covered | Read and post-create results plus arity, argument, unknown-variable, and wrong-kind diagnostics are covered |
-| Whole node/relationship/path values | Rejected | Results currently expose JSON scalar/list/map values, not distinct graph-value variants |
+| Whole node and relationship values | Covered | `CypherValue::Node` and `CypherValue::Relationship` preserve labels/types, recursive properties, opaque IDs, and stored-direction endpoints for reads, writes, unlabeled nodes, and reverse traversal; see `entity_values.rs` |
+| Ordinary maps versus graph entities | Covered | Entity-shaped map data remains `CypherValue::Map` in `an_entity_shaped_map_remains_a_map` |
+| Whole path values | Rejected | `CypherValue` has no path representation yet, and path bindings remain unsupported |
 | `RETURN DISTINCT`, `RETURN *`, aggregates | Rejected | Projection IR has no distinct or aggregate operators yet |
 | Arithmetic, `IN`, and string predicates | Rejected | Binary support is currently boolean logic and comparison only |
 | General scalar/list/map functions | Rejected | Only the three graph functions above are recognized |
@@ -88,5 +90,5 @@ move the row into the matrix when green.
    that debug surface exists.
 6. Clause-pipeline acceptance tests for `WITH`, then aggregation, `UNWIND`, and
    `OPTIONAL MATCH`; keep them active only when their milestone begins.
-7. Curated openCypher TCK and differential tests after graph-value result normalization
-    is defined.
+7. Curated openCypher TCK and differential tests after the selected scenarios' setup
+   clauses and any required path values can be represented faithfully.

@@ -20,32 +20,48 @@ including ordering and pagination, are not currently supported after
 
 ## Values and properties
 
-Parameters, stored properties, and result cells use `serde_json::Value`. The
-currently supported mapping is:
+Named parameters and stored properties use `serde_json::Value`, while every
+public result cell uses Crabnet's recursive `CypherValue`. Graph entities are
+therefore distinct from ordinary property maps at the API boundary.
 
-| Cypher value | JSON representation | SQLite predicate representation |
+| Cypher value | Parameter/property representation | Result representation |
 | --- | --- | --- |
-| null | `null` | SQL `NULL` |
-| boolean | `true` or `false` | integer payload plus JSON type information |
-| integer | JSON number in the signed 64-bit range | SQLite integer |
-| float | finite JSON number | SQLite real |
-| string | JSON string | SQLite text |
-| list | JSON array | JSON text plus JSON type information |
-| map | JSON object | JSON text plus JSON type information |
+| null | JSON `null` / SQL `NULL` | `CypherValue::Null` |
+| boolean | JSON boolean; SQLite integer payload plus JSON type | `CypherValue::Boolean` |
+| integer | JSON number in the signed 64-bit range / SQLite integer | `CypherValue::Integer` |
+| float | finite JSON number / SQLite real | `CypherValue::Float` |
+| string | JSON string / SQLite text | `CypherValue::String` |
+| list | JSON array | `CypherValue::List` |
+| map | JSON object | `CypherValue::Map` |
+| node | not accepted as a parameter or property | `CypherValue::Node(NodeValue)` |
+| relationship | not accepted as a parameter or property | `CypherValue::Relationship(RelationshipValue)` |
+| path | not supported | not supported |
 
 Node and relationship `props` columns must contain JSON objects. Lists and maps
-may be nested property values, and their JSON types are preserved when they are
-returned. Integers outside SQLite's signed 64-bit range and non-finite floats
-are rejected.
+may be nested property values; conversion to result cells recursively preserves
+their Cypher value kinds. Integers outside SQLite's signed 64-bit range and
+non-finite floats are rejected.
 
 A missing property and a property whose stored value is explicit JSON `null`
-both evaluate to Cypher `null`. Returning either produces JSON `null`, and `IS
-NULL` is true for either. Crabnet does not currently expose a supported query
-operation that distinguishes the two cases.
+both evaluate to Cypher `null`. Returning either produces
+`CypherValue::Null`, and `IS NULL` is true for either. Crabnet does not
+currently expose a supported query operation that distinguishes the two cases.
 
-Graph entities and paths are not values in the current result model. A whole
-node, relationship, or path cannot be returned; callers can currently return
-properties and supported metadata functions instead.
+`NodeValue` contains an opaque `element_id`, a `labels` vector, and a recursive
+`properties` map. The current storage model produces zero or one label, while
+the vector leaves the result shape ready for multi-label nodes later.
+
+`RelationshipValue` contains an opaque `element_id`, `relationship_type`,
+`start_node_element_id`, `end_node_element_id`, and a recursive `properties`
+map. Start and end IDs always describe the stored relationship direction,
+regardless of whether a query matched it with a right arrow, left arrow, or
+undirected pattern.
+
+Whole nodes and relationships may be returned by reads and by `RETURN` after
+`CREATE`. Entity decoding follows the planned expression kind, so an ordinary
+map remains `CypherValue::Map` even if it contains keys resembling the public
+entity fields. Paths are not result values yet, and path bindings remain
+unsupported.
 
 ## Predicates and null
 
@@ -124,8 +140,8 @@ validated before the write transaction starts. Match materialization, all
 mutations, and post-write result evaluation then occur in one immediate SQLite
 transaction. Any execution failure rolls back every mutation performed by the
 statement. A `RETURN` after `CREATE` emits one row per mutation input row and
-may project supported properties or metadata from matched and created
-entities.
+may project whole matched or created entities as well as supported properties
+and metadata.
 
 ## Unsupported constructs and errors
 
@@ -137,7 +153,7 @@ entity kinds uses `Error::Semantic`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
-Semantics for unsupported constructs—including whole-entity and path values,
-variable-length traversal, optional matching, aggregation, query composition,
-and mutations other than `CREATE`—remain unresolved until those constructs are
-designed and implemented.
+Semantics for unsupported constructs—including path values, variable-length
+traversal, optional matching, aggregation, query composition, and mutations
+other than `CREATE`—remain unresolved until those constructs are designed and
+implemented.

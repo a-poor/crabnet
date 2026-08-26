@@ -93,18 +93,19 @@ green. The order is intentional, but discoveries may move individual features.
 Gate: every feature we call supported has representative positive, empty/null,
 multiplicity, and boundary coverage where applicable.
 
-### 2. Introduce real Cypher result values
+### 2. Introduce real Cypher result values — complete
 
-- Replace the JSON-only public row model with a recursive `CypherValue` capable
-  of distinguishing scalars, lists, maps, nodes, relationships, and eventually
-  paths.
-- Define stable node and relationship result shapes, including opaque element
-  IDs, labels/types, endpoints, and properties.
-- Support returning whole nodes and relationships and using them across planner
-  boundaries.
+- The public row model uses recursive `CypherValue` variants for scalars,
+  lists, maps, nodes, and relationships.
+- `NodeValue` and `RelationshipValue` expose opaque element IDs, labels/types,
+  properties, and directed relationship endpoints.
+- Reads and post-`CREATE` projections return whole nodes and relationships
+  across the planner/executor boundary.
 
-Gate: `MATCH (n) RETURN n` and relationship equivalents round-trip without
-confusing graph entities with ordinary maps.
+Gate complete: `MATCH (n) RETURN n`, relationship equivalents, and post-create
+returns round-trip without confusing graph entities with ordinary maps. Path
+values remain deliberately deferred to the traversal and hybrid-execution
+milestones.
 
 ### 3. Finish the fixed-length read core
 
@@ -195,8 +196,11 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-The immediate sequence is milestone 1, then the typed-value foundation from
-milestone 2. While doing that, small fixed-read improvements may land when a
-focused test exposes a local gap. The day-to-day test loop is documented in
-[testing.md](testing.md); planned-but-inactive cases stay in the coverage
-backlog instead of accumulating as ignored tests.
+With the typed-value and whole-entity gate from milestone 2 complete, the next
+active work is milestone 3: finish the fixed-length read core and its expression
+semantics. Small contract gaps may still be tightened when a focused test
+exposes them. Path values remain planned for the traversal and hybrid-executor
+milestones rather than being implied by the completed entity-value work. The
+day-to-day test loop is documented in [testing.md](testing.md);
+planned-but-inactive cases stay in the coverage backlog instead of
+accumulating as ignored tests.

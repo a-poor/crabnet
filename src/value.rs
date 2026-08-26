@@ -1,0 +1,278 @@
+use std::collections::BTreeMap;
+
+use serde_json::Value as JsonValue;
+
+use crate::{Error, Result};
+
+/// A value returned by a Cypher query.
+///
+/// Unlike JSON, this type can distinguish graph entities from ordinary maps.
+/// Lists and maps are recursive because Cypher collections may eventually
+/// contain nodes and relationships as well as property values.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub enum CypherValue {
+    Null,
+    Boolean(bool),
+    Integer(i64),
+    Float(f64),
+    String(String),
+    List(Vec<Self>),
+    Map(BTreeMap<String, Self>),
+    Node(NodeValue),
+    Relationship(RelationshipValue),
+}
+
+/// A node returned by a Cypher query.
+///
+/// Crabnet currently stores at most one label, but the result shape uses a
+/// list so that lifting that storage restriction will not require an API
+/// change.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct NodeValue {
+    pub element_id: String,
+    pub labels: Vec<String>,
+    pub properties: BTreeMap<String, CypherValue>,
+}
+
+/// A relationship returned by a Cypher query.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct RelationshipValue {
+    pub element_id: String,
+    pub relationship_type: String,
+    pub start_node_element_id: String,
+    pub end_node_element_id: String,
+    pub properties: BTreeMap<String, CypherValue>,
+}
+
+impl CypherValue {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Self::Null)
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Boolean(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::Integer(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Float(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_list(&self) -> Option<&[Self]> {
+        match self {
+            Self::List(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    pub fn as_map(&self) -> Option<&BTreeMap<String, Self>> {
+        match self {
+            Self::Map(values) => Some(values),
+            _ => None,
+        }
+    }
+
+    pub fn as_node(&self) -> Option<&NodeValue> {
+        match self {
+            Self::Node(node) => Some(node),
+            _ => None,
+        }
+    }
+
+    pub fn as_relationship(&self) -> Option<&RelationshipValue> {
+        match self {
+            Self::Relationship(relationship) => Some(relationship),
+            _ => None,
+        }
+    }
+}
+
+impl TryFrom<JsonValue> for CypherValue {
+    type Error = Error;
+
+    fn try_from(value: JsonValue) -> Result<Self> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<&JsonValue> for CypherValue {
+    type Error = Error;
+
+    fn try_from(value: &JsonValue) -> Result<Self> {
+        match value {
+            JsonValue::Null => Ok(Self::Null),
+            JsonValue::Bool(value) => Ok(Self::Boolean(*value)),
+            JsonValue::Number(number) => {
+                if let Some(value) = number.as_i64() {
+                    Ok(Self::Integer(value))
+                } else if number.as_u64().is_some() {
+                    Err(Error::Semantic(
+                        "Cypher integers must fit the signed 64-bit range".into(),
+                    ))
+                } else {
+                    number.as_f64().map(Self::Float).ok_or_else(|| {
+                        Error::Data("JSON number has no supported numeric representation".into())
+                    })
+                }
+            }
+            JsonValue::String(value) => Ok(Self::String(value.clone())),
+            JsonValue::Array(values) => values
+                .iter()
+                .map(Self::try_from)
+                .collect::<Result<Vec<_>>>()
+                .map(Self::List),
+            JsonValue::Object(values) => values
+                .iter()
+                .map(|(key, value)| Ok((key.clone(), Self::try_from(value)?)))
+                .collect::<Result<BTreeMap<_, _>>>()
+                .map(Self::Map),
+        }
+    }
+}
+
+impl PartialEq<JsonValue> for CypherValue {
+    fn eq(&self, other: &JsonValue) -> bool {
+        match (self, other) {
+            (Self::Null, JsonValue::Null) => true,
+            (Self::Boolean(left), JsonValue::Bool(right)) => left == right,
+            (Self::Integer(left), JsonValue::Number(right)) => right.as_i64() == Some(*left),
+            (Self::Float(left), JsonValue::Number(right)) => {
+                right.is_f64() && right.as_f64() == Some(*left)
+            }
+            (Self::String(left), JsonValue::String(right)) => left == right,
+            (Self::List(left), JsonValue::Array(right)) => {
+                left.len() == right.len()
+                    && left.iter().zip(right).all(|(left, right)| left.eq(right))
+            }
+            (Self::Map(left), JsonValue::Object(right)) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .all(|(key, left)| right.get(key).is_some_and(|right| left.eq(right)))
+            }
+            _ => false,
+        }
+    }
+}
+
+impl PartialEq<CypherValue> for JsonValue {
+    fn eq(&self, other: &CypherValue) -> bool {
+        other.eq(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use serde_json::json;
+
+    use super::{CypherValue, NodeValue, RelationshipValue};
+
+    #[test]
+    fn json_conversion_preserves_every_supported_shape() {
+        let json = json!({
+            "null": null,
+            "boolean": true,
+            "integer": -7,
+            "float": 1.5,
+            "string": "value",
+            "list": [1, {"nested": false}],
+        });
+
+        let value = CypherValue::try_from(&json).unwrap();
+        assert_eq!(value, json);
+        assert_eq!(json, value);
+
+        let map = value.as_map().unwrap();
+        assert!(map["null"].is_null());
+        assert_eq!(map["boolean"].as_bool(), Some(true));
+        assert_eq!(map["integer"].as_i64(), Some(-7));
+        assert_eq!(map["float"].as_f64(), Some(1.5));
+        assert_eq!(map["string"].as_str(), Some("value"));
+        assert_eq!(map["list"].as_list().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn json_conversion_rejects_integers_outside_cyphers_domain() {
+        let error = CypherValue::try_from(json!(u64::MAX)).unwrap_err();
+        assert!(matches!(error, crate::Error::Semantic(_)));
+
+        let nested = json!({"value": [u64::MAX]});
+        assert!(matches!(
+            CypherValue::try_from(nested),
+            Err(crate::Error::Semantic(_))
+        ));
+    }
+
+    #[test]
+    fn entity_accessors_preserve_graph_metadata() {
+        let node = NodeValue {
+            element_id: "node-id".into(),
+            labels: vec!["Person".into()],
+            properties: BTreeMap::from([("name".into(), CypherValue::String("Ada".into()))]),
+        };
+        let relationship = RelationshipValue {
+            element_id: "relationship-id".into(),
+            relationship_type: "KNOWS".into(),
+            start_node_element_id: "node-id".into(),
+            end_node_element_id: "other-node-id".into(),
+            properties: BTreeMap::new(),
+        };
+
+        let node_value = CypherValue::Node(node.clone());
+        let relationship_value = CypherValue::Relationship(relationship.clone());
+
+        assert_eq!(node_value.as_node(), Some(&node));
+        assert_eq!(relationship_value.as_relationship(), Some(&relationship));
+        assert!(node_value.as_relationship().is_none());
+        assert!(relationship_value.as_node().is_none());
+    }
+
+    #[test]
+    fn graph_entities_never_compare_equal_to_json_maps() {
+        let node = CypherValue::Node(NodeValue {
+            element_id: "node-id".into(),
+            labels: vec![],
+            properties: BTreeMap::new(),
+        });
+        let lookalike = json!({
+            "element_id": "node-id",
+            "labels": [],
+            "properties": {},
+        });
+
+        assert_ne!(node, lookalike);
+        assert_ne!(lookalike, node);
+    }
+
+    #[test]
+    fn json_compatibility_equality_preserves_numeric_variants() {
+        assert_eq!(CypherValue::Integer(1), json!(1));
+        assert_ne!(CypherValue::Integer(1), json!(1.0));
+        assert_eq!(CypherValue::Float(1.0), json!(1.0));
+        assert_ne!(CypherValue::Float(1.0), json!(1));
+    }
+}

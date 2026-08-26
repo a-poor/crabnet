@@ -108,6 +108,7 @@ pub(crate) enum UnaryOp {
 #[derive(Clone, Debug)]
 pub(crate) enum Expr {
     Value(ValueExpr),
+    Entity(SlotId),
     Property(SlotId, String),
     ElementId(SlotId),
     Labels(SlotId),
@@ -217,6 +218,7 @@ pub(crate) struct Query {
 #[derive(Clone, Debug)]
 pub(crate) enum ResolvedExpr {
     Value(Value),
+    Entity(SlotId),
     Property(SlotId, String),
     ElementId(SlotId),
     Labels(SlotId),
@@ -227,6 +229,7 @@ impl Expr {
     pub(crate) fn resolve_output(&self, parameters: &Parameters) -> Result<ResolvedExpr> {
         match self {
             Self::Value(value) => value.resolve(parameters).map(ResolvedExpr::Value),
+            Self::Entity(slot) => Ok(ResolvedExpr::Entity(*slot)),
             Self::Property(slot, key) => Ok(ResolvedExpr::Property(*slot, key.clone())),
             Self::ElementId(slot) => Ok(ResolvedExpr::ElementId(*slot)),
             Self::Labels(slot) => Ok(ResolvedExpr::Labels(*slot)),

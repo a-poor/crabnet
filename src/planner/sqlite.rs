@@ -75,7 +75,14 @@ fn json_to_sql(value: Value) -> Result<SqlValue> {
 pub(crate) struct SqlQuery {
     pub(crate) sql: String,
     pub(crate) columns: Vec<String>,
+    pub(crate) output_shapes: Vec<OutputShape>,
     bindings: Vec<SqlBinding>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OutputShape {
+    Json,
+    Entity(EntityKind),
 }
 
 impl SqlQuery {
@@ -119,16 +126,17 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
         compiler.compile_match(plan)?;
     }
 
-    let select = projection
+    let outputs = projection
         .expressions
         .iter()
         .enumerate()
         .map(|(index, expression)| {
             compiler
                 .output_expression(expression)
-                .map(|output| format!("{output} AS c{index}"))
+                .map(|(sql, shape)| (format!("{sql} AS c{index}"), shape))
         })
         .collect::<Result<Vec<_>>>()?;
+    let (select, output_shapes): (Vec<_>, Vec<_>) = outputs.into_iter().unzip();
     let mut sql = compiler.select_sql(&select);
 
     if !projection.order_by.is_empty() {
@@ -160,9 +168,11 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
         sql.push_str(&compiler.push_binding(SqlBinding::Page(offset.clone())));
     }
 
+    debug_assert_eq!(projection.columns.len(), output_shapes.len());
     Ok(SqlQuery {
         sql,
         columns: projection.columns.clone(),
+        output_shapes,
         bindings: compiler.bindings,
     })
 }
@@ -175,20 +185,7 @@ pub(crate) fn compile_row_source(plan: &MatchPlan) -> Result<RowSource> {
     let select = compiler
         .scanned
         .iter()
-        .map(|(slot, kind)| {
-            let alias = compiler.alias(*slot)?;
-            Ok(match kind {
-                EntityKind::Node => format!(
-                    "json_object('id', {alias}.id, 'label', {alias}.label, \
-                     'props', json({alias}.props))"
-                ),
-                EntityKind::Relationship => format!(
-                    "json_object('id', {alias}.id, 'type', {alias}.edge_type, \
-                     'from', {alias}.from_node, 'to', {alias}.to_node, \
-                     'props', json({alias}.props))"
-                ),
-            })
-        })
+        .map(|(slot, kind)| compiler.encoded_entity(*slot, *kind))
         .collect::<Result<Vec<_>>>()?;
     let sql = compiler.select_sql(&select);
 
@@ -326,27 +323,67 @@ impl Compiler {
             .ok_or_else(|| Error::Data(format!("logical slot {} has no SQL scan", slot.0)))
     }
 
-    fn output_expression(&mut self, expression: &Expr) -> Result<String> {
+    fn entity_kind(&self, slot: SlotId) -> Result<EntityKind> {
+        self.scanned
+            .iter()
+            .find_map(|(candidate, kind)| (*candidate == slot).then_some(*kind))
+            .ok_or_else(|| Error::Data(format!("logical slot {} has no entity kind", slot.0)))
+    }
+
+    fn encoded_entity(&self, slot: SlotId, kind: EntityKind) -> Result<String> {
+        let alias = self.alias(slot)?;
+        let record = match kind {
+            EntityKind::Node => format!(
+                "json_object('id', {alias}.id, 'label', {alias}.label, \
+                 'props', json({alias}.props))"
+            ),
+            EntityKind::Relationship => format!(
+                "json_object('id', {alias}.id, 'type', {alias}.edge_type, \
+                 'from', {alias}.from_node, 'to', {alias}.to_node, \
+                 'props', json({alias}.props))"
+            ),
+        };
+        Ok(format!(
+            "CASE WHEN {alias}.id IS NULL THEN 'null' ELSE {record} END"
+        ))
+    }
+
+    fn output_expression(&mut self, expression: &Expr) -> Result<(String, OutputShape)> {
         match expression {
+            Expr::Entity(slot) => {
+                let kind = self.entity_kind(*slot)?;
+                Ok((self.encoded_entity(*slot, kind)?, OutputShape::Entity(kind)))
+            }
             Expr::Property(slot, key) => {
                 let alias = self.alias(*slot)?.to_owned();
                 let path = self.push_binding(SqlBinding::Text(key.clone()));
-                Ok(format!(
-                    "COALESCE({alias}.props -> ('$.' || json_quote({path})), 'null')"
+                Ok((
+                    format!("COALESCE({alias}.props -> ('$.' || json_quote({path})), 'null')"),
+                    OutputShape::Json,
                 ))
             }
-            Expr::ElementId(slot) => Ok(format!("json_quote({}.id)", self.alias(*slot)?)),
-            Expr::RelationshipType(slot) => {
-                Ok(format!("json_quote({}.edge_type)", self.alias(*slot)?))
-            }
+            Expr::ElementId(slot) => Ok((
+                format!("json_quote({}.id)", self.alias(*slot)?),
+                OutputShape::Json,
+            )),
+            Expr::RelationshipType(slot) => Ok((
+                format!("json_quote({}.edge_type)", self.alias(*slot)?),
+                OutputShape::Json,
+            )),
             Expr::Labels(slot) => {
                 let alias = self.alias(*slot)?;
-                Ok(format!(
-                    "CASE WHEN {alias}.label IS NULL THEN '[]' \
-                     ELSE json_array({alias}.label) END"
+                Ok((
+                    format!(
+                        "CASE WHEN {alias}.label IS NULL THEN '[]' \
+                         ELSE json_array({alias}.label) END"
+                    ),
+                    OutputShape::Json,
                 ))
             }
-            Expr::Value(value) => Ok(self.push_binding(SqlBinding::Json(value.clone()))),
+            Expr::Value(value) => Ok((
+                self.push_binding(SqlBinding::Json(value.clone())),
+                OutputShape::Json,
+            )),
             _ => Err(Error::Data(
                 "logical projection contains a non-output expression".into(),
             )),
@@ -355,6 +392,7 @@ impl Compiler {
 
     fn raw_expression(&mut self, expression: &Expr) -> Result<String> {
         match expression {
+            Expr::Entity(_) => Err(Error::Unsupported("graph entities in ORDER BY".to_owned())),
             Expr::Value(value) => Ok(self.push_binding(SqlBinding::Scalar(value.clone()))),
             Expr::Property(slot, key) => {
                 let alias = self.alias(*slot)?.to_owned();
@@ -557,5 +595,29 @@ mod tests {
                 .contains("r1.from_node = n0.id AND r1.to_node = n2.id")
         );
         assert!(!plan.sql.contains("KNOWS"));
+    }
+
+    #[test]
+    fn whole_entities_have_explicit_output_shapes_and_null_guards() {
+        let query = lower::lower("MATCH (a)-[r]->(b) RETURN a AS node, r AS relationship").unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert_eq!(
+            plan.output_shapes,
+            [
+                OutputShape::Entity(EntityKind::Node),
+                OutputShape::Entity(EntityKind::Relationship),
+            ]
+        );
+        assert!(
+            plan.sql
+                .contains("CASE WHEN n0.id IS NULL THEN 'null' ELSE json_object")
+        );
+        assert!(
+            plan.sql
+                .contains("CASE WHEN r1.id IS NULL THEN 'null' ELSE json_object")
+        );
+        assert!(plan.sql.contains("'from', r1.from_node"));
+        assert!(plan.sql.contains("'to', r1.to_node"));
     }
 }

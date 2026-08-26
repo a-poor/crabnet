@@ -602,6 +602,7 @@ impl<'source> Lowerer<'source> {
                 self.resolve_variable(base)?,
                 key.kind.text.clone(),
             )),
+            ExprKind::Variable(_) => Ok(Expr::Entity(self.resolve_variable(expression)?)),
             ExprKind::Function(function) => self.function_expression(function, expression.span),
             ExprKind::Parenthesized(inner) => self.output_expression(inner),
             _ => input_value(expression).map(Expr::Value),

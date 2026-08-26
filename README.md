@@ -7,7 +7,7 @@ SQLite transaction. It is intentionally not a production database or a stable
 library API yet.
 
 ```rust
-use crabnet::{Database, Parameters};
+use crabnet::{CypherValue, Database, Parameters};
 use serde_json::json;
 
 fn main() -> crabnet::Result<()> {
@@ -20,13 +20,22 @@ fn main() -> crabnet::Result<()> {
         &parameters,
     )?;
 
-    let result = graph.execute(
-        "MATCH (person:Person) RETURN person.name AS name",
-    )?;
-    assert_eq!(result.rows, [vec![json!("Ada")]]);
+    let result = graph.execute("MATCH (person:Person) RETURN person")?;
+    let CypherValue::Node(person) = &result.rows[0][0] else {
+        panic!("expected a node")
+    };
+    assert_eq!(person.labels, ["Person"]);
+    assert_eq!(
+        person.properties.get("name"),
+        Some(&CypherValue::String("Ada".into())),
+    );
     Ok(())
 }
 ```
+
+Named parameters and stored properties use JSON-compatible values. Returned
+cells use `CypherValue`, which keeps scalar, list, and map kinds distinct and
+represents whole nodes and relationships without disguising them as maps.
 
 ## Current query slice
 
@@ -46,10 +55,11 @@ Within those shapes, the first iteration supports:
   one type for each created relationship
 - literal maps and named `$parameters` for properties
 - inline property matching and `WHERE` scalar comparisons/boolean expressions
-- scalar-property `RETURN`, aliases, and `elementId`, `labels`, and `type`
-  projections
+- scalar, whole-node, and whole-relationship `RETURN`, aliases, and
+  `elementId`, `labels`, and `type` projections
 - `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only returns
-- JSON null, booleans, integers, floats, strings, lists, and maps with their types preserved
+- typed `CypherValue` result cells for null, booleans, integers, floats,
+  strings, lists, maps, nodes, and relationships
 
 For example, a matched write can connect two existing nodes:
 
@@ -75,8 +85,8 @@ materialization, every mutation, and post-write result evaluation then share
 one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, variable-length
-traversal, `OPTIONAL MATCH`, path bindings, whole-node/relationship results,
-parameter-map matching, `RETURN *`, `SET`, `DELETE`, `MERGE`, `WITH`, `UNION`,
+traversal, path bindings and path result values, `OPTIONAL MATCH`, parameter-map
+matching, `RETURN *`, `SET`, `DELETE`, `MERGE`, `WITH`, `UNION`,
 `RETURN DISTINCT`, and `ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after `CREATE`.
 
 ## Planning and execution

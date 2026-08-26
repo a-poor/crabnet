@@ -8,10 +8,12 @@
 mod database;
 mod error;
 mod planner;
+mod value;
 
 pub use database::Database;
 pub use error::{Error, Result};
 pub use serde_json::Value;
+pub use value::{CypherValue, NodeValue, RelationshipValue};
 
 use std::collections::BTreeMap;
 
@@ -39,6 +41,6 @@ pub struct QuerySummary {
 #[non_exhaustive]
 pub struct QueryResult {
     pub columns: Vec<String>,
-    pub rows: Vec<Vec<Value>>,
+    pub rows: Vec<Vec<CypherValue>>,
     pub summary: QuerySummary,
 }

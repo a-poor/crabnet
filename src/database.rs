@@ -3,9 +3,10 @@ use std::path::Path;
 use rusqlite::{Connection, Transaction, TransactionBehavior, params, params_from_iter};
 
 use crate::{
-    Parameters, QueryResult, QuerySummary, Result,
+    CypherValue, NodeValue, Parameters, QueryResult, QuerySummary, RelationshipValue, Result,
     planner::{
-        self, EntityKind, Plan, ResolvedExpr, ResolvedMutation, ResolvedMutationPlan, SlotId,
+        self, EntityKind, OutputShape, Plan, ResolvedExpr, ResolvedMutation, ResolvedMutationPlan,
+        SlotId,
     },
 };
 
@@ -81,10 +82,10 @@ impl Database {
                 let bindings = plan.resolve_bindings(parameters)?;
                 let mut statement = self.connection.prepare(&plan.sql)?;
                 debug_assert!(statement.readonly());
-                let column_count = plan.columns.len();
+                debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
                 let rows = statement
                     .query_map(params_from_iter(bindings.iter()), |row| {
-                        (0..column_count)
+                        (0..plan.output_shapes.len())
                             .map(|index| row.get::<_, String>(index))
                             .collect::<rusqlite::Result<Vec<_>>>()
                     })?
@@ -92,13 +93,8 @@ impl Database {
                         row.map_err(crate::Error::from).and_then(|values| {
                             values
                                 .into_iter()
-                                .map(|value| {
-                                    serde_json::from_str(&value).map_err(|error| {
-                                        crate::Error::Data(format!(
-                                            "query returned malformed JSON `{value}`: {error}"
-                                        ))
-                                    })
-                                })
+                                .zip(plan.output_shapes.iter().copied())
+                                .map(|(value, shape)| decode_output(&value, shape))
                                 .collect::<Result<Vec<_>>>()
                         })
                     })
@@ -148,11 +144,11 @@ impl Database {
                         input_row.set(
                             &plan.slots,
                             *slot,
-                            EntityValue::Node {
-                                id,
-                                label: label.clone(),
-                                properties: properties.clone(),
-                            },
+                            EntityValue::Node(NodeValue {
+                                element_id: id,
+                                labels: label.iter().cloned().collect(),
+                                properties: cypher_properties(properties.clone())?,
+                            }),
                         )?;
                         summary.nodes_created += 1;
                     }
@@ -176,11 +172,13 @@ impl Database {
                         input_row.set(
                             &plan.slots,
                             *slot,
-                            EntityValue::Relationship {
-                                id,
+                            EntityValue::Relationship(RelationshipValue {
+                                element_id: id,
                                 relationship_type: relationship_type.clone(),
-                                properties: properties.clone(),
-                            },
+                                start_node_element_id: from,
+                                end_node_element_id: to,
+                                properties: cypher_properties(properties.clone())?,
+                            }),
                         )?;
                         summary.relationships_created += 1;
                     }
@@ -214,29 +212,29 @@ impl Database {
 
 #[derive(Clone, Debug)]
 enum EntityValue {
-    Node {
-        id: String,
-        label: Option<String>,
-        properties: serde_json::Value,
-    },
-    Relationship {
-        id: String,
-        relationship_type: String,
-        properties: serde_json::Value,
-    },
+    Node(NodeValue),
+    Relationship(RelationshipValue),
 }
 
 impl EntityValue {
     fn kind(&self) -> EntityKind {
         match self {
-            Self::Node { .. } => EntityKind::Node,
-            Self::Relationship { .. } => EntityKind::Relationship,
+            Self::Node(_) => EntityKind::Node,
+            Self::Relationship(_) => EntityKind::Relationship,
         }
     }
 
-    fn properties(&self) -> &serde_json::Value {
+    fn properties(&self) -> &std::collections::BTreeMap<String, CypherValue> {
         match self {
-            Self::Node { properties, .. } | Self::Relationship { properties, .. } => properties,
+            Self::Node(node) => &node.properties,
+            Self::Relationship(relationship) => &relationship.properties,
+        }
+    }
+
+    fn to_cypher_value(&self) -> CypherValue {
+        match self {
+            Self::Node(node) => CypherValue::Node(node.clone()),
+            Self::Relationship(relationship) => CypherValue::Relationship(relationship.clone()),
         }
     }
 }
@@ -284,47 +282,48 @@ impl ExecutionRow {
 
     fn node_id(&self, slot: SlotId) -> Result<&str> {
         match self.entity(slot)? {
-            EntityValue::Node { id, .. } => Ok(id),
-            EntityValue::Relationship { .. } => Err(crate::Error::Data(format!(
+            EntityValue::Node(node) => Ok(&node.element_id),
+            EntityValue::Relationship(_) => Err(crate::Error::Data(format!(
                 "logical slot {} is not a node",
                 slot.0
             ))),
         }
     }
 
-    fn evaluate(&self, expression: &ResolvedExpr) -> Result<serde_json::Value> {
+    fn evaluate(&self, expression: &ResolvedExpr) -> Result<CypherValue> {
         match expression {
-            ResolvedExpr::Value(value) => Ok(value.clone()),
+            ResolvedExpr::Value(value) => CypherValue::try_from(value),
+            ResolvedExpr::Entity(slot) => Ok(self.entity(*slot)?.to_cypher_value()),
             ResolvedExpr::Property(slot, key) => self
                 .entity(*slot)?
                 .properties()
-                .as_object()
-                .and_then(|properties| properties.get(key))
+                .get(key)
                 .cloned()
-                .map_or(Ok(serde_json::Value::Null), Ok),
+                .map_or(Ok(CypherValue::Null), Ok),
             ResolvedExpr::ElementId(slot) => match self.entity(*slot)? {
-                EntityValue::Node { id, .. } | EntityValue::Relationship { id, .. } => {
-                    Ok(serde_json::Value::String(id.clone()))
+                EntityValue::Node(node) => Ok(CypherValue::String(node.element_id.clone())),
+                EntityValue::Relationship(relationship) => {
+                    Ok(CypherValue::String(relationship.element_id.clone()))
                 }
             },
             ResolvedExpr::Labels(slot) => match self.entity(*slot)? {
-                EntityValue::Node { label, .. } => Ok(serde_json::Value::Array(
-                    label
+                EntityValue::Node(node) => Ok(CypherValue::List(
+                    node.labels
                         .iter()
                         .cloned()
-                        .map(serde_json::Value::String)
+                        .map(CypherValue::String)
                         .collect(),
                 )),
-                EntityValue::Relationship { .. } => Err(crate::Error::Data(format!(
+                EntityValue::Relationship(_) => Err(crate::Error::Data(format!(
                     "logical slot {} is not a node",
                     slot.0
                 ))),
             },
             ResolvedExpr::RelationshipType(slot) => match self.entity(*slot)? {
-                EntityValue::Relationship {
-                    relationship_type, ..
-                } => Ok(serde_json::Value::String(relationship_type.clone())),
-                EntityValue::Node { .. } => Err(crate::Error::Data(format!(
+                EntityValue::Relationship(relationship) => {
+                    Ok(CypherValue::String(relationship.relationship_type.clone()))
+                }
+                EntityValue::Node(_) => Err(crate::Error::Data(format!(
                     "logical slot {} is not a relationship",
                     slot.0
                 ))),
@@ -378,26 +377,56 @@ fn decode_entity(encoded: &str, kind: EntityKind) -> Result<EntityValue> {
 
     match kind {
         EntityKind::Node => {
-            let label = match fields.remove("label") {
-                Some(serde_json::Value::String(label)) => Some(label),
-                Some(serde_json::Value::Null) => None,
+            let labels = match fields.remove("label") {
+                Some(serde_json::Value::String(label)) => vec![label],
+                Some(serde_json::Value::Null) => Vec::new(),
                 _ => {
                     return Err(crate::Error::Data(
                         "matched node has an invalid label".into(),
                     ));
                 }
             };
-            Ok(EntityValue::Node {
-                id,
-                label,
-                properties,
-            })
+            Ok(EntityValue::Node(NodeValue {
+                element_id: id,
+                labels,
+                properties: cypher_properties(properties)?,
+            }))
         }
-        EntityKind::Relationship => Ok(EntityValue::Relationship {
-            id,
+        EntityKind::Relationship => Ok(EntityValue::Relationship(RelationshipValue {
+            element_id: id,
             relationship_type: take_string(&mut fields, "type")?,
-            properties,
-        }),
+            start_node_element_id: take_string(&mut fields, "from")?,
+            end_node_element_id: take_string(&mut fields, "to")?,
+            properties: cypher_properties(properties)?,
+        })),
+    }
+}
+
+fn decode_output(encoded: &str, shape: OutputShape) -> Result<CypherValue> {
+    match shape {
+        OutputShape::Json => {
+            let value = serde_json::from_str::<serde_json::Value>(encoded).map_err(|error| {
+                crate::Error::Data(format!(
+                    "query returned malformed JSON `{encoded}`: {error}"
+                ))
+            })?;
+            CypherValue::try_from(value)
+        }
+        OutputShape::Entity(_) if encoded == "null" => Ok(CypherValue::Null),
+        OutputShape::Entity(kind) => {
+            decode_entity(encoded, kind).map(|value| value.to_cypher_value())
+        }
+    }
+}
+
+fn cypher_properties(
+    properties: serde_json::Value,
+) -> Result<std::collections::BTreeMap<String, CypherValue>> {
+    match CypherValue::try_from(properties)? {
+        CypherValue::Map(properties) => Ok(properties),
+        _ => Err(crate::Error::Data(
+            "entity properties are not a JSON object".into(),
+        )),
     }
 }
 

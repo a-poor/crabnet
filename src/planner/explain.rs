@@ -202,6 +202,7 @@ fn render_projection(renderer: &mut Renderer, projection: &Projection) {
 fn render_expr(expression: &Expr) -> String {
     match expression {
         Expr::Value(value) => render_value_expr(value),
+        Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
         Expr::Property(slot, key) => {
             format!("property({}, {})", slot_name(*slot), quote(key))
         }
@@ -413,5 +414,12 @@ mod tests {
     limit: none
 "#
         );
+    }
+
+    #[test]
+    fn explains_whole_entity_projections() {
+        let explanation = explain_logical("MATCH (node) RETURN node AS result").unwrap();
+
+        assert!(explanation.contains("\"result\" = entity(%0)"));
     }
 }
