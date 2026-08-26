@@ -13,7 +13,7 @@ mod value;
 pub use database::Database;
 pub use error::{Error, Result};
 pub use serde_json::Value;
-pub use value::{CypherValue, NodeValue, RelationshipValue};
+pub use value::{CypherValue, NodeValue, PathValue, RelationshipValue};
 
 use std::collections::BTreeMap;
 

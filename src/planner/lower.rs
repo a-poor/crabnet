@@ -20,8 +20,9 @@ use crate::{Error, Result};
 use super::UnionKind;
 use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    Mutation, Projection, Query, ReadPipeline, ReadStage, RelationshipUse, ScalarSlotId, SlotId,
-    SortDirection, SortItem, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    Mutation, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage, RelationshipUse,
+    ScalarSlotId, SlotId, SortDirection, SortItem, TraversalId, UnaryOp, UnwindStage, ValueExpr,
+    WithBinding, WithStage,
 };
 
 pub(super) const MAX_BOUNDED_TRAVERSAL_DEPTH: usize = 32;
@@ -224,6 +225,7 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
     Ok(Query {
         slots: lowerer.slots,
         scalar_slots: lowerer.scalar_slots,
+        path_slots: lowerer.path_slots,
         input,
         mutations: lowerer.mutations,
         projection,
@@ -305,6 +307,7 @@ fn lower_matched_mutation_query(
     Ok(Query {
         slots: lowerer.slots,
         scalar_slots: lowerer.scalar_slots,
+        path_slots: lowerer.path_slots,
         input: Input::Match(input),
         mutations: lowerer.mutations,
         projection,
@@ -358,6 +361,7 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
     Ok(Query {
         slots: lowerer.slots,
         scalar_slots: lowerer.scalar_slots,
+        path_slots: lowerer.path_slots,
         input: Input::Pipeline(ReadPipeline { stages }),
         mutations: Vec::new(),
         projection: Some(projection),
@@ -368,6 +372,12 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
 enum Symbol {
     Entity(SlotId),
     Scalar(ScalarSlotId),
+    Path(PathId),
+}
+
+struct MatchedPath {
+    start: SlotId,
+    segments: Vec<PathSegment>,
 }
 
 struct Lowerer<'source> {
@@ -375,6 +385,7 @@ struct Lowerer<'source> {
     slots: Vec<EntityKind>,
     scalar_slots: usize,
     traversal_slots: usize,
+    path_slots: usize,
     symbols: HashMap<String, Symbol>,
     mutations: Vec<Mutation>,
 }
@@ -386,6 +397,7 @@ impl<'source> Lowerer<'source> {
             slots: Vec::new(),
             scalar_slots: 0,
             traversal_slots: 0,
+            path_slots: 0,
             symbols: HashMap::new(),
             mutations: Vec::new(),
         }
@@ -413,6 +425,12 @@ impl<'source> Lowerer<'source> {
         traversal
     }
 
+    fn allocate_path(&mut self) -> PathId {
+        let path = PathId(self.path_slots);
+        self.path_slots += 1;
+        path
+    }
+
     fn match_clause(&mut self, match_clause: &MatchClause) -> Result<MatchPlan> {
         if match_clause.mode.is_some() || !match_clause.hints.is_empty() {
             return Err(unsupported(
@@ -422,10 +440,26 @@ impl<'source> Lowerer<'source> {
         }
         let mut plan = MatchPlan::default();
         for part in &match_clause.pattern.parts {
-            if part.kind.binding.is_some() || part.kind.selector.is_some() {
-                return Err(unsupported(part.span, "path bindings and selectors"));
+            if part.kind.selector.is_some() {
+                return Err(unsupported(part.span, "path selectors"));
             }
-            self.match_path(&mut plan, &part.kind.path.kind.factors, part.span)?;
+            let matched = self.match_path(&mut plan, &part.kind.path.kind.factors, part.span)?;
+            if let Some(binding) = &part.kind.binding {
+                let name = &binding.kind.text;
+                if self.symbols.contains_key(name) {
+                    return Err(semantic(
+                        binding.span,
+                        format!("path variable `{name}` is already bound"),
+                    ));
+                }
+                let path = self.allocate_path();
+                self.symbols.insert(name.clone(), Symbol::Path(path));
+                plan.operators.push(MatchOperator::BindPath {
+                    path,
+                    start: matched.start,
+                    segments: matched.segments,
+                });
+            }
         }
         if let Some(predicate) = &match_clause.where_clause {
             plan.operators
@@ -439,7 +473,7 @@ impl<'source> Lowerer<'source> {
         plan: &mut MatchPlan,
         factors: &[PathFactor],
         span: Span,
-    ) -> Result<()> {
+    ) -> Result<MatchedPath> {
         let Some(first) = factors.first() else {
             return Err(semantic(span, "a MATCH path cannot be empty"));
         };
@@ -450,6 +484,8 @@ impl<'source> Lowerer<'source> {
             ));
         };
         let mut left = self.match_node(plan, first_node, first.span)?;
+        let start = left;
+        let mut segments = Vec::new();
         let mut relationships = Vec::new();
         let mut remaining = &factors[1..];
         while !remaining.is_empty() {
@@ -550,6 +586,11 @@ impl<'source> Lowerer<'source> {
                 ));
             }
             relationships.push(relationship_use);
+            segments.push(PathSegment {
+                left,
+                relationship: relationship_use,
+                right,
+            });
             left = right;
             remaining = rest;
         }
@@ -557,7 +598,7 @@ impl<'source> Lowerer<'source> {
             plan.operators
                 .push(MatchOperator::DistinctRelationships(relationships));
         }
-        Ok(())
+        Ok(MatchedPath { start, segments })
     }
 
     fn match_node(
@@ -949,6 +990,10 @@ impl<'source> Lowerer<'source> {
                 name.span,
                 format!("scalar variable `{}` is not a graph entity", name.kind.text),
             )),
+            Symbol::Path(_) => Err(semantic(
+                name.span,
+                format!("path variable `{}` is not a graph entity", name.kind.text),
+            )),
         }
     }
 
@@ -1033,6 +1078,14 @@ impl<'source> Lowerer<'source> {
                     projected_symbols.insert(name.clone(), Symbol::Entity(slot));
                     aliases.insert(name, Expr::Entity(slot));
                 }
+                Expr::Path(path) => {
+                    bindings.push(WithBinding::Path {
+                        name: name.clone(),
+                        path,
+                    });
+                    projected_symbols.insert(name.clone(), Symbol::Path(path));
+                    aliases.insert(name, Expr::Path(path));
+                }
                 expression => {
                     let slot = self.allocate_scalar();
                     bindings.push(WithBinding::Scalar {
@@ -1057,10 +1110,21 @@ impl<'source> Lowerer<'source> {
             .iter()
             .map(|binding| match binding {
                 WithBinding::Entity { slot, .. } => Expr::Entity(*slot),
+                WithBinding::Path { path, .. } => Expr::Path(*path),
                 WithBinding::Scalar { expression, .. } => expression.clone(),
             })
             .collect::<Vec<_>>();
         let aggregating = binding_expressions.iter().any(Expr::contains_aggregate);
+        if aggregating
+            && binding_expressions
+                .iter()
+                .any(|expression| matches!(expression, Expr::Path(_)))
+        {
+            return Err(unsupported(
+                projection.span,
+                "path values in aggregating WITH projections",
+            ));
+        }
         let grouping = implicit_grouping(&binding_expressions);
         if aggregating {
             validate_aggregate_scope(&binding_expressions, &grouping, projection.span)?;
@@ -1183,6 +1247,16 @@ impl<'source> Lowerer<'source> {
         }
 
         let aggregating = expressions.iter().any(Expr::contains_aggregate);
+        if aggregating
+            && expressions
+                .iter()
+                .any(|expression| matches!(expression, Expr::Path(_)))
+        {
+            return Err(unsupported(
+                projection.span,
+                "path values in aggregating RETURN projections",
+            ));
+        }
         let grouping = implicit_grouping(&expressions);
         let order_by = self.order_by(&projection.order_by, &aliases, distinct, &expressions)?;
         if !aggregating
@@ -1291,6 +1365,7 @@ impl<'source> Lowerer<'source> {
                 match self.resolve_symbol(variable)? {
                     Symbol::Entity(slot) => Ok(Expr::Entity(slot)),
                     Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
+                    Symbol::Path(path) => Ok(Expr::Path(path)),
                 }
             }
             ExprKind::Function(function) => {
@@ -1420,10 +1495,10 @@ impl<'source> Lowerer<'source> {
             ExprKind::Variable(variable) => {
                 if let Some(expression) = aliases.get(&variable.kind.text) {
                     return match expression {
-                        Expr::Entity(_) => Err(semantic(
+                        Expr::Entity(_) | Expr::Path(_) => Err(semantic(
                             variable.span,
                             format!(
-                                "graph variable `{}` is not a scalar expression",
+                                "graph or path variable `{}` is not a scalar expression",
                                 variable.kind.text
                             ),
                         )),
@@ -1436,6 +1511,13 @@ impl<'source> Lowerer<'source> {
                         variable.span,
                         format!(
                             "graph variable `{}` is not a scalar expression",
+                            variable.kind.text
+                        ),
+                    )),
+                    Symbol::Path(_) => Err(semantic(
+                        variable.span,
+                        format!(
+                            "path variable `{}` is not a scalar expression",
                             variable.kind.text
                         ),
                     )),
@@ -1527,6 +1609,9 @@ impl<'source> Lowerer<'source> {
                     "whole entities in aggregates other than count()",
                 ));
             }
+            if matches!(argument, Expr::Path(_)) {
+                return Err(unsupported(span, "path values in aggregate functions"));
+            }
             if distinct && kind == AggregateKind::Collect {
                 return Err(unsupported(span, "collect(DISTINCT ...)"));
             }
@@ -1587,6 +1672,13 @@ impl<'source> Lowerer<'source> {
                     variable.kind.text
                 ),
             )),
+            Symbol::Path(_) => Err(semantic(
+                variable.span,
+                format!(
+                    "path variable `{}` cannot be used as a graph entity",
+                    variable.kind.text
+                ),
+            )),
         }
     }
 
@@ -1600,6 +1692,13 @@ impl<'source> Lowerer<'source> {
                 variable.span,
                 format!(
                     "scalar variable `{}` does not have graph properties",
+                    variable.kind.text
+                ),
+            )),
+            Symbol::Path(_) => Err(semantic(
+                variable.span,
+                format!(
+                    "path variable `{}` does not have graph properties",
                     variable.kind.text
                 ),
             )),

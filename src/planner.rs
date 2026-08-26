@@ -118,6 +118,12 @@ fn compile_logical(query: Query) -> Result<Plan> {
             .map(Plan::Read);
     }
 
+    if query.path_slots > 0 {
+        return Err(Error::Unsupported(
+            "writes fed by named path bindings".into(),
+        ));
+    }
+
     let input = match &query.input {
         Input::Unit => None,
         Input::Match(plan) => Some(sqlite::compile_row_source(plan)?),

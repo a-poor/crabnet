@@ -1,12 +1,16 @@
-use std::{collections::BTreeSet, path::Path};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 
 use rusqlite::{
-    Connection, Transaction, TransactionBehavior, functions::FunctionFlags, params,
-    params_from_iter,
+    Connection, OptionalExtension, Transaction, TransactionBehavior, functions::FunctionFlags,
+    params, params_from_iter,
 };
 
 use crate::{
-    CypherValue, NodeValue, Parameters, QueryResult, QuerySummary, RelationshipValue, Result,
+    CypherValue, NodeValue, Parameters, PathValue, QueryResult, QuerySummary, RelationshipValue,
+    Result,
     planner::{
         self, EntityKind, OutputShape, Plan, ReadPlan, ResolvedExpr, ResolvedMutation,
         ResolvedMutationPlan, SlotId, SqlQuery, UnionKind,
@@ -126,23 +130,30 @@ impl Database {
     ) -> Result<Vec<Vec<CypherValue>>> {
         let bindings = plan.resolve_bindings(parameters)?;
         let post_pagination = plan.resolve_post_pagination(parameters)?;
-        let mut statement = self.connection.prepare(&plan.sql)?;
-        debug_assert!(statement.readonly());
         debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
-        let mut rows = statement
-            .query_map(params_from_iter(bindings.iter()), |row| {
-                (0..plan.output_shapes.len())
-                    .map(|index| row.get::<_, String>(index))
-                    .collect::<rusqlite::Result<Vec<_>>>()
-            })?
-            .map(|row| {
-                row.map_err(crate::Error::from).and_then(|values| {
-                    values
-                        .into_iter()
-                        .zip(plan.output_shapes.iter().copied())
-                        .map(|(value, shape)| decode_output(&value, shape))
-                        .collect::<Result<Vec<_>>>()
-                })
+        // Finish and drop the result cursor before path hydration issues any
+        // follow-up reads on this connection. This is the first explicit
+        // SQLite-to-Rust operator boundary in the execution pipeline.
+        let encoded_rows = {
+            let mut statement = self.connection.prepare(&plan.sql)?;
+            debug_assert!(statement.readonly());
+            statement
+                .query_map(params_from_iter(bindings.iter()), |row| {
+                    (0..plan.output_shapes.len())
+                        .map(|index| row.get::<_, String>(index))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        let mut hydrator = PathHydrator::new(&self.connection);
+        let mut rows = encoded_rows
+            .into_iter()
+            .map(|values| {
+                values
+                    .into_iter()
+                    .zip(plan.output_shapes.iter().copied())
+                    .map(|(value, shape)| decode_output(&value, shape, &mut hydrator))
+                    .collect::<Result<Vec<_>>>()
             })
             .collect::<Result<Vec<_>>>()?;
         if plan.distinct() {
@@ -478,6 +489,20 @@ fn cypher_values_equivalent(left: &CypherValue, right: &CypherValue) -> bool {
         (CypherValue::Relationship(left), CypherValue::Relationship(right)) => {
             left.element_id == right.element_id
         }
+        (CypherValue::Path(left), CypherValue::Path(right)) => {
+            left.nodes.len() == right.nodes.len()
+                && left.relationships.len() == right.relationships.len()
+                && left
+                    .nodes
+                    .iter()
+                    .zip(&right.nodes)
+                    .all(|(left, right)| left.element_id == right.element_id)
+                && left
+                    .relationships
+                    .iter()
+                    .zip(&right.relationships)
+                    .all(|(left, right)| left.element_id == right.element_id)
+        }
         _ => false,
     }
 }
@@ -708,7 +733,199 @@ fn decode_entity(encoded: &str, kind: EntityKind) -> Result<EntityValue> {
     }
 }
 
-fn decode_output(encoded: &str, shape: OutputShape) -> Result<CypherValue> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PathIdentity {
+    node_ids: Vec<String>,
+    relationship_ids: Vec<String>,
+}
+
+struct PathHydrator<'connection> {
+    connection: &'connection Connection,
+    nodes: HashMap<String, NodeValue>,
+    relationships: HashMap<String, RelationshipValue>,
+}
+
+impl<'connection> PathHydrator<'connection> {
+    fn new(connection: &'connection Connection) -> Self {
+        Self {
+            connection,
+            nodes: HashMap::new(),
+            relationships: HashMap::new(),
+        }
+    }
+
+    fn hydrate(&mut self, identity: PathIdentity) -> Result<PathValue> {
+        let mut nodes = Vec::with_capacity(identity.node_ids.len());
+        for id in identity.node_ids {
+            nodes.push(self.node(&id)?);
+        }
+        let mut relationships = Vec::with_capacity(identity.relationship_ids.len());
+        for id in identity.relationship_ids {
+            relationships.push(self.relationship(&id)?);
+        }
+        if nodes.len() != relationships.len() + 1 {
+            return Err(crate::Error::Data(
+                "hydrated path violates the node/relationship cardinality invariant".into(),
+            ));
+        }
+        for (index, relationship) in relationships.iter().enumerate() {
+            let left = &nodes[index].element_id;
+            let right = &nodes[index + 1].element_id;
+            let connects_in_storage_order = relationship.start_node_element_id == *left
+                && relationship.end_node_element_id == *right;
+            let connects_against_storage_order = relationship.start_node_element_id == *right
+                && relationship.end_node_element_id == *left;
+            if !connects_in_storage_order && !connects_against_storage_order {
+                return Err(crate::Error::Data(format!(
+                    "path relationship `{}` does not connect adjacent nodes `{left}` and `{right}`",
+                    relationship.element_id
+                )));
+            }
+        }
+        Ok(PathValue {
+            nodes,
+            relationships,
+        })
+    }
+
+    fn node(&mut self, id: &str) -> Result<NodeValue> {
+        if let Some(node) = self.nodes.get(id) {
+            return Ok(node.clone());
+        }
+        let encoded = self
+            .connection
+            .query_row(
+                "SELECT json_object(
+                    'id', id, 'label', label, 'props', json(props)
+                 ) FROM nodes WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| crate::Error::Data(format!("path references missing node `{id}`")))?;
+        let EntityValue::Node(node) = decode_entity(&encoded, EntityKind::Node)? else {
+            unreachable!("node decoder always returns a node")
+        };
+        self.nodes.insert(id.to_owned(), node.clone());
+        Ok(node)
+    }
+
+    fn relationship(&mut self, id: &str) -> Result<RelationshipValue> {
+        if let Some(relationship) = self.relationships.get(id) {
+            return Ok(relationship.clone());
+        }
+        let encoded = self
+            .connection
+            .query_row(
+                "SELECT json_object(
+                    'id', id, 'type', edge_type, 'from', from_node,
+                    'to', to_node, 'props', json(props)
+                 ) FROM edges WHERE id = ?1",
+                params![id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| {
+                crate::Error::Data(format!("path references missing relationship `{id}`"))
+            })?;
+        let EntityValue::Relationship(relationship) =
+            decode_entity(&encoded, EntityKind::Relationship)?
+        else {
+            unreachable!("relationship decoder always returns a relationship")
+        };
+        self.relationships
+            .insert(id.to_owned(), relationship.clone());
+        Ok(relationship)
+    }
+}
+
+fn decode_path_identity(encoded: &str) -> Result<PathIdentity> {
+    let value = serde_json::from_str::<serde_json::Value>(encoded).map_err(|error| {
+        crate::Error::Data(format!("query returned a malformed path identity: {error}"))
+    })?;
+    let serde_json::Value::Object(mut path) = value else {
+        return Err(crate::Error::Data(
+            "query returned a path identity that is not an object".into(),
+        ));
+    };
+    let Some(serde_json::Value::Array(segments)) = path.remove("segments") else {
+        return Err(crate::Error::Data(
+            "query returned a path identity without a segment array".into(),
+        ));
+    };
+    if segments.is_empty() {
+        return Err(crate::Error::Data(
+            "query returned a path identity without any segments".into(),
+        ));
+    }
+
+    let mut node_ids = Vec::new();
+    let mut relationship_ids = Vec::new();
+    for (index, segment) in segments.into_iter().enumerate() {
+        let serde_json::Value::Object(mut segment) = segment else {
+            return Err(crate::Error::Data(format!(
+                "path segment {index} is not an object"
+            )));
+        };
+        let nodes = take_string_array(&mut segment, "nodes", index)?;
+        let relationships = take_string_array(&mut segment, "relationships", index)?;
+        if nodes.is_empty() || nodes.len() != relationships.len() + 1 {
+            return Err(crate::Error::Data(format!(
+                "path segment {index} violates the node/relationship cardinality invariant"
+            )));
+        }
+        if let Some(previous) = node_ids.last()
+            && previous != &nodes[0]
+        {
+            return Err(crate::Error::Data(format!(
+                "path segment {index} does not continue from the previous segment"
+            )));
+        }
+        if node_ids.is_empty() {
+            node_ids.extend(nodes);
+        } else {
+            node_ids.extend(nodes.into_iter().skip(1));
+        }
+        relationship_ids.extend(relationships);
+    }
+
+    if node_ids.len() != relationship_ids.len() + 1 {
+        return Err(crate::Error::Data(
+            "path identity violates the node/relationship cardinality invariant".into(),
+        ));
+    }
+    Ok(PathIdentity {
+        node_ids,
+        relationship_ids,
+    })
+}
+
+fn take_string_array(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    segment: usize,
+) -> Result<Vec<String>> {
+    let Some(serde_json::Value::Array(values)) = fields.remove(key) else {
+        return Err(crate::Error::Data(format!(
+            "path segment {segment} is missing `{key}`"
+        )));
+    };
+    values
+        .into_iter()
+        .map(|value| match value {
+            serde_json::Value::String(value) => Ok(value),
+            _ => Err(crate::Error::Data(format!(
+                "path segment {segment} contains a non-string `{key}` entry"
+            ))),
+        })
+        .collect()
+}
+
+fn decode_output(
+    encoded: &str,
+    shape: OutputShape,
+    hydrator: &mut PathHydrator<'_>,
+) -> Result<CypherValue> {
     match shape {
         OutputShape::Json => {
             let value = serde_json::from_str::<serde_json::Value>(encoded).map_err(|error| {
@@ -722,6 +939,9 @@ fn decode_output(encoded: &str, shape: OutputShape) -> Result<CypherValue> {
         OutputShape::Entity(kind) => {
             decode_entity(encoded, kind).map(|value| value.to_cypher_value())
         }
+        OutputShape::Path => decode_path_identity(encoded)
+            .and_then(|identity| hydrator.hydrate(identity))
+            .map(CypherValue::Path),
     }
 }
 

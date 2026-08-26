@@ -35,12 +35,13 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Comma-separated patterns / bag multiplicity | Covered | Disconnected Cartesian products and repeated node bindings in `disconnected_patterns_preserve_cartesian_multiplicity` and `repeated_node_variables_reuse_the_same_binding` |
 | Relationship uniqueness within one path | Covered | Fixed positions and bounded traversal segments cannot reuse a stored relationship in the same path. Traversal uniqueness tracks edge IDs rather than nodes, including across mixed fixed/quantified segments; see `one_relationship_cannot_fill_two_positions_in_a_path`, `cycles_may_revisit_nodes_but_may_not_reuse_an_edge`, and `fixed_and_quantified_segments_cannot_reuse_the_same_relationship` |
 | Multiple labels/types and boolean label expressions | Rejected | Storage and lowering currently require at most one node label and one relationship type |
-| Bounded legacy variable-length relationships | Covered | Mandatory read-only `MATCH` supports anonymous `*n`, `*min..max`, and `*..max` forms through depth 32 in outgoing, incoming, and undirected directions. Endpoint-only results, zero-hop identity, empty reversed ranges, types, per-hop inline properties, cycles, self-loops, diamonds, parallel edges, composition, and multiplicity are covered in `bounded_traversal.rs` |
-| Other variable-length and path forms | Rejected | Unbounded traversal, postfix graph quantifiers, named relationship lists, path values/bindings/selectors, quantified `OPTIONAL MATCH`, and traversal-fed writes fail during planning |
+| Bounded legacy variable-length relationships | Covered | Mandatory read-only `MATCH` supports anonymous `*n`, `*min..max`, and `*..max` forms through depth 32 in outgoing, incoming, and undirected directions. Endpoint and named-path results, zero-hop identity, empty reversed ranges, types, per-hop inline properties, cycles, self-loops, diamonds, parallel edges, composition, and multiplicity are covered in `bounded_traversal.rs` and `path_values.rs` |
+| Named path bindings and values | Partial | Mandatory read-only fixed, bounded, and mixed patterns may bind a path and return it as `CypherValue::Path(PathValue)`. Traversal order, zero-hop values, reverse stored direction, direct `WITH` aliases, `RETURN DISTINCT`, and `UNION` are covered in `path_values.rs`. Path functions/property access, scalar/aggregate/order/group use, optional-bound paths, selectors, relationship-list bindings, and writes fed by a named path are rejected |
+| Other variable-length and path forms | Rejected | Unbounded or deeper traversal, postfix graph quantifiers, named relationship lists, path selectors, quantified `OPTIONAL MATCH`, and traversal-fed writes fail during planning |
 | `OPTIONAL MATCH` | Covered | Fixed-length optional patterns null-extend the complete introduced pattern, preserve outer rows and bag multiplicity, and keep optional `WHERE` predicates in the join condition; see `optional_match.rs`. Quantified optional patterns, match modes, and hints remain rejected |
-| Read-only `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, aggregation, and later `MATCH`/`UNWIND`/`OPTIONAL MATCH` stages are covered. `WITH ALL` is accepted. `WITH DISTINCT`, `WITH *`, unaliased computed expressions, and writes anywhere in the pipeline remain rejected |
+| Read-only `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/path/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, aggregation, and later `MATCH`/`UNWIND`/`OPTIONAL MATCH` stages are covered. `WITH ALL` is accepted. Path support is limited to direct aliases. `WITH DISTINCT`, `WITH *`, unaliased computed expressions, and writes anywhere in the pipeline remain rejected |
 | `UNWIND` | Covered | Literal, parameter, property, and prior-aggregate lists expand with bag semantics; null, empty, and non-list runtime values produce no rows. Scope and composition cases are covered in `unwind.rs` |
-| `UNION`, `UNION DISTINCT`, `UNION ALL` | Covered | Read-only branches are independently planned and must return the same column names in the same positions. `ALL` preserves duplicates; default/`DISTINCT` use recursive typed row equivalence in Rust. Mixed operators apply left-to-right; see `union.rs` |
+| `UNION`, `UNION DISTINCT`, `UNION ALL` | Covered | Read-only branches are independently planned and must return the same column names in the same positions. `ALL` preserves duplicates; default/`DISTINCT` use recursive typed row equivalence in Rust, including ordered path identity. Mixed operators apply left-to-right; see `union.rs` and `path_values.rs` |
 
 ## Expressions and projection
 
@@ -62,12 +63,12 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `elementId()`, `labels()`, `type()` | Covered | Read and post-create results plus arity, argument, unknown-variable, and wrong-kind diagnostics are covered |
 | Whole node and relationship values | Covered | `CypherValue::Node` and `CypherValue::Relationship` preserve labels/types, recursive properties, opaque IDs, and stored-direction endpoints for reads, writes, unlabeled nodes, and reverse traversal; see `entity_values.rs` |
 | Ordinary maps versus graph entities | Covered | Entity-shaped map data remains `CypherValue::Map` in `an_entity_shaped_map_remains_a_map` |
-| Whole path values | Rejected | `CypherValue` has no path representation yet, and path bindings remain unsupported |
-| Read-only `RETURN DISTINCT` | Covered | Full projected rows are decoded and semantically deduplicated in Rust; recursive numeric equivalence, nulls, booleans, entity identity, pagination order, and projected-only `ORDER BY` are covered in `arithmetic_and_distinct.rs` |
+| Whole path values | Partial | Public `PathValue` contains traversal-ordered nodes and relationships. Fixed, bounded, mixed, and zero-hop mandatory paths are covered; path functions/property access and use as scalar, aggregate, grouping, or ordering expressions remain rejected |
+| Read-only `RETURN DISTINCT` | Covered | Full projected rows are decoded and semantically deduplicated in Rust; recursive numeric equivalence, nulls, booleans, entity identity, ordered path identity, pagination order, and projected-only `ORDER BY` are covered in `arithmetic_and_distinct.rs` and `path_values.rs` |
 | Aggregation and implicit grouping | Covered | Top-level `count`, `sum`, `avg`, `min`, `max`, and `collect` work in `RETURN` and `WITH`; non-aggregate row-dependent projection items are grouping keys. Empty inputs, aliases, grouping scope, typed extrema/numerics, and chained stages are covered in `aggregation.rs` and `aggregation_edges.rs` |
 | Aggregate modifiers and unsupported forms | Partial | `count(DISTINCT expression)` and explicit `ALL` are covered. `DISTINCT` on other aggregates, collection of whole entities, nested aggregates, aggregates inside larger projection expressions, and aggregation after mutations are rejected during planning |
 | `RETURN *` | Rejected | Wildcard projection is not implemented yet |
-| General scalar/list/map functions | Rejected | Only the three graph functions above are recognized |
+| General scalar/list/map/path functions | Rejected | Only the three graph functions above are recognized; `length(path)`, `nodes(path)`, and `relationships(path)` are not implemented |
 
 ## Writes and execution guarantees
 
@@ -88,10 +89,10 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `MERGE` and `ON CREATE` / `ON MATCH` | Rejected | No match-or-create operator exists yet |
 | Undirected or untyped relationship creation | Rejected | Creation requires exactly one type and a concrete direction |
 | Writes in a `WITH` pipeline | Rejected | The composable clause pipeline is read-only; a mutation clause anywhere in it fails during planning |
-| Writes fed by variable-length traversal | Rejected | A mutation whose matched input contains a bounded traversal fails before execution and cannot leave side effects (`writes_fed_by_quantified_match_are_rejected_without_side_effects`) |
+| Writes fed by traversal or named paths | Rejected | A mutation whose matched input contains a bounded traversal or any named path fails before execution and cannot leave side effects (`writes_fed_by_quantified_match_are_rejected_without_side_effects` and `path_values.rs`) |
 | Computed projections and projection modifiers after mutations | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
-| Normalized logical-plan explanation | Covered | `crabnet::explain` renders `MATCH`/`OPTIONAL MATCH`/`WITH`/`UNWIND` stages, bounded traversal ranges, aggregate expressions, union branches, scopes, graph operators, and projections without depending on incidental backend aliases |
-| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders generated SQL/CTEs, recursive traversal CTEs, optional left joins, union branches, bind positions, and Rust semantic-distinct/pagination stages; mutation pipelines are not accepted by this debug view |
+| Normalized logical-plan explanation | Covered | `crabnet::explain` renders `MATCH`/`OPTIONAL MATCH`/`WITH`/`UNWIND` stages, named-path bindings, bounded traversal ranges, aggregate expressions, union branches, scopes, graph operators, and projections without depending on incidental backend aliases |
+| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders generated SQL/CTEs, recursive traversal CTEs, path slots and Rust hydration, optional left joins, union branches, bind positions, and semantic-distinct/pagination stages; mutation pipelines are not accepted by this debug view |
 
 ## Prioritized next-test backlog
 
@@ -102,9 +103,10 @@ move the row into the matrix when green.
 1. The parser gap for a labeled node immediately following a relationship-local
    `WHERE` predicate; promote the existing partial coverage after the parser accepts it.
 2. Relationship-property matching across boolean/numeric and nested structured values.
-3. A hybrid-executor acceptance case that crosses an explicit SQLite/Rust
-   operator boundary without losing scope, order, nulls, or bag multiplicity.
-4. Path-value and relationship-list result contracts once milestone 8 adds
-   their public value representation.
+3. Path functions (`length`, `nodes`, and `relationships`) plus the separate
+   relationship-list binding/result contract.
+4. Batch path hydration after identity-level deduplication, with one shared
+   deferred read snapshot across union branches; concurrent external writers
+   remain outside the current project goals.
 5. Curated openCypher TCK and differential tests after the selected scenarios' setup
    clauses and any required path values can be represented faithfully.

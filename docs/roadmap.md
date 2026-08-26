@@ -29,13 +29,16 @@ Crabnet already has more than a greenfield skeleton:
   string predicates, arithmetic, semantic distinctness, ordering, pagination,
   and named parameters cover a useful read subset;
 - read-only queries can cross standalone or chained `WITH` boundaries, carrying
-  explicitly projected entity and scalar bindings into later `MATCH` and
-  `RETURN` clauses while enforcing scope loss;
+  explicitly projected entity, path, and scalar bindings into later clauses
+  while enforcing scope loss;
 - aggregation/grouping, list expansion, query unions, and fixed-length optional
   matching compose through that read pipeline with explicit bag, type, and
   null-extension semantics;
 - anonymous legacy bounded traversal compiles to recursive SQLite CTEs with an
   explicit maximum depth, endpoint results, and per-path edge uniqueness;
+- mandatory read-only fixed, bounded, and mixed patterns can bind public typed
+  paths, including zero-hop values; SQLite carries ordered IDs and Rust
+  hydrates them after cursor materialization;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically;
 - matched node and relationship properties support direct `SET`/`REMOVE` plus
@@ -45,9 +48,10 @@ Crabnet already has more than a greenfield skeleton:
 - unsupported, semantic, parse, data, and missing-parameter failures are
   distinguished.
 
-The current executor is already a small hybrid: SQLite materializes match rows
-and Rust applies mutations. We should grow that design instead of restarting
-from a read-only architecture.
+The current executor is already a hybrid: SQLite materializes match rows and
+compact path identities, while Rust hydrates paths, applies semantic
+distinctness/unions, and executes mutations. We should grow that design instead
+of restarting from a read-only architecture.
 
 ## Design principles
 
@@ -117,7 +121,8 @@ multiplicity, and boundary coverage where applicable.
 
 Gate complete: `MATCH (n) RETURN n`, relationship equivalents, and post-create
 returns round-trip without confusing graph entities with ordinary maps. Path
-values remain deliberately deferred to the hybrid-execution milestone.
+values were deliberately deferred here and entered their first supported slice
+in milestone 8.
 
 ### 3. Finish the fixed-length read core — complete
 
@@ -146,8 +151,10 @@ silently coerced.
 - Read-only `MATCH` and `WITH` clauses are composable logical stages rather
   than one hard-coded read shape; standalone and chained `WITH` queries are
   supported.
-- `WITH` carries explicitly projected entity and scalar bindings, supports
-  aliases and scope loss, and can feed a subsequent `MATCH` or final `RETURN`.
+- `WITH` carries explicitly projected bindings, supports aliases and scope
+  loss, and can feed a subsequent `MATCH` or final `RETURN`. This milestone
+  established entity/scalar transport; direct path aliases joined it in
+  milestone 8.
 - A `WITH`-local `WHERE` can use projected aliases and incoming variables; only
   the projected bindings survive into the next clause. `ORDER BY`,
   `SKIP`/`OFFSET`, and `LIMIT` are applied at that boundary.
@@ -162,7 +169,8 @@ silently coerced.
 Gate complete: `tests/with_pipeline.rs` covers standalone and chained stages,
 entity/scalar aliases, scope loss, filtering, intermediate pagination, later
 matching, consecutive `MATCH` stages, parameters, empty input, multiplicity,
-and structured rejection.
+and structured rejection. Direct path aliases are covered separately in
+`tests/path_values.rs`.
 Multi-stage queries are inspectable through `crabnet::explain` and
 `crabnet::explain_physical`.
 
@@ -228,25 +236,39 @@ propagation, and structured rejection boundaries.
   self-loops, diamonds, parallel edges, and dead ends, and compose with the
   existing read pipeline and aggregation.
 - Unbounded traversal, postfix graph quantifiers, named relationship lists,
-  path values/bindings/selectors, quantified `OPTIONAL MATCH`, and
-  traversal-fed writes remain structured rejections.
+  path selectors, quantified `OPTIONAL MATCH`, and traversal-fed writes remain
+  structured rejections. Named path values were deferred at this gate and now
+  have their first supported subset in milestone 8.
 
 Gate complete: `tests/bounded_traversal.rs` covers bounds, directions,
 properties, identity paths, adversarial graph shapes, edge-trail uniqueness,
 composition, explicit resource limits, and rejection boundaries.
 
-### 8. Generalize hybrid execution
+### 8. Generalize hybrid execution — in progress
 
 - Generalize the matched-write row executor into SQL fragments connected by
   streaming or materialized Rust operators.
-- Add path values, deep/unbounded traversal, `shortestPath`, and
-  `allShortestPaths` where Rust graph algorithms are clearer than SQL.
+- The first slice is green: mandatory read-only fixed, bounded, and mixed
+  patterns bind public `PathValue` results, including zero-hop paths. Direct
+  `WITH` aliases, `RETURN DISTINCT`, and `UNION` preserve ordered node and
+  relationship identity.
+- SQLite emits compact ordered IDs and Rust hydrates them after cursor
+  materialization. Per-query caches avoid repeated entity lookups within each
+  SQL branch. Hydration still occurs before identity-level `DISTINCT`/`UNION`
+  deduplication, and branches do not yet share a deferred read snapshot.
+- Next, batch hydration after identity-level deduplication and use one shared
+  deferred read snapshot, then add path functions/expressions and a distinct
+  relationship-list binding contract.
+- Add deep/unbounded traversal, `shortestPath`, and `allShortestPaths` where
+  Rust graph algorithms are clearer than SQL. Optional-bound paths, selectors,
+  and writes fed by a named path remain explicit rejections meanwhile.
 - Implement `MERGE` last as transactional whole-pattern match/create behavior,
   not as a misleading single-row SQLite upsert.
 - Render SQL/Rust boundaries in the physical plan.
 
 Gate: a query can mix pushable and Rust-executed operators without changing
-scope, ordering, null, or bag semantics.
+scope, ordering, null, or bag semantics. This gate is not complete. Concurrent
+external-writer semantics remain a non-goal.
 
 ### 9. Conformance and optimization
 
@@ -263,11 +285,10 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the typed-value, fixed-length-read, clause-pipeline, matched-mutation,
-query-composition, and bounded-traversal gates from milestones 2–7 complete,
-the next active work is milestone 8: generalizing hybrid execution. Small
-contract gaps may still be tightened when a focused test exposes them. Path
-values, relationship-list results, and deep or unbounded traversal remain
-planned for that hybrid-executor milestone. The day-to-day test loop is
-documented in [testing.md](testing.md); planned-but-inactive cases stay in the
-coverage backlog instead of accumulating as ignored tests.
+With the gates from milestones 2–7 complete, milestone 8 hybrid execution is
+now active. Its first named-path slice is green; batch/shared-snapshot
+hydration, path operations, relationship-list results, and deep or unbounded
+traversal remain. Small contract gaps may still be tightened when a focused
+test exposes them. The day-to-day loop is documented in
+[testing.md](testing.md); planned-but-inactive cases stay in the coverage
+backlog instead of accumulating as ignored tests.

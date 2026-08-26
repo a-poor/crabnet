@@ -1,9 +1,9 @@
 use serde_json::Value;
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation,
-    Projection, Query, ReadStage, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr,
-    WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation, PathId,
+    PathSegment, Projection, Query, ReadStage, RelationshipUse, ScalarSlotId, SlotId,
+    SortDirection, UnaryOp, ValueExpr, WithBinding, WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -30,6 +30,12 @@ pub(super) fn render(query: &Query) -> String {
                 2,
                 format!("{} scalar", scalar_slot_name(ScalarSlotId(index))),
             );
+        }
+    }
+    if query.path_slots > 0 {
+        renderer.line(1, "path-slots:");
+        for index in 0..query.path_slots {
+            renderer.line(2, format!("{} path", path_slot_name(PathId(index))));
         }
     }
 
@@ -133,6 +139,10 @@ fn render_with_stage(renderer: &mut Renderer, stage: &WithStage) {
                     scalar_slot_name(*slot),
                     render_expr(expression)
                 ),
+            ),
+            WithBinding::Path { name, path } => renderer.line(
+                5,
+                format!("{} = path({})", quote(name), path_slot_name(*path)),
             ),
         }
     }
@@ -264,16 +274,41 @@ fn render_match_operator(operator: &MatchOperator) -> String {
             "distinct-relationships [{}]",
             relationships
                 .iter()
-                .map(|relationship| match relationship {
-                    super::logical::RelationshipUse::Single(slot) => slot_name(*slot),
-                    super::logical::RelationshipUse::Traversal(traversal) => {
-                        format!("~{}", traversal.0)
-                    }
-                })
+                .map(render_relationship_use)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        MatchOperator::BindPath {
+            path,
+            start,
+            segments,
+        } => format!(
+            "bind-path path={} start={} segments=[{}]",
+            path_slot_name(*path),
+            slot_name(*start),
+            segments
+                .iter()
+                .map(render_path_segment)
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         MatchOperator::Filter(expression) => format!("filter {}", render_expr(expression)),
+    }
+}
+
+fn render_path_segment(segment: &PathSegment) -> String {
+    format!(
+        "segment(left={}, relationship={}, right={})",
+        slot_name(segment.left),
+        render_relationship_use(&segment.relationship),
+        slot_name(segment.right)
+    )
+}
+
+fn render_relationship_use(relationship: &RelationshipUse) -> String {
+    match relationship {
+        RelationshipUse::Single(slot) => slot_name(*slot),
+        RelationshipUse::Traversal(traversal) => format!("~{}", traversal.0),
     }
 }
 
@@ -408,6 +443,7 @@ fn render_expr(expression: &Expr) -> String {
         Expr::Value(value) => render_value_expr(value),
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
         Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
+        Expr::Path(path) => format!("path({})", path_slot_name(*path)),
         Expr::Property(slot, key) => {
             format!("property({}, {})", slot_name(*slot), quote(key))
         }
@@ -517,6 +553,10 @@ fn slot_name(slot: SlotId) -> String {
 
 fn scalar_slot_name(slot: ScalarSlotId) -> String {
     format!("%s{}", slot.0)
+}
+
+fn path_slot_name(path: PathId) -> String {
+    format!("%p{}", path.0)
 }
 
 fn entity_kind_name(kind: EntityKind) -> &'static str {
@@ -820,6 +860,25 @@ mod tests {
         assert!(physical.contains("walk0.depth < 3"));
         assert!(physical.contains("walk_result0.depth >= 0"));
         assert!(physical.contains("walk_result0.depth <= 3"));
+    }
+
+    #[test]
+    fn explains_named_path_slots_segments_and_with_aliases() {
+        let query = "MATCH route = (start:Node)-[first:NEXT]->(middle)-[:NEXT*0..2]->(end) \
+                     WITH route AS journey \
+                     RETURN journey";
+        let logical = explain_logical(query).unwrap();
+
+        assert!(logical.contains("path-slots:\n    %p0 path"));
+        assert!(logical.contains(
+            "bind-path path=%p0 start=%0 segments=[\
+             segment(left=%0, relationship=%1, right=%2), \
+             segment(left=%2, relationship=~0, right=%3)]"
+        ));
+        assert_eq!(logical.matches("\"journey\" = path(%p0)").count(), 2);
+
+        let physical = explain_physical(query).unwrap();
+        assert!(physical.contains("rust-stage: hydrate-paths"));
     }
 
     #[test]

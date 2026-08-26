@@ -19,12 +19,14 @@ SQLite text or JSON equality. Its semantic equivalence rules are:
   properties after evaluation;
 - integers and exactly equivalent integral floats share an equivalence class,
   while booleans remain distinct from numeric `0` and `1`;
-- list and map comparison applies these rules recursively; and
-- nodes and relationships compare by their respective opaque element IDs.
+- list and map comparison applies these rules recursively;
+- nodes and relationships compare by their respective opaque element IDs; and
+- paths compare by their ordered node-ID and relationship-ID sequences.
 
 For a distinct query, `SKIP`/`OFFSET` and `LIMIT` are applied after semantic
 deduplication. `ORDER BY` may refer only to a projected expression or its
-alias; ordering by an unprojected expression is a semantic error.
+alias; ordering by an unprojected expression is a semantic error. A path value
+cannot itself be an ordering key yet.
 
 Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
@@ -42,11 +44,12 @@ bag and emits one row for every retained input row; it does not implicitly
 deduplicate. A later `MATCH` therefore expands every carried row independently,
 preserving duplicate and Cartesian-product multiplicity.
 
-A `WITH` projection can carry whole node or relationship bindings and typed
-scalar values. A bare variable keeps its name, while `AS` may give either kind
-of value a new name. After the boundary, only projected names remain in scope:
-an entity or scalar that was not projected cannot be referenced by a later
-`MATCH`, `WITH`, or `RETURN`.
+A `WITH` projection can carry whole node, relationship, or path bindings and
+typed scalar values. A bare variable keeps its name, while `AS` may give any
+of these values a new name. Paths currently cross a boundary only as direct
+variables or aliases; path functions and scalar operations remain rejected.
+After the boundary, only projected names remain in scope: a binding that was
+not projected cannot be referenced by a later `MATCH`, `WITH`, or `RETURN`.
 
 `WHERE` attached to a `WITH` is evaluated at that boundary. It may refer to the
 new projected aliases and to variables from the incoming row, with a projected
@@ -72,7 +75,8 @@ behavior. `WITH DISTINCT` is not yet implemented. `WITH *`, computed
 expressions without an alias, and mutation clauses in a query containing
 `WITH` are explicit planning-time rejections. Aggregating `WITH` projections
 follow the rules below. The implemented pipeline cases live in
-`tests/with_pipeline.rs`, `tests/aggregation.rs`, and `tests/unwind.rs`.
+`tests/with_pipeline.rs`, `tests/aggregation.rs`, `tests/unwind.rs`, and
+`tests/path_values.rs`.
 
 ## Aggregation and grouping
 
@@ -107,6 +111,7 @@ a larger projection expression, aggregate-only ordering/filtering without an
 aggregating projection, and aggregation after a mutation are structured
 planning-time rejections. Aggregates are not allowed in `MATCH` predicates or
 directly in `UNWIND`; a `WITH` boundary must materialize them first.
+Path values are not accepted as aggregate inputs or grouping keys yet.
 
 ## `UNWIND`
 
@@ -123,9 +128,10 @@ name already in scope. Unless a later clause orders the result, row order after
 `UNION ALL` appends the row bags produced by independently planned read-only
 branches. Bare `UNION` and explicit `UNION DISTINCT` semantically deduplicate
 the accumulated complete rows using the same recursive typed equivalence as
-`RETURN DISTINCT`. In a chain mixing duplicate policies, operators apply from
-left to right. Branch-local matching, `WITH`, filters, ordering, and pagination
-finish before that branch enters the union.
+`RETURN DISTINCT`, including ordered node/relationship identity for paths. In
+a chain mixing duplicate policies, operators apply from left to right.
+Branch-local matching, `WITH`, filters, ordering, and pagination finish before
+that branch enters the union.
 
 Every branch must end in `RETURN` and expose the same column names in the same
 positions; value kinds may differ from row to row. Branch scopes and SQL bind
@@ -147,8 +153,8 @@ erase the incoming row. Chained optional clauses can consume nullable entity
 bindings, and properties plus `elementId`, `labels`, and `type` evaluate to
 null for a null-extended entity. Fixed-pattern direction, type, property,
 relationship-uniqueness, and variable-kind rules are otherwise the same as
-mandatory `MATCH`. Quantified optional patterns, path bindings/selectors,
-match modes, and hints remain rejected.
+mandatory `MATCH`. Named paths in `OPTIONAL MATCH`, quantified optional
+patterns, path selectors, match modes, and hints remain rejected.
 
 ## Values and properties
 
@@ -167,7 +173,7 @@ therefore distinct from ordinary property maps at the API boundary.
 | map | JSON object | `CypherValue::Map` |
 | node | not accepted as a parameter or property | `CypherValue::Node(NodeValue)` |
 | relationship | not accepted as a parameter or property | `CypherValue::Relationship(RelationshipValue)` |
-| path | not supported | not supported |
+| path | not accepted as a parameter or property | `CypherValue::Path(PathValue)` |
 
 Node and relationship `props` columns must contain JSON objects. Lists and maps
 may be nested property values; conversion to result cells recursively preserves
@@ -192,8 +198,8 @@ undirected pattern.
 Whole nodes and relationships may be returned by reads and by `RETURN` after
 supported mutations. Entity decoding follows the planned expression kind, so
 an ordinary map remains `CypherValue::Map` even if it contains keys resembling
-the public entity fields. Paths are not result values yet, and path bindings
-remain unsupported.
+the public entity fields. A named path may be returned by a supported mandatory
+read, but path-fed writes and post-mutation path results remain unsupported.
 
 ## Predicates and null
 
@@ -308,11 +314,33 @@ before applying selective endpoint constraints; the depth-32 ceiling bounds
 recursion depth, not total path count or memory. Start-domain pushdown remains
 future optimization work.
 
-This slice exposes endpoints only. It does not construct a path result or bind
-the traversed relationships as a named list. Unbounded legacy traversal,
-postfix graph quantifiers, named variable-length relationships, path
-bindings/selectors, quantified `OPTIONAL MATCH`, and writes whose input is fed
-by a bounded traversal are structured planning-time rejections.
+Mandatory read-only `MATCH` may bind a fixed, bounded, or mixed pattern with
+`p = (...)`. Its public `PathValue` contains nodes and relationships in
+traversal order and always has exactly one more node than relationship. A
+zero-hop value contains its one endpoint node and no relationships. Each
+`RelationshipValue` still reports the stored start and end IDs when an incoming
+or undirected match traverses it backwards; its position in the path records
+the traversal orientation.
+
+A named path can be returned directly, carried through a direct `WITH` alias,
+and compared for `RETURN DISTINCT` or distinct `UNION` by its ordered node and
+relationship identities. Path functions such as `length`, `nodes`, and
+`relationships`, property access, selectors, and use as a scalar, aggregate,
+grouping, or ordering expression remain planning-time rejections. A legacy
+relationship variable in `[r*...]` denotes a different relationship-list
+binding and is also rejected. Named paths in `OPTIONAL MATCH`, unbounded or
+deeper traversal, postfix graph quantifiers, shortest-path forms, and writes
+fed by either bounded traversal or any named path remain unsupported.
+
+SQLite carries a compact encoding of the ordered node and relationship IDs.
+Rust materializes the SQL cursor before hydrating those IDs into graph values.
+Each SQL branch uses per-query node and relationship caches, so each unique
+entity is looked up at most once within that branch. Hydration currently occurs
+before `RETURN DISTINCT` and cross-branch `UNION` deduplication, and union
+branches do not share a hydration cache or deferred read snapshot. Batch
+hydration after identity-level deduplication and one shared deferred read
+snapshot are milestone-8 follow-ups. Concurrent external writers remain a
+non-goal.
 
 ## Entity identifiers
 
@@ -342,7 +370,8 @@ and `REMOVE entity.key` deletes that key. `SET entity = map` replaces the
 complete property map, while `SET entity += map` performs a shallow merge; the
 map may be a literal or named parameter. Row-dependent or otherwise computed
 right-hand sides and label mutation are explicit planning-time rejections, as
-are writes in a query containing `WITH` or fed by variable-length traversal.
+are writes in a query containing `WITH`, fed by variable-length traversal, or
+fed by any named path.
 
 Direct assignment of `null` removes the targeted key. A null-valued entry in a
 `+=` map also removes that key. Whole-map replacement is deliberately
@@ -392,7 +421,8 @@ entity kinds uses `Error::Semantic`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
-Semantics for unsupported constructs—including path values and bindings,
-relationship-list bindings, unbounded or postfix-graph traversal, quantified
-optional matching, `MERGE`, label mutation, and computed mutation right-hand
-sides—remain unresolved until those constructs are designed and implemented.
+Semantics for unsupported constructs—including path functions/selectors and
+other path expressions, relationship-list bindings, optional-bound paths,
+unbounded or postfix-graph traversal, quantified optional matching, `MERGE`,
+label mutation, and computed mutation right-hand sides—remain unresolved until
+those constructs are designed and implemented.

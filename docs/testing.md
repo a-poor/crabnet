@@ -65,6 +65,10 @@ end-to-end result test for user-visible semantics.
   incoming, and undirected traversal, per-hop type/property filters, cycles,
   self-loops, diamonds, parallel edges, dead ends, edge-trail uniqueness,
   composition, the depth limit, and structured rejection boundaries.
+- `tests/path_values.rs` covers public named-path results for fixed, bounded,
+  mixed, and zero-hop patterns; traversal order and stored relationship
+  direction; identity across cycles, diamonds, and parallel edges; direct
+  `WITH` aliases; `RETURN DISTINCT`/`UNION`; and the current rejection boundary.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.
@@ -93,7 +97,8 @@ exercise Crabnet's recursive typed equivalence directly.
 For `RETURN DISTINCT`, assert that semantic deduplication happens before
 `SKIP`/`OFFSET` and `LIMIT`, and keep `ORDER BY` within the projected expression
 scope. This catches accidental SQLite JSON/text distinctness and incorrect
-pre-dedup pagination.
+pre-dedup pagination. Path rows must compare ordered node and relationship
+identities, not display properties or endpoint pairs alone.
 
 Use exact row order only when the query has a meaningful `ORDER BY`, or when
 cardinality makes order irrelevant. Generated entity IDs should normally be
@@ -113,6 +118,7 @@ cargo test --test write_semantics create_duplicate_property_keys_fail_before_any
 cargo test --test matched_mutations set_equals_replaces_the_complete_property_map -- --exact
 cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
 cargo test --test bounded_traversal cycles_may_revisit_nodes_but_may_not_reuse_an_edge -- --exact
+cargo test --test path_values fixed_multi_hop_match_returns_a_public_typed_path -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
 ```
 
@@ -125,6 +131,7 @@ cargo test --test membership_and_string_predicates
 cargo test --test matched_mutations
 cargo test --test delete_mutations
 cargo test --test bounded_traversal
+cargo test --test path_values
 cargo test --lib planner::sqlite
 ```
 
@@ -176,9 +183,9 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-The next active test slice is milestone 8 hybrid execution. Start with one
-query whose physical plan crosses an explicit SQLite/Rust operator boundary,
-then lock down scope, ordering, null propagation, bag multiplicity, and failure
-behavior at that boundary. Path values, relationship-list results, and deep or
-unbounded traversal should gain focused result/resource contracts only as
-their executor operators are implemented.
+Milestone 8 is in progress: named paths now cross an explicit SQLite/Rust
+hydration boundary, and `tests/path_values.rs` locks down the first public
+slice. The next tests should drive batch hydration after identity-level
+deduplication and a shared deferred read snapshot across union branches before
+expanding to path functions, relationship-list results, or deep and unbounded
+traversal. Concurrent external-writer behavior remains outside the test goal.

@@ -6,9 +6,9 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    Projection, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, TraversalId,
-    UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage, validate_storable_value,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, PathId,
+    PathSegment, Projection, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection,
+    TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage, validate_storable_value,
 };
 
 #[derive(Clone, Debug)]
@@ -100,6 +100,7 @@ pub(crate) struct SqlQuery {
 pub(crate) enum OutputShape {
     Json,
     Entity(EntityKind),
+    Path,
 }
 
 impl SqlQuery {
@@ -123,7 +124,19 @@ impl SqlQuery {
             }
         }
         output.push_str("  rust-stage: ");
-        if self.distinct {
+        let hydrates_paths = self
+            .output_shapes
+            .iter()
+            .any(|shape| matches!(shape, OutputShape::Path));
+        if hydrates_paths {
+            output.push_str("hydrate-paths");
+            if self.distinct {
+                output.push_str(" then semantic-distinct");
+            }
+            if self.distinct && (self.post_offset.is_some() || self.post_limit.is_some()) {
+                output.push_str(" then pagination");
+            }
+        } else if self.distinct {
             output.push_str("semantic-distinct");
             if self.post_offset.is_some() || self.post_limit.is_some() {
                 output.push_str(" then pagination");
@@ -337,10 +350,17 @@ struct VariableLengthSpec<'a> {
     properties: &'a [(String, ValueExpr)],
 }
 
+#[derive(Clone, Debug)]
+struct TraversalSource {
+    edge_ids: String,
+    node_ids: String,
+}
+
 struct Compiler {
     entities: HashMap<SlotId, EntitySource>,
     scalars: HashMap<ScalarSlotId, String>,
-    traversals: HashMap<TraversalId, String>,
+    traversals: HashMap<TraversalId, TraversalSource>,
+    paths: HashMap<PathId, String>,
     scanned: Vec<(SlotId, EntityKind)>,
     from: Vec<String>,
     filters: Vec<String>,
@@ -356,6 +376,7 @@ impl Compiler {
             entities: HashMap::new(),
             scalars: HashMap::new(),
             traversals: HashMap::new(),
+            paths: HashMap::new(),
             scanned: Vec::new(),
             from: Vec::new(),
             filters: Vec::new(),
@@ -446,12 +467,70 @@ impl Compiler {
                 MatchOperator::DistinctRelationships(relationships) => {
                     self.compile_relationship_uniqueness(relationships)?;
                 }
+                MatchOperator::BindPath {
+                    path,
+                    start,
+                    segments,
+                } => self.compile_path_binding(*path, *start, segments)?,
                 MatchOperator::Filter(expression) => {
                     let predicate = self.predicate_expression(expression)?;
                     self.filters.push(format!("({predicate})"));
                 }
             }
         }
+        Ok(())
+    }
+
+    fn compile_path_binding(
+        &mut self,
+        path: PathId,
+        start: SlotId,
+        segments: &[PathSegment],
+    ) -> Result<()> {
+        if self.paths.contains_key(&path) {
+            return Err(Error::Data(format!(
+                "logical path {} is bound twice",
+                path.0
+            )));
+        }
+
+        let encoded_segments = if segments.is_empty() {
+            vec![format!(
+                "json_object('nodes', json_array({}), 'relationships', json_array())",
+                self.entity_field(start, "id")?
+            )]
+        } else {
+            segments
+                .iter()
+                .map(|segment| {
+                    let (nodes, relationships) = match segment.relationship {
+                        RelationshipUse::Single(relationship) => (
+                            format!(
+                                "json_array({}, {})",
+                                self.entity_field(segment.left, "id")?,
+                                self.entity_field(segment.right, "id")?
+                            ),
+                            format!("json_array({})", self.entity_field(relationship, "id")?),
+                        ),
+                        RelationshipUse::Traversal(traversal) => {
+                            let source = self.traversal_source(traversal)?;
+                            (
+                                format!("json({})", source.node_ids),
+                                format!("json({})", source.edge_ids),
+                            )
+                        }
+                    };
+                    Ok(format!(
+                        "json_object('nodes', {nodes}, 'relationships', {relationships})"
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?
+        };
+        let encoded = format!(
+            "json_object('segments', json_array({}))",
+            encoded_segments.join(", ")
+        );
+        self.paths.insert(path, encoded);
         Ok(())
     }
 
@@ -524,17 +603,20 @@ impl Compiler {
         // multiplicity. `used_edges` enforces Cypher trail semantics without
         // forbidding a path from revisiting the same node.
         let body = format!(
-            "SELECT seed.id, seed.id, 0, json_array() FROM nodes AS seed \
+            "SELECT seed.id, seed.id, 0, json_array(), json_array(seed.id) FROM nodes AS seed \
              UNION ALL \
              SELECT {recursive_row}.start_id, {next_node}, {recursive_row}.depth + 1, \
-                    json_insert({recursive_row}.used_edges, '$[#]', {edge}.id) \
+                    json_insert({recursive_row}.used_edges, '$[#]', {edge}.id), \
+                    json_insert({recursive_row}.node_ids, '$[#]', {next_node}) \
              FROM {cte} AS {recursive_row} \
              JOIN edges AS {edge} ON ({edge_join}) \
              WHERE {}",
             recursive_filters.join(" AND ")
         );
-        self.ctes
-            .push((format!("{cte}(start_id, end_id, depth, used_edges)"), body));
+        self.ctes.push((
+            format!("{cte}(start_id, end_id, depth, used_edges, node_ids)"),
+            body,
+        ));
         self.has_recursive_cte = true;
 
         let relation = format!("walk_result{}", traversal.0);
@@ -549,8 +631,13 @@ impl Compiler {
             "{relation}.end_id = {}",
             self.entity_field(right, "id")?
         ));
-        self.traversals
-            .insert(traversal, format!("{relation}.used_edges"));
+        self.traversals.insert(
+            traversal,
+            TraversalSource {
+                edge_ids: format!("{relation}.used_edges"),
+                node_ids: format!("{relation}.node_ids"),
+            },
+        );
         Ok(())
     }
 
@@ -592,18 +679,23 @@ impl Compiler {
     }
 
     fn traversal_edges(&self, traversal: TraversalId) -> Result<&str> {
-        self.traversals
-            .get(&traversal)
-            .map(String::as_str)
-            .ok_or_else(|| {
-                Error::Data(format!(
-                    "logical traversal {} has no SQL source",
-                    traversal.0
-                ))
-            })
+        self.traversal_source(traversal)
+            .map(|source| source.edge_ids.as_str())
+    }
+
+    fn traversal_source(&self, traversal: TraversalId) -> Result<&TraversalSource> {
+        self.traversals.get(&traversal).ok_or_else(|| {
+            Error::Data(format!(
+                "logical traversal {} has no SQL source",
+                traversal.0
+            ))
+        })
     }
 
     fn compile_optional_match(&mut self, plan: &MatchPlan) -> Result<()> {
+        if plan.has_path_binding() {
+            return Err(Error::Unsupported("named paths in OPTIONAL MATCH".into()));
+        }
         if plan.has_variable_length() {
             return Err(Error::Unsupported(
                 "variable-length traversal in OPTIONAL MATCH".into(),
@@ -621,6 +713,8 @@ impl Compiler {
         entity_bindings.sort_by_key(|(slot, _)| *slot);
         let mut scalar_bindings = self.scalars.keys().copied().collect::<Vec<_>>();
         scalar_bindings.sort();
+        let mut path_bindings = self.paths.keys().copied().collect::<Vec<_>>();
+        path_bindings.sort();
 
         let mut select = entity_bindings
             .iter()
@@ -636,6 +730,15 @@ impl Compiler {
                     .get(slot)
                     .expect("collected scalar slot has a source"),
                 slot.0
+            )
+        }));
+        select.extend(path_bindings.iter().map(|path| {
+            format!(
+                "{} AS p{}",
+                self.paths
+                    .get(path)
+                    .expect("collected path slot has a source"),
+                path.0
             )
         }));
         if let Some(ordering) = &self.ordering {
@@ -662,6 +765,10 @@ impl Compiler {
         self.scalars = scalar_bindings
             .into_iter()
             .map(|slot| (slot, format!("{input_relation}.s{}", slot.0)))
+            .collect();
+        self.paths = path_bindings
+            .into_iter()
+            .map(|path| (path, format!("{input_relation}.p{}", path.0)))
             .collect();
         let inherited_ordering = self
             .ordering
@@ -697,6 +804,16 @@ impl Compiler {
                 WithBinding::Scalar { expression, .. } if expression.contains_aggregate()
             )
         });
+        if aggregating
+            && stage
+                .bindings
+                .iter()
+                .any(|binding| matches!(binding, WithBinding::Path { .. }))
+        {
+            return Err(Error::Unsupported(
+                "path values in aggregating WITH projections".into(),
+            ));
+        }
         if !aggregating && let Some(filter) = &stage.filter {
             let predicate = self.predicate_expression(filter)?;
             self.filters.push(format!("({predicate})"));
@@ -704,6 +821,7 @@ impl Compiler {
 
         let mut select = Vec::new();
         let mut entity_bindings = Vec::new();
+        let mut path_bindings = Vec::new();
         let mut scalar_bindings = Vec::new();
         let mut group_by = Vec::new();
         for binding in &stage.bindings {
@@ -722,6 +840,12 @@ impl Compiler {
                     }
                     if aggregating {
                         group_by.extend(self.grouping_terms(&Expr::Entity(*slot))?);
+                    }
+                }
+                WithBinding::Path { path, .. } => {
+                    if !path_bindings.contains(path) {
+                        select.push(format!("{} AS p{}", self.path_source(*path)?, path.0));
+                        path_bindings.push(*path);
                     }
                 }
                 WithBinding::Scalar {
@@ -813,6 +937,10 @@ impl Compiler {
             .into_iter()
             .map(|slot| (slot, format!("{relation}.s{}", slot.0)))
             .collect();
+        self.paths = path_bindings
+            .into_iter()
+            .map(|path| (path, format!("{relation}.p{}", path.0)))
+            .collect();
         self.from = vec![format!("{cte} AS {relation}")];
         self.ordering = (!order_items.is_empty() || inherited_ordering.is_some())
             .then(|| format!("{relation}._crabnet_order"));
@@ -837,6 +965,8 @@ impl Compiler {
         entity_bindings.sort_by_key(|(slot, _)| *slot);
         let mut scalar_bindings = self.scalars.keys().copied().collect::<Vec<_>>();
         scalar_bindings.sort();
+        let mut path_bindings = self.paths.keys().copied().collect::<Vec<_>>();
+        path_bindings.sort();
 
         let mut select = entity_bindings
             .iter()
@@ -852,6 +982,15 @@ impl Compiler {
                     .get(slot)
                     .expect("collected scalar slot has a source"),
                 slot.0
+            )
+        }));
+        select.extend(path_bindings.iter().map(|path| {
+            format!(
+                "{} AS p{}",
+                self.paths
+                    .get(path)
+                    .expect("collected path slot has a source"),
+                path.0
             )
         }));
         select.push(format!(
@@ -881,6 +1020,10 @@ impl Compiler {
         self.scalars = scalar_bindings
             .into_iter()
             .map(|slot| (slot, format!("{relation}.s{}", slot.0)))
+            .collect();
+        self.paths = path_bindings
+            .into_iter()
+            .map(|path| (path, format!("{relation}.p{}", path.0)))
             .collect();
         self.from = vec![format!("{cte} AS {relation}")];
         self.filters.clear();
@@ -1007,10 +1150,20 @@ impl Compiler {
         ))
     }
 
+    fn path_source(&self, path: PathId) -> Result<&str> {
+        self.paths
+            .get(&path)
+            .map(String::as_str)
+            .ok_or_else(|| Error::Data(format!("logical path {} has no SQL source", path.0)))
+    }
+
     fn output_expression(&mut self, expression: &Expr) -> Result<(String, OutputShape)> {
         if let Expr::Entity(slot) = expression {
             let kind = self.entity_kind(*slot)?;
             return Ok((self.encoded_entity(*slot, kind)?, OutputShape::Entity(kind)));
+        }
+        if let Expr::Path(path) = expression {
+            return Ok((self.path_source(*path)?.to_owned(), OutputShape::Path));
         }
 
         let (value, value_type) = self.scalar_parts(expression)?;
@@ -1020,6 +1173,11 @@ impl Compiler {
     fn grouping_terms(&mut self, expression: &Expr) -> Result<Vec<String>> {
         if let Expr::Entity(slot) = expression {
             return Ok(vec![self.entity_field(*slot, "id")?]);
+        }
+        if matches!(expression, Expr::Path(_)) {
+            return Err(Error::Unsupported(
+                "path values as grouping keys".to_owned(),
+            ));
         }
         let (value, value_type) = self.scalar_parts(expression)?;
         Ok(vec![format!(
@@ -1057,6 +1215,9 @@ impl Compiler {
         match expression {
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),
+            )),
+            Expr::Path(_) => Err(Error::Unsupported(
+                "path values in scalar expressions".to_owned(),
             )),
             Expr::Scalar(slot) => {
                 let source = self.scalars.get(slot).cloned().ok_or_else(|| {

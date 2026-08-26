@@ -545,7 +545,6 @@ fn unbounded_and_broader_quantified_forms_are_structured_rejections() {
         "MATCH (a)-[*1..]->(b) RETURN b",
         "MATCH (a)-[*..]->(b) RETURN b",
         "MATCH (a)-[relationships:LINK*1..2]->(b) RETURN b",
-        "MATCH path = (a)-[:LINK*1..2]->(b) RETURN path",
         "OPTIONAL MATCH (a)-[:LINK*1..2]->(b) RETURN b",
         "MATCH (a)-[:LINK]->{1, 2}(b) RETURN b",
     ] {

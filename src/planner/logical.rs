@@ -11,6 +11,9 @@ pub(crate) struct ScalarSlotId(pub(crate) usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct TraversalId(pub(crate) usize);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct PathId(pub(crate) usize);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EntityKind {
     Node,
@@ -135,6 +138,7 @@ pub(crate) enum Expr {
     Value(ValueExpr),
     Entity(SlotId),
     Scalar(ScalarSlotId),
+    Path(PathId),
     Property(SlotId, String),
     ElementId(SlotId),
     Labels(SlotId),
@@ -181,6 +185,7 @@ impl Expr {
             Self::IsNull { expression, .. } => expression.is_row_dependent(),
             Self::Entity(_)
             | Self::Scalar(_)
+            | Self::Path(_)
             | Self::Property(_, _)
             | Self::ElementId(_)
             | Self::Labels(_)
@@ -205,7 +210,7 @@ impl Expr {
             | Self::RelationshipType(slot) => grouping
                 .iter()
                 .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
-            Self::Entity(_) | Self::Scalar(_) => false,
+            Self::Entity(_) | Self::Scalar(_) | Self::Path(_) => false,
         }
     }
 }
@@ -248,6 +253,11 @@ pub(crate) enum MatchOperator {
         properties: Vec<(String, ValueExpr)>,
     },
     DistinctRelationships(Vec<RelationshipUse>),
+    BindPath {
+        path: PathId,
+        start: SlotId,
+        segments: Vec<PathSegment>,
+    },
     Filter(Expr),
 }
 
@@ -255,6 +265,13 @@ pub(crate) enum MatchOperator {
 pub(crate) enum RelationshipUse {
     Single(SlotId),
     Traversal(TraversalId),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PathSegment {
+    pub(crate) left: SlotId,
+    pub(crate) relationship: RelationshipUse,
+    pub(crate) right: SlotId,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -268,6 +285,12 @@ impl MatchPlan {
             .iter()
             .any(|operator| matches!(operator, MatchOperator::ExpandVariableLength { .. }))
     }
+
+    pub(crate) fn has_path_binding(&self) -> bool {
+        self.operators
+            .iter()
+            .any(|operator| matches!(operator, MatchOperator::BindPath { .. }))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -276,6 +299,10 @@ pub(crate) enum WithBinding {
         name: String,
         slot: SlotId,
         kind: EntityKind,
+    },
+    Path {
+        name: String,
+        path: PathId,
     },
     Scalar {
         name: String,
@@ -383,6 +410,7 @@ pub(crate) struct Projection {
 pub(crate) struct Query {
     pub(crate) slots: Vec<EntityKind>,
     pub(crate) scalar_slots: usize,
+    pub(crate) path_slots: usize,
     pub(crate) input: Input,
     pub(crate) mutations: Vec<Mutation>,
     pub(crate) projection: Option<Projection>,
@@ -405,6 +433,9 @@ impl Expr {
             Self::Entity(slot) => Ok(ResolvedExpr::Entity(*slot)),
             Self::Scalar(_) => Err(Error::Data(
                 "a write projection contained an intermediate scalar slot".into(),
+            )),
+            Self::Path(_) => Err(Error::Data(
+                "a write projection contained a path slot".into(),
             )),
             Self::Property(slot, key) => Ok(ResolvedExpr::Property(*slot, key.clone())),
             Self::ElementId(slot) => Ok(ResolvedExpr::ElementId(*slot)),

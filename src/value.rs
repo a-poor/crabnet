@@ -21,6 +21,7 @@ pub enum CypherValue {
     Map(BTreeMap<String, Self>),
     Node(NodeValue),
     Relationship(RelationshipValue),
+    Path(PathValue),
 }
 
 /// A node returned by a Cypher query.
@@ -45,6 +46,19 @@ pub struct RelationshipValue {
     pub start_node_element_id: String,
     pub end_node_element_id: String,
     pub properties: BTreeMap<String, CypherValue>,
+}
+
+/// A path returned by a Cypher query.
+///
+/// Nodes follow traversal order. Relationships retain their stored start/end
+/// direction, which may be opposite the traversal order for incoming or
+/// undirected patterns. Values produced by Crabnet always contain exactly one
+/// more node than relationship.
+#[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
+pub struct PathValue {
+    pub nodes: Vec<NodeValue>,
+    pub relationships: Vec<RelationshipValue>,
 }
 
 impl CypherValue {
@@ -104,6 +118,13 @@ impl CypherValue {
     pub fn as_relationship(&self) -> Option<&RelationshipValue> {
         match self {
             Self::Relationship(relationship) => Some(relationship),
+            _ => None,
+        }
+    }
+
+    pub fn as_path(&self) -> Option<&PathValue> {
+        match self {
+            Self::Path(path) => Some(path),
             _ => None,
         }
     }
@@ -172,6 +193,7 @@ impl PartialEq<JsonValue> for CypherValue {
                         .iter()
                         .all(|(key, left)| right.get(key).is_some_and(|right| left.eq(right)))
             }
+            (Self::Path(_), _) => false,
             _ => false,
         }
     }
@@ -189,7 +211,7 @@ mod tests {
 
     use serde_json::json;
 
-    use super::{CypherValue, NodeValue, RelationshipValue};
+    use super::{CypherValue, NodeValue, PathValue, RelationshipValue};
 
     #[test]
     fn json_conversion_preserves_every_supported_shape() {
@@ -244,11 +266,18 @@ mod tests {
 
         let node_value = CypherValue::Node(node.clone());
         let relationship_value = CypherValue::Relationship(relationship.clone());
+        let path = PathValue {
+            nodes: vec![node.clone()],
+            relationships: Vec::new(),
+        };
+        let path_value = CypherValue::Path(path.clone());
 
         assert_eq!(node_value.as_node(), Some(&node));
         assert_eq!(relationship_value.as_relationship(), Some(&relationship));
+        assert_eq!(path_value.as_path(), Some(&path));
         assert!(node_value.as_relationship().is_none());
         assert!(relationship_value.as_node().is_none());
+        assert!(node_value.as_path().is_none());
     }
 
     #[test]
