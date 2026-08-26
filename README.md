@@ -91,9 +91,28 @@ The planner is deliberately small and layered:
   input rows before the first insert and applies the ordered `CREATE` operations
   once per row.
 
+`crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
+slots and graph operators without turning incidental SQLite aliases or SQL
+formatting into the debug contract.
+
 Materializing the input is intentionally naive, but gives this iteration clear
 snapshot, multiplicity, and rollback behavior. A streaming or staged executor
 can replace it later without changing the logical plan.
+
+## Project notes
+
+- [Roadmap](docs/roadmap.md) records the architectural direction and milestone
+  gates.
+- [Coverage](docs/coverage.md) is the living supported/partial/rejected feature
+  matrix and next-test backlog.
+- [Semantics](docs/semantics.md) records the behavior we have deliberately
+  chosen so far.
+- [Testing workflow](docs/testing.md) describes the focused TDD loop and the
+  broader conformance strategy.
+
+This codebase is still disposable in the useful sense: APIs, modules, and the
+fresh SQLite schema may be reshaped as experiments demand. There is no deployed
+database format to migrate or preserve.
 
 ## SQLite layout
 

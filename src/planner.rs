@@ -1,3 +1,4 @@
+mod explain;
 mod logical;
 mod lower;
 mod sqlite;
@@ -16,6 +17,14 @@ pub(crate) enum Plan {
 pub(crate) fn compile(source: &str) -> Result<Plan> {
     let query = lower::lower(source)?;
     compile_logical(query)
+}
+
+/// Render the normalized logical plan without exposing backend SQL details.
+///
+/// The crate root exposes this through the experimental `crabnet::explain`
+/// helper. Keeping the renderer here avoids making logical-plan types public.
+pub(crate) fn explain_logical(source: &str) -> Result<String> {
+    lower::lower(source).map(|query| explain::render(&query))
 }
 
 fn compile_logical(query: Query) -> Result<Plan> {

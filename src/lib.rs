@@ -15,6 +15,14 @@ pub use serde_json::Value;
 
 use std::collections::BTreeMap;
 
+/// Parses, validates, and renders Crabnet's normalized logical plan.
+///
+/// The explanation describes graph operators rather than generated SQLite SQL,
+/// so it is useful while experimenting with lowering and planner behavior.
+pub fn explain(cypher: &str) -> Result<String> {
+    planner::explain_logical(cypher)
+}
+
 /// Named values available to `$parameter` expressions in a Cypher query.
 pub type Parameters = BTreeMap<String, Value>;
 
