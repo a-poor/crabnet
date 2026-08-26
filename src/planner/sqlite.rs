@@ -6,8 +6,9 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, Projection, ReadStage,
-    ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
+    Projection, ReadStage, ScalarSlotId, SlotId, SortDirection, UnaryOp, UnwindStage, ValueExpr,
+    WithBinding, WithStage, validate_storable_value,
 };
 
 #[derive(Clone, Debug)]
@@ -32,7 +33,11 @@ impl SqlBinding {
         match self {
             Self::Text(value) => Ok(SqlValue::Text(value.clone())),
             Self::Scalar(value) => json_to_sql(value.resolve(parameters)?),
-            Self::Json(value) => Ok(SqlValue::Text(value.resolve(parameters)?.to_string())),
+            Self::Json(value) => {
+                let value = value.resolve(parameters)?;
+                validate_storable_value(&value)?;
+                Ok(SqlValue::Text(value.to_string()))
+            }
             Self::Page(value) => {
                 let value = value.resolve(parameters)?;
                 let Value::Number(number) = value else {
@@ -195,12 +200,15 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
             for stage in &pipeline.stages {
                 match stage {
                     ReadStage::Match(plan) => compiler.compile_match(plan)?,
+                    ReadStage::OptionalMatch(plan) => compiler.compile_optional_match(plan)?,
                     ReadStage::With(stage) => compiler.compile_with(stage)?,
+                    ReadStage::Unwind(stage) => compiler.compile_unwind(stage)?,
                 }
             }
         }
     }
 
+    let aggregating = projection.expressions.iter().any(Expr::contains_aggregate);
     let outputs = projection
         .expressions
         .iter()
@@ -214,22 +222,34 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
     let (select, output_shapes): (Vec<_>, Vec<_>) = outputs.into_iter().unzip();
     let mut sql = compiler.select_sql(&select);
 
+    if aggregating {
+        let group_by = projection
+            .expressions
+            .iter()
+            .filter(|expression| !expression.contains_aggregate() && expression.is_row_dependent())
+            .map(|expression| compiler.grouping_terms(expression))
+            .collect::<Result<Vec<_>>>()?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        if !group_by.is_empty() {
+            sql.push_str(" GROUP BY ");
+            sql.push_str(&group_by.join(", "));
+        }
+    }
+
     if !projection.order_by.is_empty() {
         let items = projection
             .order_by
             .iter()
             .map(|item| {
                 let expression = compiler.raw_expression(&item.expression)?;
-                let direction = match item.direction {
-                    SortDirection::Ascending => " ASC",
-                    SortDirection::Descending => " DESC",
-                };
-                Ok(format!("{expression}{direction}"))
+                Ok(order_expression(expression, item.direction))
             })
             .collect::<Result<Vec<_>>>()?;
         sql.push_str(" ORDER BY ");
         sql.push_str(&items.join(", "));
-    } else if let Some(ordering) = &compiler.ordering {
+    } else if !aggregating && let Some(ordering) = &compiler.ordering {
         sql.push_str(" ORDER BY ");
         sql.push_str(ordering);
     }
@@ -402,8 +422,96 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_optional_match(&mut self, plan: &MatchPlan) -> Result<()> {
+        let stage_index = self.ctes.len();
+        let input_cte = format!("_crabnet_optional_input_{stage_index}");
+        let input_relation = format!("oi{stage_index}");
+
+        let mut entity_bindings = self
+            .entities
+            .iter()
+            .map(|(slot, source)| (*slot, source.kind()))
+            .collect::<Vec<_>>();
+        entity_bindings.sort_by_key(|(slot, _)| *slot);
+        let mut scalar_bindings = self.scalars.keys().copied().collect::<Vec<_>>();
+        scalar_bindings.sort();
+
+        let mut select = entity_bindings
+            .iter()
+            .map(|(slot, kind)| {
+                self.encoded_entity(*slot, *kind)
+                    .map(|value| format!("{value} AS e{}", slot.0))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        select.extend(scalar_bindings.iter().map(|slot| {
+            format!(
+                "{} AS s{}",
+                self.scalars
+                    .get(slot)
+                    .expect("collected scalar slot has a source"),
+                slot.0
+            )
+        }));
+        if let Some(ordering) = &self.ordering {
+            select.push(format!("{ordering} AS _crabnet_order"));
+        }
+        if select.is_empty() {
+            select.push("1 AS _crabnet_unit".into());
+        }
+
+        let input_sql = self.select_sql(&select);
+        self.ctes.push((input_cte.clone(), input_sql));
+        self.entities = entity_bindings
+            .into_iter()
+            .map(|(slot, kind)| {
+                (
+                    slot,
+                    EntitySource::Encoded {
+                        sql: format!("{input_relation}.e{}", slot.0),
+                        kind,
+                    },
+                )
+            })
+            .collect();
+        self.scalars = scalar_bindings
+            .into_iter()
+            .map(|slot| (slot, format!("{input_relation}.s{}", slot.0)))
+            .collect();
+        let inherited_ordering = self
+            .ordering
+            .as_ref()
+            .map(|_| format!("{input_relation}._crabnet_order"));
+        self.from.clear();
+        self.filters.clear();
+        self.ordering = inherited_ordering;
+
+        self.compile_match(plan)?;
+        let optional_sources = std::mem::take(&mut self.from);
+        let optional_predicates = std::mem::take(&mut self.filters);
+        let right = match optional_sources.as_slice() {
+            [] => format!("(SELECT 1 AS _crabnet_present) AS om{stage_index}"),
+            [source] => source.clone(),
+            sources => format!("({})", sources.join(" CROSS JOIN ")),
+        };
+        let predicate = if optional_predicates.is_empty() {
+            "1".to_owned()
+        } else {
+            optional_predicates.join(" AND ")
+        };
+        self.from = vec![format!(
+            "{input_cte} AS {input_relation} LEFT JOIN {right} ON ({predicate})"
+        )];
+        Ok(())
+    }
+
     fn compile_with(&mut self, stage: &WithStage) -> Result<()> {
-        if let Some(filter) = &stage.filter {
+        let aggregating = stage.bindings.iter().any(|binding| {
+            matches!(
+                binding,
+                WithBinding::Scalar { expression, .. } if expression.contains_aggregate()
+            )
+        });
+        if !aggregating && let Some(filter) = &stage.filter {
             let predicate = self.predicate_expression(filter)?;
             self.filters.push(format!("({predicate})"));
         }
@@ -411,6 +519,7 @@ impl Compiler {
         let mut select = Vec::new();
         let mut entity_bindings = Vec::new();
         let mut scalar_bindings = Vec::new();
+        let mut group_by = Vec::new();
         for binding in &stage.bindings {
             match binding {
                 WithBinding::Entity { slot, kind, .. } => {
@@ -425,6 +534,9 @@ impl Compiler {
                         ));
                         entity_bindings.push((*slot, *kind));
                     }
+                    if aggregating {
+                        group_by.extend(self.grouping_terms(&Expr::Entity(*slot))?);
+                    }
                 }
                 WithBinding::Scalar {
                     slot, expression, ..
@@ -436,6 +548,12 @@ impl Compiler {
                         slot.0
                     ));
                     scalar_bindings.push(*slot);
+                    if aggregating
+                        && !expression.contains_aggregate()
+                        && expression.is_row_dependent()
+                    {
+                        group_by.extend(self.grouping_terms(expression)?);
+                    }
                 }
             }
         }
@@ -445,14 +563,10 @@ impl Compiler {
             .iter()
             .map(|item| {
                 let expression = self.raw_expression(&item.expression)?;
-                let direction = match item.direction {
-                    SortDirection::Ascending => " ASC",
-                    SortDirection::Descending => " DESC",
-                };
-                Ok(format!("{expression}{direction}"))
+                Ok(order_expression(expression, item.direction))
             })
             .collect::<Result<Vec<_>>>()?;
-        let inherited_ordering = self.ordering.clone();
+        let inherited_ordering = (!aggregating).then(|| self.ordering.clone()).flatten();
         if !order_items.is_empty() {
             select.push(format!(
                 "row_number() OVER (ORDER BY {}) AS _crabnet_order",
@@ -463,6 +577,16 @@ impl Compiler {
         }
 
         let mut sql = self.select_sql(&select);
+        if aggregating && !group_by.is_empty() {
+            sql.push_str(" GROUP BY ");
+            sql.push_str(&group_by.join(", "));
+        }
+        if aggregating && let Some(filter) = &stage.filter {
+            let predicate = self.predicate_expression(filter)?;
+            sql.push_str(" HAVING (");
+            sql.push_str(&predicate);
+            sql.push(')');
+        }
         if !order_items.is_empty() {
             sql.push_str(" ORDER BY ");
             sql.push_str(&order_items.join(", "));
@@ -507,6 +631,74 @@ impl Compiler {
         self.ordering = (!order_items.is_empty() || inherited_ordering.is_some())
             .then(|| format!("{relation}._crabnet_order"));
         self.filters.clear();
+        Ok(())
+    }
+
+    fn compile_unwind(&mut self, stage: &UnwindStage) -> Result<()> {
+        let (list_value, list_type) = self.scalar_parts(&stage.expression)?;
+        let stage_index = self.ctes.len();
+        let member = format!("u{stage_index}");
+        self.from.push(format!(
+            "json_each(CASE WHEN ({list_type}) = 'array' \
+             THEN ({list_value}) ELSE '[]' END) AS {member}"
+        ));
+
+        let mut entity_bindings = self
+            .entities
+            .iter()
+            .map(|(slot, source)| (*slot, source.kind()))
+            .collect::<Vec<_>>();
+        entity_bindings.sort_by_key(|(slot, _)| *slot);
+        let mut scalar_bindings = self.scalars.keys().copied().collect::<Vec<_>>();
+        scalar_bindings.sort();
+
+        let mut select = entity_bindings
+            .iter()
+            .map(|(slot, kind)| {
+                self.encoded_entity(*slot, *kind)
+                    .map(|value| format!("{value} AS e{}", slot.0))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        select.extend(scalar_bindings.iter().map(|slot| {
+            format!(
+                "{} AS s{}",
+                self.scalars
+                    .get(slot)
+                    .expect("collected scalar slot has a source"),
+                slot.0
+            )
+        }));
+        select.push(format!(
+            "{} AS s{}",
+            encoded_scalar(&format!("{member}.value"), &format!("{member}.type")),
+            stage.slot.0
+        ));
+
+        let sql = self.select_sql(&select);
+        let cte = format!("_crabnet_unwind_{stage_index}");
+        self.ctes.push((cte.clone(), sql));
+        let relation = format!("urows{stage_index}");
+
+        self.entities = entity_bindings
+            .into_iter()
+            .map(|(slot, kind)| {
+                (
+                    slot,
+                    EntitySource::Encoded {
+                        sql: format!("{relation}.e{}", slot.0),
+                        kind,
+                    },
+                )
+            })
+            .collect();
+        scalar_bindings.push(stage.slot);
+        self.scalars = scalar_bindings
+            .into_iter()
+            .map(|slot| (slot, format!("{relation}.s{}", slot.0)))
+            .collect();
+        self.from = vec![format!("{cte} AS {relation}")];
+        self.filters.clear();
+        self.ordering = None;
         Ok(())
     }
 
@@ -632,13 +824,40 @@ impl Compiler {
         Ok((encoded_scalar(&value, &value_type), OutputShape::Json))
     }
 
+    fn grouping_terms(&mut self, expression: &Expr) -> Result<Vec<String>> {
+        if let Expr::Entity(slot) = expression {
+            return Ok(vec![self.entity_field(*slot, "id")?]);
+        }
+        let (value, value_type) = self.scalar_parts(expression)?;
+        Ok(vec![format!(
+            "crabnet_semantic_key({})",
+            encoded_scalar(&value, &value_type)
+        )])
+    }
+
     fn raw_expression(&mut self, expression: &Expr) -> Result<String> {
-        self.scalar_parts(expression).map(|parts| parts.0)
+        let (value, value_type) = self.scalar_parts(expression)?;
+        // Some values (notably literals and parameters) use a separate bind
+        // to carry their JSON type. Keep that bind visible even when ORDER BY
+        // needs only the raw payload, or SQLite's parameter count and the
+        // planner's binding vector can diverge.
+        Ok(format!(
+            "CASE WHEN ({value_type}) IS NULL THEN ({value}) ELSE ({value}) END"
+        ))
     }
 
     fn predicate_expression(&mut self, expression: &Expr) -> Result<String> {
-        let (_, value_type) = self.scalar_parts(expression)?;
-        Ok(boolean_value(&value_type))
+        self.boolean_expression(expression)
+    }
+
+    fn boolean_expression(&mut self, expression: &Expr) -> Result<String> {
+        let (value, value_type) = self.scalar_parts(expression)?;
+        // Retain the value expression as well as its type gate. Most dynamic
+        // types derive from the value, but aggregates can have a static result
+        // type; dropping their value here would also drop argument bindings.
+        let retained_type =
+            format!("CASE WHEN ({value}) IS NULL THEN ({value_type}) ELSE ({value_type}) END");
+        Ok(boolean_value(&retained_type))
     }
 
     fn scalar_parts(&mut self, expression: &Expr) -> Result<(String, String)> {
@@ -656,9 +875,12 @@ impl Compiler {
                 ))
             }
             Expr::Value(value) => {
-                let scalar = self.push_binding(SqlBinding::Scalar(value.clone()));
                 let json = self.push_binding(SqlBinding::Json(value.clone()));
-                Ok((scalar, format!("json_type(json({json}))")))
+                let json = format!("json({json})");
+                Ok((
+                    format!("json_extract({json}, '$')"),
+                    format!("json_type({json}, '$')"),
+                ))
             }
             Expr::Property(slot, key) => self.entity_property_parts(*slot, key),
             Expr::ElementId(slot) => Ok((self.entity_field(*slot, "id")?, "'text'".into())),
@@ -666,9 +888,13 @@ impl Compiler {
                 Ok((self.entity_field(*slot, "type")?, "'text'".into()))
             }
             Expr::Labels(slot) => {
+                let id = self.entity_field(*slot, "id")?;
                 let label = self.entity_field(*slot, "label")?;
                 Ok((
-                    format!("CASE WHEN {label} IS NULL THEN '[]' ELSE json_array({label}) END"),
+                    format!(
+                        "CASE WHEN {id} IS NULL THEN NULL \
+                         WHEN {label} IS NULL THEN '[]' ELSE json_array({label}) END"
+                    ),
                     "'array'".into(),
                 ))
             }
@@ -708,10 +934,8 @@ impl Compiler {
                         self.string_predicate(left, right, *operator)?
                     }
                     BinaryOp::Or | BinaryOp::And => {
-                        let (_, left_type) = self.scalar_parts(left)?;
-                        let (_, right_type) = self.scalar_parts(right)?;
-                        let left = boolean_value(&left_type);
-                        let right = boolean_value(&right_type);
+                        let left = self.boolean_expression(left)?;
+                        let right = self.boolean_expression(right)?;
                         let operator = match operator {
                             BinaryOp::Or => "OR",
                             BinaryOp::And => "AND",
@@ -731,8 +955,7 @@ impl Compiler {
             }
             Expr::Unary { operator, operand } => match operator {
                 UnaryOp::Not => {
-                    let (_, operand_type) = self.scalar_parts(operand)?;
-                    let operand = boolean_value(&operand_type);
+                    let operand = self.boolean_expression(operand)?;
                     Ok(boolean_parts(format!("(NOT ({operand}))")))
                 }
                 UnaryOp::Plus | UnaryOp::Minus => self.numeric_unary(operand, *operator),
@@ -746,6 +969,95 @@ impl Compiler {
                     "(({expression}) IS {}NULL)",
                     if *negated { "NOT " } else { "" }
                 )))
+            }
+            Expr::Aggregate {
+                kind,
+                argument,
+                distinct,
+            } => self.aggregate_parts(*kind, argument.as_deref(), *distinct),
+        }
+    }
+
+    fn aggregate_parts(
+        &mut self,
+        kind: AggregateKind,
+        argument: Option<&Expr>,
+        distinct: bool,
+    ) -> Result<(String, String)> {
+        if kind == AggregateKind::Count && argument.is_none() {
+            return Ok(("COUNT(*)".into(), "'integer'".into()));
+        }
+        let argument = argument.ok_or_else(|| {
+            Error::Data("logical aggregate other than count() is missing its argument".into())
+        })?;
+
+        if let Expr::Entity(slot) = argument {
+            if kind != AggregateKind::Count {
+                return Err(Error::Data(
+                    "logical aggregate contains an unsupported entity argument".into(),
+                ));
+            }
+            let value = self.entity_field(*slot, "id")?;
+            return Ok((
+                format!("COUNT({}{value})", if distinct { "DISTINCT " } else { "" }),
+                "'integer'".into(),
+            ));
+        }
+
+        let (value, value_type) = self.scalar_parts(argument)?;
+        let non_null = format!(
+            "({value}) IS NOT NULL AND ({value_type}) IS NOT NULL \
+             AND ({value_type}) <> 'null'"
+        );
+        let numeric = format!("({value_type}) IN ('integer', 'real')");
+        let modifier = if distinct { "DISTINCT " } else { "" };
+
+        match kind {
+            AggregateKind::Count => {
+                let counted = if distinct {
+                    aggregate_distinct_key(&value, &value_type)
+                } else {
+                    format!("CASE WHEN {non_null} THEN ({value}) END")
+                };
+                Ok((format!("COUNT({modifier}{counted})"), "'integer'".into()))
+            }
+            AggregateKind::Sum => {
+                let invalid = format!("({non_null}) AND NOT ({numeric})");
+                let sum = format!("SUM({modifier}{value}) FILTER (WHERE {numeric})");
+                let value = format!(
+                    "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
+                     ELSE COALESCE({sum}, 0) END)"
+                );
+                Ok(numeric_parts(value))
+            }
+            AggregateKind::Average => {
+                let invalid = format!("({non_null}) AND NOT ({numeric})");
+                let average = format!("AVG({modifier}{value}) FILTER (WHERE {numeric})");
+                let value = format!(
+                    "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
+                     ELSE {average} END)"
+                );
+                Ok((value, "'real'".into()))
+            }
+            AggregateKind::Minimum | AggregateKind::Maximum => {
+                Ok(min_max_parts(kind, &value, &value_type, modifier))
+            }
+            AggregateKind::Collect => {
+                if distinct {
+                    return Err(Error::Unsupported("collect(DISTINCT ...)".into()));
+                }
+                let encoded = encoded_scalar(&value, &value_type);
+                let ordering = self
+                    .ordering
+                    .as_ref()
+                    .map(|ordering| format!(" ORDER BY {ordering}"))
+                    .unwrap_or_default();
+                Ok((
+                    format!(
+                        "json_group_array(json({encoded}){ordering}) FILTER (WHERE {non_null})"
+                    ),
+                    "'array'".into(),
+                ))
             }
         }
     }
@@ -904,6 +1216,74 @@ fn encoded_scalar(value: &str, value_type: &str) -> String {
          WHEN ({value_type}) = 'text' THEN json_quote(({value})) \
          ELSE json(({value})) END)"
     )
+}
+
+fn order_expression(expression: String, direction: SortDirection) -> String {
+    let direction = match direction {
+        // Cypher's default is NULLS LAST for ascending order.
+        SortDirection::Ascending => "ASC",
+        // Cypher's default is NULLS FIRST for descending order.
+        SortDirection::Descending => "DESC",
+    };
+    format!("(({expression}) IS NULL) {direction}, ({expression}) {direction}")
+}
+
+fn aggregate_distinct_key(value: &str, value_type: &str) -> String {
+    let encoded = encoded_scalar(value, value_type);
+    format!(
+        "(CASE \
+         WHEN ({value}) IS NULL OR ({value_type}) IS NULL OR ({value_type}) = 'null' THEN NULL \
+         ELSE crabnet_semantic_key({encoded}) END)"
+    )
+}
+
+fn min_max_parts(
+    kind: AggregateKind,
+    value: &str,
+    value_type: &str,
+    modifier: &str,
+) -> (String, String) {
+    let operator = match kind {
+        AggregateKind::Minimum => "MIN",
+        AggregateKind::Maximum => "MAX",
+        _ => unreachable!("only min/max aggregates use min_max_parts"),
+    };
+    let non_null = format!(
+        "({value}) IS NOT NULL AND ({value_type}) IS NOT NULL \
+         AND ({value_type}) <> 'null'"
+    );
+    let numeric = format!("({value_type}) IN ('integer', 'real')");
+    let text = format!("({value_type}) = 'text'");
+    let boolean = format!("({value_type}) IN ('true', 'false')");
+    let invalid = format!("({non_null}) AND NOT (({numeric}) OR ({text}) OR ({boolean}))");
+    let numeric_count = format!("COUNT(*) FILTER (WHERE {numeric})");
+    let text_count = format!("COUNT(*) FILTER (WHERE {text})");
+    let boolean_count = format!("COUNT(*) FILTER (WHERE {boolean})");
+    let invalid_count = format!("COUNT(*) FILTER (WHERE {invalid})");
+    let family_count =
+        format!("(({numeric_count} > 0) + ({text_count} > 0) + ({boolean_count} > 0))");
+    let numeric_result = format!("{operator}({modifier}{value}) FILTER (WHERE {numeric})");
+    let text_result = format!("{operator}({modifier}{value}) FILTER (WHERE {text})");
+    let boolean_result = format!("{operator}({modifier}{value}) FILTER (WHERE {boolean})");
+    let result = format!(
+        "(CASE \
+         WHEN {invalid_count} > 0 OR {family_count} > 1 THEN NULL \
+         WHEN {numeric_count} > 0 THEN {numeric_result} \
+         WHEN {text_count} > 0 THEN {text_result} \
+         WHEN {boolean_count} > 0 THEN {boolean_result} \
+         ELSE NULL END)"
+    );
+    let result_type = format!(
+        "(CASE \
+         WHEN {invalid_count} > 0 OR {family_count} > 1 THEN 'null' \
+         WHEN {numeric_count} > 0 THEN \
+           CASE WHEN typeof(({numeric_result})) = 'integer' THEN 'integer' ELSE 'real' END \
+         WHEN {text_count} > 0 THEN 'text' \
+         WHEN {boolean_count} > 0 THEN \
+           CASE WHEN ({boolean_result}) THEN 'true' ELSE 'false' END \
+         ELSE 'null' END)"
+    );
+    (result, result_type)
 }
 
 fn boolean_parts(value: String) -> (String, String) {

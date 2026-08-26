@@ -55,6 +55,12 @@ end-to-end result test for user-visible semantics.
 - `tests/delete_mutations.rs` covers node/relationship deletion, detach edge
   cleanup, input-bag target deduplication, pre-delete return snapshots,
   counters, constraint failures, and rollback.
+- `tests/aggregation.rs` and `tests/aggregation_edges.rs` cover implicit
+  grouping, typed aggregate behavior, empty inputs, aggregate scope, aliases,
+  and structured rejection boundaries.
+- `tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs` cover the
+  row-expanding and null/deduplication composition operators, including bag
+  multiplicity and clause-local scope.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.
@@ -164,8 +170,9 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-The next active test slice is milestone 6 query composition: aggregation and
-grouping first, followed deliberately by `UNWIND`, `UNION`/`UNION ALL`, and
-`OPTIONAL MATCH`. Continue adding the smallest focused red cases for one
-operator at a time, especially empty-input, bag-multiplicity, grouping, scope,
-and null-extension boundaries.
+The next active test slice is milestone 7 bounded variable-length traversal.
+Start with explicit lower/upper bounds and endpoint results, then exercise
+cycles, self-loops, diamonds, parallel edges, dead ends, bag multiplicity, and
+per-path relationship uniqueness. Truly unbounded traversal and whole path
+values should remain structured rejections until their resource and result
+contracts are implemented.

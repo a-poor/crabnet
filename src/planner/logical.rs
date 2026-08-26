@@ -117,6 +117,16 @@ pub(crate) enum UnaryOp {
     Not,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AggregateKind {
+    Count,
+    Sum,
+    Average,
+    Minimum,
+    Maximum,
+    Collect,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Expr {
     Value(ValueExpr),
@@ -139,6 +149,62 @@ pub(crate) enum Expr {
         expression: Box<Self>,
         negated: bool,
     },
+    Aggregate {
+        kind: AggregateKind,
+        argument: Option<Box<Self>>,
+        distinct: bool,
+    },
+}
+
+impl Expr {
+    pub(crate) fn contains_aggregate(&self) -> bool {
+        match self {
+            Self::Aggregate { .. } => true,
+            Self::Binary { left, right, .. } => {
+                left.contains_aggregate() || right.contains_aggregate()
+            }
+            Self::Unary { operand, .. } => operand.contains_aggregate(),
+            Self::IsNull { expression, .. } => expression.contains_aggregate(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn is_row_dependent(&self) -> bool {
+        match self {
+            Self::Value(_) => false,
+            Self::Aggregate { .. } => false,
+            Self::Binary { left, right, .. } => left.is_row_dependent() || right.is_row_dependent(),
+            Self::Unary { operand, .. } => operand.is_row_dependent(),
+            Self::IsNull { expression, .. } => expression.is_row_dependent(),
+            Self::Entity(_)
+            | Self::Scalar(_)
+            | Self::Property(_, _)
+            | Self::ElementId(_)
+            | Self::Labels(_)
+            | Self::RelationshipType(_) => true,
+        }
+    }
+
+    pub(crate) fn uses_only_grouped_values(&self, grouping: &[Self]) -> bool {
+        if grouping.contains(self) {
+            return true;
+        }
+        match self {
+            Self::Value(_) | Self::Aggregate { .. } => true,
+            Self::Binary { left, right, .. } => {
+                left.uses_only_grouped_values(grouping) && right.uses_only_grouped_values(grouping)
+            }
+            Self::Unary { operand, .. } => operand.uses_only_grouped_values(grouping),
+            Self::IsNull { expression, .. } => expression.uses_only_grouped_values(grouping),
+            Self::Property(slot, _)
+            | Self::ElementId(slot)
+            | Self::Labels(slot)
+            | Self::RelationshipType(slot) => grouping
+                .iter()
+                .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
+            Self::Entity(_) | Self::Scalar(_) => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -201,9 +267,18 @@ pub(crate) struct WithStage {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct UnwindStage {
+    pub(crate) name: String,
+    pub(crate) slot: ScalarSlotId,
+    pub(crate) expression: Expr,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum ReadStage {
     Match(MatchPlan),
+    OptionalMatch(MatchPlan),
     With(WithStage),
+    Unwind(UnwindStage),
 }
 
 #[derive(Clone, Debug)]
@@ -326,7 +401,7 @@ pub(crate) fn require_object(value: &Value, description: &str) -> Result<()> {
 pub(crate) fn validate_storable_value(value: &Value) -> Result<()> {
     match value {
         Value::Number(number) if number.as_u64().is_some() && number.as_i64().is_none() => Err(
-            Error::Semantic("property integers must fit SQLite's signed 64-bit range".into()),
+            Error::Semantic("Cypher integers must fit SQLite's signed 64-bit range".into()),
         ),
         Value::Array(values) => values.iter().try_for_each(validate_storable_value),
         Value::Object(values) => values.values().try_for_each(validate_storable_value),

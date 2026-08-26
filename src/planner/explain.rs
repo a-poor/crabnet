@@ -1,8 +1,9 @@
 use serde_json::Value;
 
 use super::logical::{
-    BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation, Projection, Query,
-    ReadStage, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation,
+    Projection, Query, ReadStage, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr,
+    WithBinding, WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -59,10 +60,29 @@ pub(super) fn render(query: &Query) -> String {
                             }
                         }
                     }
+                    ReadStage::OptionalMatch(plan) => {
+                        renderer.line(3, format!("stage {index}: optional-match"));
+                        if plan.operators.is_empty() {
+                            renderer.line(4, "none");
+                        } else {
+                            for operator in &plan.operators {
+                                renderer.line(4, render_match_operator(operator));
+                            }
+                        }
+                    }
                     ReadStage::With(stage) => {
                         renderer.line(3, format!("stage {index}: with"));
                         render_with_stage(&mut renderer, stage);
                     }
+                    ReadStage::Unwind(stage) => renderer.line(
+                        3,
+                        format!(
+                            "stage {index}: unwind {} = scalar({}) <- {}",
+                            quote(&stage.name),
+                            scalar_slot_name(stage.slot),
+                            render_expr(&stage.expression)
+                        ),
+                    ),
                 }
             }
         }
@@ -372,6 +392,18 @@ fn render_expr(expression: &Expr) -> String {
             if *negated { "is-not-null" } else { "is-null" },
             render_expr(expression)
         ),
+        Expr::Aggregate {
+            kind,
+            argument,
+            distinct,
+        } => format!(
+            "{}{}({})",
+            aggregate_kind_name(*kind),
+            if *distinct { "-distinct" } else { "" },
+            argument
+                .as_deref()
+                .map_or_else(|| "*".to_owned(), render_expr)
+        ),
     }
 }
 
@@ -448,6 +480,17 @@ fn entity_kind_name(kind: EntityKind) -> &'static str {
     match kind {
         EntityKind::Node => "node",
         EntityKind::Relationship => "relationship",
+    }
+}
+
+fn aggregate_kind_name(kind: AggregateKind) -> &'static str {
+    match kind {
+        AggregateKind::Count => "count",
+        AggregateKind::Sum => "sum",
+        AggregateKind::Average => "avg",
+        AggregateKind::Minimum => "min",
+        AggregateKind::Maximum => "max",
+        AggregateKind::Collect => "collect",
     }
 }
 
@@ -632,6 +675,89 @@ mod tests {
     }
 
     #[test]
+    fn explains_aggregate_grouping_across_a_with_boundary() {
+        let query = "MATCH (member:Member) \
+                     WITH member.team AS team, count(*) AS members \
+                     WHERE members > 1 \
+                     RETURN team, members";
+
+        let logical = explain_logical(query).unwrap();
+        assert!(logical.contains("\"team\" = scalar(%s0) <- property(%0, \"team\")"));
+        assert!(logical.contains("\"members\" = scalar(%s1) <- count(*)"));
+        assert!(logical.contains("filter: greater-than(count(*), literal(1))"));
+
+        let physical = explain_physical(query).unwrap();
+        assert!(physical.contains("COUNT(*)"));
+        assert!(physical.contains(" GROUP BY "));
+        assert!(physical.contains(" HAVING "));
+    }
+
+    #[test]
+    fn explains_unwind_as_a_pipeline_row_expansion() {
+        let query = "WITH [1, 2] AS values UNWIND values AS value RETURN value";
+
+        let logical = explain_logical(query).unwrap();
+        assert!(logical.contains("stage 0: with"));
+        assert!(logical.contains("stage 1: unwind \"value\" = scalar(%s1) <- scalar(%s0)"));
+        assert!(logical.contains("\"value\" = scalar(%s1)"));
+
+        let physical = explain_physical(query).unwrap();
+        assert!(physical.contains("_crabnet_unwind_1 AS MATERIALIZED"));
+        assert!(physical.contains("json_each(CASE WHEN"));
+        assert!(physical.contains("  rust-stage: none"));
+    }
+
+    #[test]
+    fn explains_union_all_separately_from_semantic_union() {
+        let query = "RETURN 1 AS value \
+                     UNION ALL RETURN 1.0 AS value \
+                     UNION RETURN 2 AS value";
+
+        let logical = explain_logical(query).unwrap();
+        assert!(logical.starts_with("logical-union\n  branch 0:\n"));
+        assert_eq!(logical.matches("    logical-query\n").count(), 3);
+        assert!(logical.contains("  union: all\n  branch 1:\n"));
+        assert!(logical.contains("  union: semantic-distinct\n  branch 2:\n"));
+
+        let physical = explain_physical(query).unwrap();
+        assert!(physical.starts_with("physical-union\n  branch 0:\n"));
+        assert_eq!(physical.matches("    physical-query\n").count(), 3);
+        assert!(physical.contains("  union: all\n  branch 1:\n"));
+        assert!(physical.contains("  union: semantic-distinct\n  branch 2:\n"));
+    }
+
+    #[test]
+    fn explains_optional_predicates_inside_the_optional_stage() {
+        let query = "MATCH (person:Person) \
+                     OPTIONAL MATCH (person)-[:WORKS_ON]->(project:Project) \
+                     WHERE project.active = true \
+                     RETURN person.name AS person, project.name AS project";
+
+        let logical = explain_logical(query).unwrap();
+        let optional = logical
+            .find("stage 1: optional-match")
+            .expect("logical plan should contain an optional-match stage");
+        let predicate = logical
+            .find("filter equal(property(%2, \"active\"), literal(true))")
+            .expect("optional predicate should remain inside the match plan");
+        let projection = logical
+            .find("  projection:")
+            .expect("logical plan should contain a projection");
+        assert!(optional < predicate && predicate < projection);
+
+        let physical = explain_physical(query).unwrap();
+        let optional_tail = physical
+            .rsplit_once(" LEFT JOIN ")
+            .map(|(_, tail)| tail)
+            .expect("physical plan should null-extend with a left join");
+        assert!(optional_tail.contains(" ON ("));
+        assert!(
+            !optional_tail.contains(" WHERE "),
+            "the optional predicate must not become an outer WHERE filter: {physical}"
+        );
+    }
+
+    #[test]
     fn physical_explain_shows_cte_boundaries_and_bind_positions() {
         let explanation = explain_physical(
             "WITH $start AS value \
@@ -643,7 +769,7 @@ mod tests {
         assert!(explanation.starts_with("physical-query\n  sqlite-fragment:\n"));
         assert!(explanation.contains("WITH _crabnet_with_0 AS MATERIALIZED"));
         assert!(explanation.contains("_crabnet_with_1 AS MATERIALIZED"));
-        assert!(explanation.contains("      ?1 scalar"));
+        assert!(explanation.contains("      ?1 json"));
         assert!(explanation.contains("  rust-stage: none"));
     }
 }

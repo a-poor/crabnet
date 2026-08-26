@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crabnet::{Database, Error, Parameters, Value};
+use crabnet::{CypherValue, Database, Error, Parameters, Value};
 use serde_json::json;
 
 fn parameters<const N: usize>(values: [(&str, Value); N]) -> Parameters {
@@ -200,6 +200,71 @@ fn every_supported_ordering_comparison_is_exercised() {
         )
         .unwrap();
     assert_eq!(not_equal.rows, [vec![json!(1)], vec![json!(3)]]);
+}
+
+#[test]
+fn ordering_uses_cypher_default_null_placement() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (:NullOrder {value: 1}), (:NullOrder {value: null}), \
+                    (:NullOrder {value: 2}), (:NullOrder)",
+        )
+        .unwrap();
+
+    let ascending = database
+        .execute(
+            "MATCH (item:NullOrder) \
+             RETURN item.value AS value ORDER BY value",
+        )
+        .unwrap();
+    assert_eq!(
+        ascending.rows,
+        [
+            vec![CypherValue::Integer(1)],
+            vec![CypherValue::Integer(2)],
+            vec![CypherValue::Null],
+            vec![CypherValue::Null],
+        ]
+    );
+
+    let descending = database
+        .execute(
+            "MATCH (item:NullOrder) \
+             RETURN item.value AS value ORDER BY value DESC",
+        )
+        .unwrap();
+    assert_eq!(
+        descending.rows,
+        [
+            vec![CypherValue::Null],
+            vec![CypherValue::Null],
+            vec![CypherValue::Integer(2)],
+            vec![CypherValue::Integer(1)],
+        ]
+    );
+
+    let ascending_page = database
+        .execute(
+            "MATCH (item:NullOrder) \
+             RETURN item.value AS value ORDER BY value LIMIT 2",
+        )
+        .unwrap();
+    assert_eq!(
+        ascending_page.rows,
+        [vec![CypherValue::Integer(1)], vec![CypherValue::Integer(2)],]
+    );
+
+    let descending_page = database
+        .execute(
+            "MATCH (item:NullOrder) \
+             RETURN item.value AS value ORDER BY value DESC SKIP 2",
+        )
+        .unwrap();
+    assert_eq!(
+        descending_page.rows,
+        [vec![CypherValue::Integer(2)], vec![CypherValue::Integer(1)],]
+    );
 }
 
 #[test]

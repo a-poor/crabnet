@@ -1,12 +1,15 @@
 use std::{collections::BTreeSet, path::Path};
 
-use rusqlite::{Connection, Transaction, TransactionBehavior, params, params_from_iter};
+use rusqlite::{
+    Connection, Transaction, TransactionBehavior, functions::FunctionFlags, params,
+    params_from_iter,
+};
 
 use crate::{
     CypherValue, NodeValue, Parameters, QueryResult, QuerySummary, RelationshipValue, Result,
     planner::{
-        self, EntityKind, OutputShape, Plan, ResolvedExpr, ResolvedMutation, ResolvedMutationPlan,
-        SlotId,
+        self, EntityKind, OutputShape, Plan, ReadPlan, ResolvedExpr, ResolvedMutation,
+        ResolvedMutationPlan, SlotId, SqlQuery, UnionKind,
     },
 };
 
@@ -67,6 +70,7 @@ impl Database {
 
     fn from_connection(mut connection: Connection) -> Result<Self> {
         initialize(&mut connection)?;
+        register_functions(&connection)?;
         Ok(Self { connection })
     }
 
@@ -78,50 +82,79 @@ impl Database {
     /// Executes a Cypher query with named `$parameter` values.
     pub fn execute_with(&mut self, cypher: &str, parameters: &Parameters) -> Result<QueryResult> {
         match planner::compile(cypher)? {
-            Plan::Read(plan) => {
-                let bindings = plan.resolve_bindings(parameters)?;
-                let post_pagination = plan.resolve_post_pagination(parameters)?;
-                let mut statement = self.connection.prepare(&plan.sql)?;
-                debug_assert!(statement.readonly());
-                debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
-                let mut rows = statement
-                    .query_map(params_from_iter(bindings.iter()), |row| {
-                        (0..plan.output_shapes.len())
-                            .map(|index| row.get::<_, String>(index))
-                            .collect::<rusqlite::Result<Vec<_>>>()
-                    })?
-                    .map(|row| {
-                        row.map_err(crate::Error::from).and_then(|values| {
-                            values
-                                .into_iter()
-                                .zip(plan.output_shapes.iter().copied())
-                                .map(|(value, shape)| decode_output(&value, shape))
-                                .collect::<Result<Vec<_>>>()
-                        })
-                    })
-                    .collect::<Result<Vec<_>>>()?;
-                if plan.distinct() {
-                    rows = distinct_rows(rows);
-                    let (offset, limit) = post_pagination;
-                    rows = rows
-                        .into_iter()
-                        .skip(offset)
-                        .take(limit.unwrap_or(usize::MAX))
-                        .collect();
-                }
-                Ok(QueryResult {
-                    columns: plan.columns,
-                    rows,
-                    summary: QuerySummary::default(),
-                })
-            }
+            Plan::Read(plan) => self.execute_read(plan, parameters),
             Plan::Mutate(plan) => {
                 // Resolving every property and RETURN expression here keeps a
                 // missing/invalid parameter from starting a partial write.
-                let plan = plan.resolve(parameters)?;
+                let plan = (*plan).resolve(parameters)?;
                 self.execute_mutation(plan)
             }
         }
+    }
+
+    fn execute_read(&self, plan: ReadPlan, parameters: &Parameters) -> Result<QueryResult> {
+        let columns = plan
+            .branches
+            .first()
+            .expect("read plans always contain at least one branch")
+            .columns
+            .clone();
+        let mut branches = plan.branches.iter();
+        let mut rows = self.execute_sql_query(
+            branches
+                .next()
+                .expect("read plans always contain at least one branch"),
+            parameters,
+        )?;
+        for (kind, branch) in plan.unions.iter().zip(branches) {
+            rows.extend(self.execute_sql_query(branch, parameters)?);
+            if *kind == UnionKind::Distinct {
+                rows = distinct_rows(rows);
+            }
+        }
+        Ok(QueryResult {
+            columns,
+            rows,
+            summary: QuerySummary::default(),
+        })
+    }
+
+    fn execute_sql_query(
+        &self,
+        plan: &SqlQuery,
+        parameters: &Parameters,
+    ) -> Result<Vec<Vec<CypherValue>>> {
+        let bindings = plan.resolve_bindings(parameters)?;
+        let post_pagination = plan.resolve_post_pagination(parameters)?;
+        let mut statement = self.connection.prepare(&plan.sql)?;
+        debug_assert!(statement.readonly());
+        debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
+        let mut rows = statement
+            .query_map(params_from_iter(bindings.iter()), |row| {
+                (0..plan.output_shapes.len())
+                    .map(|index| row.get::<_, String>(index))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })?
+            .map(|row| {
+                row.map_err(crate::Error::from).and_then(|values| {
+                    values
+                        .into_iter()
+                        .zip(plan.output_shapes.iter().copied())
+                        .map(|(value, shape)| decode_output(&value, shape))
+                        .collect::<Result<Vec<_>>>()
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if plan.distinct() {
+            rows = distinct_rows(rows);
+            let (offset, limit) = post_pagination;
+            rows = rows
+                .into_iter()
+                .skip(offset)
+                .take(limit.unwrap_or(usize::MAX))
+                .collect();
+        }
+        Ok(rows)
     }
 
     fn execute_mutation(&mut self, plan: ResolvedMutationPlan) -> Result<QueryResult> {
@@ -757,6 +790,99 @@ fn initialize(connection: &mut Connection) -> Result<()> {
         return Err(error.into());
     }
     validate_schema(connection)
+}
+
+fn register_functions(connection: &Connection) -> Result<()> {
+    connection.create_scalar_function(
+        "crabnet_semantic_key",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let encoded = context.get::<String>(0)?;
+            let value = serde_json::from_str(&encoded)
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            Ok(semantic_json_key(&value))
+        },
+    )?;
+    Ok(())
+}
+
+/// Produces a stable, recursively typed key for the JSON-backed part of the
+/// Cypher value domain. Equal integers and floats deliberately share a key;
+/// booleans remain distinct from numbers, and collection values recurse using
+/// the same rules. SQLite uses the resulting blob for GROUP BY and DISTINCT.
+fn semantic_json_key(value: &serde_json::Value) -> Vec<u8> {
+    fn append_len(output: &mut Vec<u8>, len: usize) {
+        output.extend_from_slice(&(len as u64).to_be_bytes());
+    }
+
+    fn append_value(output: &mut Vec<u8>, value: &serde_json::Value) {
+        match value {
+            serde_json::Value::Null => output.push(b'n'),
+            serde_json::Value::Bool(value) => {
+                output.push(b'b');
+                output.push(u8::from(*value));
+            }
+            serde_json::Value::Number(number) => {
+                output.push(b'd');
+                if let Some(integer) = number.as_i64() {
+                    output.push(b'i');
+                    output.extend_from_slice(&integer.to_be_bytes());
+                } else if let Some(unsigned) = number.as_u64() {
+                    output.push(b'u');
+                    output.extend_from_slice(&unsigned.to_be_bytes());
+                } else {
+                    let float = number
+                        .as_f64()
+                        .expect("serde_json numbers always have a numeric representation");
+                    let integral = (float.is_finite() && float.fract() == 0.0)
+                        .then_some(float as i128)
+                        .and_then(|integer| i64::try_from(integer).ok());
+                    if let Some(integer) = integral {
+                        output.push(b'i');
+                        output.extend_from_slice(&integer.to_be_bytes());
+                    } else {
+                        output.push(b'f');
+                        // Cypher numeric equality treats the two signed zero
+                        // representations as the same floating-point value.
+                        let normalized = if float == 0.0 { 0.0 } else { float };
+                        output.extend_from_slice(&normalized.to_bits().to_be_bytes());
+                    }
+                }
+            }
+            serde_json::Value::String(value) => {
+                output.push(b's');
+                append_len(output, value.len());
+                output.extend_from_slice(value.as_bytes());
+            }
+            serde_json::Value::Array(values) => {
+                output.push(b'l');
+                append_len(output, values.len());
+                for value in values {
+                    let nested = semantic_json_key(value);
+                    append_len(output, nested.len());
+                    output.extend_from_slice(&nested);
+                }
+            }
+            serde_json::Value::Object(values) => {
+                output.push(b'm');
+                append_len(output, values.len());
+                let mut entries = values.iter().collect::<Vec<_>>();
+                entries.sort_unstable_by_key(|(key, _)| *key);
+                for (key, value) in entries {
+                    append_len(output, key.len());
+                    output.extend_from_slice(key.as_bytes());
+                    let nested = semantic_json_key(value);
+                    append_len(output, nested.len());
+                    output.extend_from_slice(&nested);
+                }
+            }
+        }
+    }
+
+    let mut output = Vec::new();
+    append_value(&mut output, value);
+    output
 }
 
 fn validate_schema(connection: &Connection) -> Result<()> {

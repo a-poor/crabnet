@@ -9,7 +9,7 @@ use open_cypher::{
         PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, RelationshipDirection,
         RelationshipPattern, RemoveClause, RemoveItemKind, SetClause, SetItemKind, SetQuantifier,
         SortDirection as AstSortDirection, StatementKind, UnaryOperator as AstUnaryOperator,
-        WithClause,
+        UnwindClause, WithClause,
     },
     parse,
 };
@@ -17,11 +17,101 @@ use serde_json::{Number, Value};
 
 use crate::{Error, Result};
 
+use super::UnionKind;
 use super::logical::{
-    BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, Mutation, Projection,
-    Query, ReadPipeline, ReadStage, ScalarSlotId, SlotId, SortDirection, SortItem, UnaryOp,
-    ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
+    Mutation, Projection, Query, ReadPipeline, ReadStage, ScalarSlotId, SlotId, SortDirection,
+    SortItem, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
+
+pub(super) struct UnionSource {
+    pub(super) head: String,
+    pub(super) branches: Vec<(UnionKind, String)>,
+}
+
+pub(super) fn split_union(source: &str) -> Result<Option<UnionSource>> {
+    let trimmed = source.trim();
+    if trimmed.is_empty() || trimmed == ";" {
+        return Err(Error::EmptyQuery);
+    }
+
+    let parsed = parse(source).map_err(|errors| Error::Parse(errors.render(source)))?;
+    let [statement] = parsed.program.statements.as_slice() else {
+        return Err(Error::EmptyQuery);
+    };
+    let StatementKind::Query(query_statement) = &statement.kind else {
+        return Err(unsupported(statement.span, "query statement"));
+    };
+    if query_statement.mode.is_some() {
+        return Err(unsupported(
+            query_statement.query.span,
+            "EXPLAIN and PROFILE",
+        ));
+    }
+    let open_cypher::ast::QueryKind::Regular(query) = &query_statement.query.kind else {
+        return Err(unsupported(query_statement.query.span, "query kind"));
+    };
+    if query.unions.is_empty() {
+        return Ok(None);
+    }
+
+    let mut single_queries = Vec::with_capacity(query.unions.len() + 1);
+    single_queries.push(&query.head);
+    single_queries.extend(query.unions.iter().map(|branch| &branch.query));
+    for single_query in &single_queries {
+        if single_query
+            .kind
+            .clauses
+            .iter()
+            .any(|clause| is_write_clause(&clause.kind))
+        {
+            return Err(unsupported(single_query.span, "writes in UNION branches"));
+        }
+        if !matches!(
+            single_query.kind.clauses.last().map(|clause| &clause.kind),
+            Some(ClauseKind::Return(_))
+        ) {
+            return Err(semantic(
+                single_query.span,
+                "every UNION branch must end with RETURN",
+            ));
+        }
+    }
+
+    let branch_source = |span: Span| {
+        span.text(source)
+            .map(str::to_owned)
+            .ok_or_else(|| Error::Data("UNION branch span is outside its source query".into()))
+    };
+    let head = branch_source(query.head.span)?;
+    let branches = query
+        .unions
+        .iter()
+        .map(|branch| {
+            let kind = match branch.operator.kind {
+                open_cypher::ast::UnionOperator::All => UnionKind::All,
+                open_cypher::ast::UnionOperator::Default
+                | open_cypher::ast::UnionOperator::Distinct => UnionKind::Distinct,
+                _ => return Err(unsupported(branch.operator.span, "UNION operator")),
+            };
+            Ok((kind, branch_source(branch.query.span)?))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Some(UnionSource { head, branches }))
+}
+
+fn is_write_clause(clause: &ClauseKind) -> bool {
+    matches!(
+        clause,
+        ClauseKind::Create(_)
+            | ClauseKind::Insert(_)
+            | ClauseKind::Merge(_)
+            | ClauseKind::Delete(_)
+            | ClauseKind::Set(_)
+            | ClauseKind::Remove(_)
+            | ClauseKind::Foreach(_)
+    )
+}
 
 pub(crate) fn lower(source: &str) -> Result<Query> {
     let trimmed = source.trim();
@@ -50,9 +140,10 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
     }
 
     let clauses = &query.head.kind.clauses;
-    let contains_with = clauses
-        .iter()
-        .any(|clause| matches!(clause.kind, ClauseKind::With(_)));
+    let contains_read_pipeline = clauses.iter().any(|clause| {
+        matches!(clause.kind, ClauseKind::With(_) | ClauseKind::Unwind(_))
+            || matches!(&clause.kind, ClauseKind::Match(match_clause) if match_clause.optional)
+    });
     let repeated_read_match = clauses
         .iter()
         .filter(|clause| matches!(clause.kind, ClauseKind::Match(_)))
@@ -61,7 +152,7 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
         && clauses
             .iter()
             .all(|clause| matches!(clause.kind, ClauseKind::Match(_) | ClauseKind::Return(_)));
-    if contains_with || repeated_read_match {
+    if contains_read_pipeline || repeated_read_match {
         return lower_read_pipeline(source, clauses);
     }
     if clauses.iter().any(|clause| {
@@ -229,10 +320,18 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
         }
         match &clause.kind {
             ClauseKind::Match(match_clause) => {
-                stages.push(ReadStage::Match(lowerer.match_clause(match_clause)?));
+                let plan = lowerer.match_clause(match_clause)?;
+                stages.push(if match_clause.optional {
+                    ReadStage::OptionalMatch(plan)
+                } else {
+                    ReadStage::Match(plan)
+                });
             }
             ClauseKind::With(with_clause) => {
                 stages.push(ReadStage::With(lowerer.with_clause(with_clause)?));
+            }
+            ClauseKind::Unwind(unwind_clause) => {
+                stages.push(ReadStage::Unwind(lowerer.unwind_clause(unwind_clause)?));
             }
             ClauseKind::Return(return_clause) if index + 1 == clauses.len() => {
                 projection = Some(lowerer.projection(&return_clause.projection, false)?);
@@ -241,7 +340,7 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
                 return Err(unsupported(clause.span, "clauses after RETURN"));
             }
             ClauseKind::Create(_) => {
-                return Err(unsupported(clause.span, "writes in a WITH pipeline"));
+                return Err(unsupported(clause.span, "writes in a read pipeline"));
             }
             kind => return Err(unsupported(clause.span, clause_name(kind))),
         }
@@ -305,10 +404,10 @@ impl<'source> Lowerer<'source> {
     }
 
     fn match_clause(&mut self, match_clause: &MatchClause) -> Result<MatchPlan> {
-        if match_clause.optional || match_clause.mode.is_some() || !match_clause.hints.is_empty() {
+        if match_clause.mode.is_some() || !match_clause.hints.is_empty() {
             return Err(unsupported(
                 match_clause.pattern.span,
-                "OPTIONAL/path-mode/hinted MATCH",
+                "path-mode or hinted MATCH",
             ));
         }
         let mut plan = MatchPlan::default();
@@ -320,7 +419,7 @@ impl<'source> Lowerer<'source> {
         }
         if let Some(predicate) = &match_clause.where_clause {
             plan.operators
-                .push(MatchOperator::Filter(self.scalar_expression(predicate)?));
+                .push(MatchOperator::Filter(self.match_predicate(predicate)?));
         }
         Ok(plan)
     }
@@ -425,7 +524,7 @@ impl<'source> Lowerer<'source> {
         self.match_properties(plan, slot, node.properties.as_deref())?;
         if let Some(predicate) = &node.where_clause {
             plan.operators
-                .push(MatchOperator::Filter(self.scalar_expression(predicate)?));
+                .push(MatchOperator::Filter(self.match_predicate(predicate)?));
         }
         Ok(slot)
     }
@@ -457,7 +556,7 @@ impl<'source> Lowerer<'source> {
         self.match_properties(plan, slot, relationship.properties.as_deref())?;
         if let Some(predicate) = &relationship.where_clause {
             plan.operators
-                .push(MatchOperator::Filter(self.scalar_expression(predicate)?));
+                .push(MatchOperator::Filter(self.match_predicate(predicate)?));
         }
         Ok(slot)
     }
@@ -786,6 +885,33 @@ impl<'source> Lowerer<'source> {
         }
     }
 
+    fn unwind_clause(&mut self, unwind_clause: &UnwindClause) -> Result<UnwindStage> {
+        if self.symbols.contains_key(&unwind_clause.variable.kind.text) {
+            return Err(semantic(
+                unwind_clause.variable.span,
+                format!(
+                    "UNWIND variable `{}` is already bound",
+                    unwind_clause.variable.kind.text
+                ),
+            ));
+        }
+        let expression = self.scalar_expression(&unwind_clause.expression)?;
+        if expression.contains_aggregate() {
+            return Err(semantic(
+                unwind_clause.expression.span,
+                "aggregate functions in UNWIND must cross a WITH boundary",
+            ));
+        }
+        let slot = self.allocate_scalar();
+        let name = unwind_clause.variable.kind.text.clone();
+        self.symbols.insert(name.clone(), Symbol::Scalar(slot));
+        Ok(UnwindStage {
+            name,
+            slot,
+            expression,
+        })
+    }
+
     fn with_clause(&mut self, with_clause: &WithClause) -> Result<WithStage> {
         let projection = &with_clause.projection;
         match projection.quantifier.as_ref().map(|value| value.kind) {
@@ -823,6 +949,12 @@ impl<'source> Lowerer<'source> {
             }
 
             let expression = self.output_expression(expression)?;
+            if expression.contains_aggregate() && !matches!(expression, Expr::Aggregate { .. }) {
+                return Err(unsupported(
+                    item.span,
+                    "aggregate calls nested in WITH expressions",
+                ));
+            }
             match expression {
                 Expr::Entity(slot) => {
                     let kind = self.kind(slot);
@@ -854,17 +986,60 @@ impl<'source> Lowerer<'source> {
             ));
         }
 
+        let binding_expressions = bindings
+            .iter()
+            .map(|binding| match binding {
+                WithBinding::Entity { slot, .. } => Expr::Entity(*slot),
+                WithBinding::Scalar { expression, .. } => expression.clone(),
+            })
+            .collect::<Vec<_>>();
+        let aggregating = binding_expressions.iter().any(Expr::contains_aggregate);
+        let grouping = implicit_grouping(&binding_expressions);
+        if aggregating {
+            validate_aggregate_scope(&binding_expressions, &grouping, projection.span)?;
+        }
+
         // Cypher permits WITH's WHERE and ORDER BY to refer to projected
         // aliases. WHERE may also inspect incoming variables that are not
-        // carried beyond this boundary. Projected names shadow incoming ones.
-        self.symbols = incoming_symbols.clone();
-        self.symbols.extend(projected_symbols.clone());
+        // carried beyond a non-aggregating boundary. Aggregating WITH clauses
+        // expose only grouping values and aggregate aliases to their filter.
+        self.symbols = if aggregating {
+            projected_symbols.clone()
+        } else {
+            let mut visible = incoming_symbols.clone();
+            visible.extend(projected_symbols.clone());
+            visible
+        };
         let filter = with_clause
             .where_clause
             .as_ref()
             .map(|expression| self.scalar_expression_with_aliases(expression, &aliases))
             .transpose()?;
         let order_by = self.order_by(&projection.order_by, &aliases, false, &[])?;
+        if !aggregating
+            && (filter.as_ref().is_some_and(Expr::contains_aggregate)
+                || order_by
+                    .iter()
+                    .any(|item| item.expression.contains_aggregate()))
+        {
+            return Err(semantic(
+                projection.span,
+                "aggregate functions in WITH WHERE or ORDER BY require an aggregating WITH projection",
+            ));
+        }
+        if aggregating {
+            if let Some(filter) = &filter {
+                validate_aggregate_scope(std::slice::from_ref(filter), &grouping, projection.span)?;
+            }
+            validate_aggregate_scope(
+                &order_by
+                    .iter()
+                    .map(|item| item.expression.clone())
+                    .collect::<Vec<_>>(),
+                &grouping,
+                projection.span,
+            )?;
+        }
         let (offset, limit) = projection_pagination(projection, "WITH")?;
 
         self.symbols = projected_symbols;
@@ -904,6 +1079,18 @@ impl<'source> Lowerer<'source> {
                 return Err(unsupported(item.span, "RETURN *"));
             };
             let lowered = self.output_expression(expression)?;
+            if lowered.contains_aggregate() && !matches!(lowered, Expr::Aggregate { .. }) {
+                return Err(unsupported(
+                    expression.span,
+                    "aggregate calls nested in projection expressions",
+                ));
+            }
+            if after_write && lowered.contains_aggregate() {
+                return Err(unsupported(
+                    expression.span,
+                    "aggregate projection after a mutation",
+                ));
+            }
             if after_write
                 && matches!(
                     lowered,
@@ -928,7 +1115,30 @@ impl<'source> Lowerer<'source> {
             ));
         }
 
+        let aggregating = expressions.iter().any(Expr::contains_aggregate);
+        let grouping = implicit_grouping(&expressions);
         let order_by = self.order_by(&projection.order_by, &aliases, distinct, &expressions)?;
+        if !aggregating
+            && order_by
+                .iter()
+                .any(|item| item.expression.contains_aggregate())
+        {
+            return Err(semantic(
+                projection.span,
+                "aggregate functions in ORDER BY require an aggregating RETURN projection",
+            ));
+        }
+        if aggregating {
+            validate_aggregate_scope(&expressions, &grouping, projection.span)?;
+            validate_aggregate_scope(
+                &order_by
+                    .iter()
+                    .map(|item| item.expression.clone())
+                    .collect::<Vec<_>>(),
+                &grouping,
+                projection.span,
+            )?;
+        }
         let (offset_expression, limit) = projection_pagination(projection, "RETURN")?;
 
         Ok(Projection {
@@ -976,26 +1186,68 @@ impl<'source> Lowerer<'source> {
     }
 
     fn output_expression(&self, expression: &AstExpr) -> Result<Expr> {
+        self.output_expression_with_aliases(expression, &HashMap::new())
+    }
+
+    fn output_expression_with_aliases(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
         match &expression.kind {
             ExprKind::Property {
                 expression: base,
                 key,
-            } => Ok(Expr::Property(
-                self.resolve_entity_variable(base)?,
-                key.kind.text.clone(),
-            )),
-            ExprKind::Variable(variable) => match self.resolve_symbol(variable)? {
-                Symbol::Entity(slot) => Ok(Expr::Entity(slot)),
-                Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
-            },
-            ExprKind::Function(function) => self.function_expression(function, expression.span),
-            ExprKind::Parenthesized(inner) => self.output_expression(inner),
-            _ => self.scalar_expression(expression),
+            } => {
+                let slot = match &base.kind {
+                    ExprKind::Variable(variable) => match aliases.get(&variable.kind.text) {
+                        Some(Expr::Entity(slot)) => *slot,
+                        Some(_) => {
+                            return Err(semantic(
+                                variable.span,
+                                format!(
+                                    "scalar variable `{}` has no graph properties",
+                                    variable.kind.text
+                                ),
+                            ));
+                        }
+                        None => self.resolve_entity_variable(base)?,
+                    },
+                    _ => self.resolve_entity_variable(base)?,
+                };
+                Ok(Expr::Property(slot, key.kind.text.clone()))
+            }
+            ExprKind::Variable(variable) => {
+                if let Some(expression) = aliases.get(&variable.kind.text) {
+                    return Ok(expression.clone());
+                }
+                match self.resolve_symbol(variable)? {
+                    Symbol::Entity(slot) => Ok(Expr::Entity(slot)),
+                    Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
+                }
+            }
+            ExprKind::Function(function) => {
+                self.function_expression(function, expression.span, aliases)
+            }
+            ExprKind::Parenthesized(inner) => self.output_expression_with_aliases(inner, aliases),
+            _ => self.scalar_expression_with_aliases(expression, aliases),
         }
     }
 
     fn scalar_expression(&self, expression: &AstExpr) -> Result<Expr> {
         self.scalar_expression_with_aliases(expression, &HashMap::new())
+    }
+
+    fn match_predicate(&self, expression: &AstExpr) -> Result<Expr> {
+        let span = expression.span;
+        let expression = self.scalar_expression(expression)?;
+        if expression.contains_aggregate() {
+            return Err(semantic(
+                span,
+                "aggregate functions are not allowed in MATCH predicates",
+            ));
+        }
+        Ok(expression)
     }
 
     fn scalar_expression_with_aliases(
@@ -1023,10 +1275,25 @@ impl<'source> Lowerer<'source> {
             ExprKind::Property {
                 expression: base,
                 key,
-            } => Ok(Expr::Property(
-                self.resolve_entity_variable(base)?,
-                key.kind.text.clone(),
-            )),
+            } => {
+                let slot = match &base.kind {
+                    ExprKind::Variable(variable) => match aliases.get(&variable.kind.text) {
+                        Some(Expr::Entity(slot)) => *slot,
+                        Some(_) => {
+                            return Err(semantic(
+                                variable.span,
+                                format!(
+                                    "scalar variable `{}` has no graph properties",
+                                    variable.kind.text
+                                ),
+                            ));
+                        }
+                        None => self.resolve_entity_variable(base)?,
+                    },
+                    _ => self.resolve_entity_variable(base)?,
+                };
+                Ok(Expr::Property(slot, key.kind.text.clone()))
+            }
             ExprKind::Binary {
                 left,
                 operator,
@@ -1079,7 +1346,9 @@ impl<'source> Lowerer<'source> {
                 negated: *negated,
             }),
             ExprKind::Is { .. } => Err(unsupported(expression.span, "IS predicate")),
-            ExprKind::Function(function) => self.function_expression(function, expression.span),
+            ExprKind::Function(function) => {
+                self.function_expression(function, expression.span, aliases)
+            }
             ExprKind::Parenthesized(inner) => self.scalar_expression_with_aliases(inner, aliases),
             ExprKind::Variable(variable) => {
                 if let Some(expression) = aliases.get(&variable.kind.text) {
@@ -1109,21 +1378,41 @@ impl<'source> Lowerer<'source> {
         }
     }
 
-    fn function_expression(&self, function: &FunctionInvocation, span: Span) -> Result<Expr> {
-        let name = simple_function_name(function, span)?;
+    fn function_expression(
+        &self,
+        function: &FunctionInvocation,
+        span: Span,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
+        let name = function_name(function, span)?;
+        let aggregate = match name.as_str() {
+            "count" => Some(AggregateKind::Count),
+            "sum" => Some(AggregateKind::Sum),
+            "avg" => Some(AggregateKind::Average),
+            "min" => Some(AggregateKind::Minimum),
+            "max" => Some(AggregateKind::Maximum),
+            "collect" => Some(AggregateKind::Collect),
+            _ => None,
+        };
+        if let Some(kind) = aggregate {
+            return self.aggregate_expression(function, kind, span, aliases);
+        }
+        if function.quantifier.is_some() {
+            return Err(unsupported(span, "quantified scalar function call"));
+        }
         match name.as_str() {
             "elementid" => Ok(Expr::ElementId(
-                self.single_entity_argument(function, span)?,
+                self.single_entity_argument(function, span, aliases)?,
             )),
             "type" => {
-                let slot = self.single_entity_argument(function, span)?;
+                let slot = self.single_entity_argument(function, span, aliases)?;
                 match self.kind(slot) {
                     EntityKind::Relationship => Ok(Expr::RelationshipType(slot)),
                     EntityKind::Node => Err(semantic(span, "type() requires a relationship")),
                 }
             }
             "labels" => {
-                let slot = self.single_entity_argument(function, span)?;
+                let slot = self.single_entity_argument(function, span, aliases)?;
                 match self.kind(slot) {
                     EntityKind::Node => Ok(Expr::Labels(slot)),
                     EntityKind::Relationship => Err(semantic(span, "labels() requires a node")),
@@ -1133,7 +1422,69 @@ impl<'source> Lowerer<'source> {
         }
     }
 
-    fn single_entity_argument(&self, function: &FunctionInvocation, span: Span) -> Result<SlotId> {
+    fn aggregate_expression(
+        &self,
+        function: &FunctionInvocation,
+        kind: AggregateKind,
+        span: Span,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
+        let distinct = match function.quantifier.as_ref().map(|value| value.kind) {
+            None | Some(SetQuantifier::All) => false,
+            Some(SetQuantifier::Distinct) => true,
+            Some(_) => return Err(unsupported(span, "aggregate quantifier")),
+        };
+        let [argument] = function.arguments.as_slice() else {
+            return Err(semantic(
+                span,
+                "aggregate functions require exactly one argument",
+            ));
+        };
+
+        let argument = if matches!(argument.kind, ExprKind::Wildcard) {
+            if kind != AggregateKind::Count {
+                return Err(semantic(span, "only count() accepts `*`"));
+            }
+            if distinct {
+                return Err(semantic(span, "count(DISTINCT *) is not supported"));
+            }
+            None
+        } else {
+            let argument = self.output_expression_with_aliases(argument, aliases)?;
+            if argument.contains_aggregate() {
+                return Err(semantic(span, "aggregate functions cannot be nested"));
+            }
+            if matches!(argument, Expr::Entity(_)) && kind != AggregateKind::Count {
+                return Err(unsupported(
+                    span,
+                    "whole entities in aggregates other than count()",
+                ));
+            }
+            if distinct && kind == AggregateKind::Collect {
+                return Err(unsupported(span, "collect(DISTINCT ...)"));
+            }
+            if distinct && kind != AggregateKind::Count {
+                return Err(unsupported(
+                    span,
+                    "DISTINCT for aggregates other than count()",
+                ));
+            }
+            Some(Box::new(argument))
+        };
+
+        Ok(Expr::Aggregate {
+            kind,
+            argument,
+            distinct,
+        })
+    }
+
+    fn single_entity_argument(
+        &self,
+        function: &FunctionInvocation,
+        span: Span,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<SlotId> {
         let [argument] = function.arguments.as_slice() else {
             return Err(semantic(
                 span,
@@ -1146,7 +1497,21 @@ impl<'source> Lowerer<'source> {
                 "graph function argument must be a variable",
             ));
         };
-        match self.resolve_symbol(variable)? {
+        let symbol = aliases
+            .get(&variable.kind.text)
+            .map(|expression| match expression {
+                Expr::Entity(slot) => Ok(Symbol::Entity(*slot)),
+                _ => Err(semantic(
+                    variable.span,
+                    format!(
+                        "scalar variable `{}` cannot be used as a graph entity",
+                        variable.kind.text
+                    ),
+                )),
+            })
+            .transpose()?
+            .map_or_else(|| self.resolve_symbol(variable), Ok)?;
+        match symbol {
             Symbol::Entity(slot) => Ok(slot),
             Symbol::Scalar(_) => Err(semantic(
                 variable.span,
@@ -1362,11 +1727,41 @@ fn single_label(label: &LabelExpression, feature: &str) -> Result<String> {
     }
 }
 
-fn simple_function_name(function: &FunctionInvocation, span: Span) -> Result<String> {
-    if function.quantifier.is_some() || function.name.parts.len() != 1 {
-        return Err(unsupported(span, "qualified or quantified function call"));
+fn function_name(function: &FunctionInvocation, span: Span) -> Result<String> {
+    if function.name.parts.len() != 1 {
+        return Err(unsupported(span, "qualified function call"));
     }
     Ok(function.name.parts[0].kind.text.to_ascii_lowercase())
+}
+
+fn implicit_grouping(expressions: &[Expr]) -> Vec<Expr> {
+    if !expressions.iter().any(Expr::contains_aggregate) {
+        return Vec::new();
+    }
+    let mut grouping = Vec::new();
+    for expression in expressions {
+        if !expression.contains_aggregate()
+            && expression.is_row_dependent()
+            && !grouping.contains(expression)
+        {
+            grouping.push(expression.clone());
+        }
+    }
+    grouping
+}
+
+fn validate_aggregate_scope(expressions: &[Expr], grouping: &[Expr], span: Span) -> Result<()> {
+    if expressions
+        .iter()
+        .all(|expression| expression.uses_only_grouped_values(grouping))
+    {
+        Ok(())
+    } else {
+        Err(semantic(
+            span,
+            "aggregate query references a value that is not a grouping key",
+        ))
+    }
 }
 
 fn column_name(

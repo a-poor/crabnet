@@ -28,8 +28,9 @@ alias; ordering by an unprojected expression is a semantic error.
 
 Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
-relative order of equal sort keys is unspecified. `SKIP`/`OFFSET` and `LIMIT`
-are applied after ordering when an order is present. Projection modifiers,
+relative order of equal sort keys is unspecified. Ascending order places nulls
+last; descending order places nulls first. `SKIP`/`OFFSET` and `LIMIT` are
+applied after ordering when an order is present. Projection modifiers,
 including ordering and pagination, are not currently supported after a
 mutation; neither is `RETURN DISTINCT` after a mutation.
 
@@ -53,6 +54,11 @@ name shadowing the same incoming name. This extra incoming visibility belongs
 only to that filter; using a variable there does not carry it into the next
 clause.
 
+An aggregating `WITH` narrows that rule: its `WHERE` and `ORDER BY` may use
+projected aggregate aliases and grouping values, but not an ungrouped incoming
+value that the projection drops. Violations fail during semantic planning
+rather than becoming accidental SQLite grouping behavior.
+
 `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on `WITH` are applied before any
 subsequent clause. Intermediate ordering determines which rows pagination
 retains and is carried into the immediately following clause across the SQLite
@@ -63,9 +69,86 @@ contract. Named pagination parameters follow the same validation rules as
 
 Omitting a quantifier and spelling `WITH ALL` have the same bag-preserving
 behavior. `WITH DISTINCT` is not yet implemented. `WITH *`, computed
-expressions without an alias, aggregate expressions, and mutation clauses in a
-query containing `WITH` are also explicit planning-time rejections. The
-implemented acceptance and rejection cases live in `tests/with_pipeline.rs`.
+expressions without an alias, and mutation clauses in a query containing
+`WITH` are explicit planning-time rejections. Aggregating `WITH` projections
+follow the rules below. The implemented pipeline cases live in
+`tests/with_pipeline.rs`, `tests/aggregation.rs`, and `tests/unwind.rs`.
+
+## Aggregation and grouping
+
+Read-only `RETURN` and `WITH` support top-level `count`, `sum`, `avg`, `min`,
+`max`, and `collect` calls. A projection containing an aggregate is an
+aggregating projection. Every non-aggregate, row-dependent projection item is
+then an implicit grouping key; constants do not create grouping keys. A global
+aggregate over empty input emits one row, while an aggregate with grouping keys
+emits no rows for empty input.
+
+Grouping and `count(DISTINCT expression)` use typed Cypher equivalence rather
+than raw SQLite JSON text. Integers and equal integral floats share a group,
+booleans remain distinct from numbers, lists and maps apply the rule
+recursively, and whole graph entities group by element ID. Null values form one
+group, while `count(expression)` and `count(DISTINCT expression)` omit them.
+`count(*)` retains the complete input bag, and `count(entity)` omits a
+null-extended entity.
+
+`sum` and `avg` ignore nulls and accept numeric inputs only. `sum` of an empty
+numeric bag is integer zero; `avg` of one is null. Mixed integer/float inputs
+use SQLite's numeric promotion. If any non-null input has another kind, the
+result is null instead of being coerced. `min` and `max` support one compatible
+family at a time—numbers, strings, or booleans—and likewise return null for an
+incompatible or structured non-null value. `collect` omits nulls, preserves
+duplicates, and returns an empty list for empty input. Ordering established by
+an immediately preceding `WITH ... ORDER BY` controls collection order.
+
+Explicit `ALL` has the same bag behavior as an omitted aggregate quantifier.
+`count(DISTINCT expression)` is supported. `DISTINCT` on the other aggregates,
+collecting whole entities, nested aggregate calls, aggregate calls embedded in
+a larger projection expression, aggregate-only ordering/filtering without an
+aggregating projection, and aggregation after a mutation are structured
+planning-time rejections. Aggregates are not allowed in `MATCH` predicates or
+directly in `UNWIND`; a `WITH` boundary must materialize them first.
+
+## `UNWIND`
+
+`UNWIND` expands a list into one output row per member and retains duplicates
+and explicit null members. It composes with prior `MATCH`, `WITH`, aggregation,
+and `UNWIND` stages while carrying the current entity and scalar scope. Empty
+lists, null, and dynamic non-list values produce zero rows; Crabnet does not
+coerce a scalar or map to a singleton list. The new alias must not replace a
+name already in scope. Unless a later clause orders the result, row order after
+`UNWIND` is unspecified.
+
+## Query unions
+
+`UNION ALL` appends the row bags produced by independently planned read-only
+branches. Bare `UNION` and explicit `UNION DISTINCT` semantically deduplicate
+the accumulated complete rows using the same recursive typed equivalence as
+`RETURN DISTINCT`. In a chain mixing duplicate policies, operators apply from
+left to right. Branch-local matching, `WITH`, filters, ordering, and pagination
+finish before that branch enters the union.
+
+Every branch must end in `RETURN` and expose the same column names in the same
+positions; value kinds may differ from row to row. Branch scopes and SQL bind
+positions are independent. Writes in a union are rejected before execution,
+and final union row order is unspecified.
+
+## `OPTIONAL MATCH`
+
+Fixed-length `OPTIONAL MATCH` preserves every incoming row. If the complete
+optional pattern has no candidate, every node and relationship introduced by
+that clause becomes null; a partial path candidate never leaks one of its
+entities. A matching pattern retains its normal one-to-many and parallel-edge
+bag multiplicity. An optional match over the implicit unit input therefore
+emits one all-null row when its pattern has no match.
+
+A `WHERE` syntactically attached to an optional match filters its candidate
+pattern inside the left join. It does not become an outer filter and cannot
+erase the incoming row. Chained optional clauses can consume nullable entity
+bindings, and properties plus `elementId`, `labels`, and `type` evaluate to
+null for a null-extended entity. Fixed-pattern direction, type, property,
+relationship-uniqueness, and variable-kind rules are otherwise the same as
+mandatory `MATCH`. Variable-length patterns, path bindings/selectors, match
+modes, and hints remain rejected.
 
 ## Values and properties
 
@@ -279,6 +362,5 @@ execution, so an unsupported write statement cannot partially modify the
 graph.
 
 Semantics for unsupported constructs—including path values, variable-length
-traversal, optional matching, aggregation, `UNWIND`, `UNION`, `MERGE`, label
-mutation, and computed mutation right-hand sides—remain unresolved until those
-constructs are designed and implemented.
+traversal, `MERGE`, label mutation, and computed mutation right-hand sides—
+remain unresolved until those constructs are designed and implemented.

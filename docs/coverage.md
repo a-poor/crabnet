@@ -36,9 +36,10 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Relationship uniqueness within one fixed path | Covered | The same stored relationship cannot fill two positions; explicit variable reuse is semantic error (`one_relationship_cannot_fill_two_positions_in_a_path`) |
 | Multiple labels/types and boolean label expressions | Rejected | Storage and lowering currently require at most one node label and one relationship type |
 | Variable-length relationships and path values/bindings | Rejected | Quantified patterns, selectors, and returned whole paths are not implemented yet |
-| `OPTIONAL MATCH` and match modes/hints | Rejected | No null-extending logical operator yet |
-| Read-only `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, and a later `MATCH` are covered in `tests/with_pipeline.rs`. `WITH ALL` is accepted. `WITH DISTINCT`, `WITH *`, unaliased computed expressions, aggregation, and writes anywhere in a `WITH` pipeline are explicitly rejected |
-| `UNWIND` and `UNION` | Rejected | No row-expansion or query-union logical operator exists yet |
+| `OPTIONAL MATCH` | Covered | Fixed-length optional patterns null-extend the complete introduced pattern, preserve outer rows and bag multiplicity, and keep optional `WHERE` predicates in the join condition; see `optional_match.rs`. Match modes and hints remain rejected |
+| Read-only `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, aggregation, and later `MATCH`/`UNWIND`/`OPTIONAL MATCH` stages are covered. `WITH ALL` is accepted. `WITH DISTINCT`, `WITH *`, unaliased computed expressions, and writes anywhere in the pipeline remain rejected |
+| `UNWIND` | Covered | Literal, parameter, property, and prior-aggregate lists expand with bag semantics; null, empty, and non-list runtime values produce no rows. Scope and composition cases are covered in `unwind.rs` |
+| `UNION`, `UNION DISTINCT`, `UNION ALL` | Covered | Read-only branches are independently planned and must return the same column names in the same positions. `ALL` preserves duplicates; default/`DISTINCT` use recursive typed row equivalence in Rust. Mixed operators apply left-to-right; see `union.rs` |
 
 ## Expressions and projection
 
@@ -62,7 +63,9 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Ordinary maps versus graph entities | Covered | Entity-shaped map data remains `CypherValue::Map` in `an_entity_shaped_map_remains_a_map` |
 | Whole path values | Rejected | `CypherValue` has no path representation yet, and path bindings remain unsupported |
 | Read-only `RETURN DISTINCT` | Covered | Full projected rows are decoded and semantically deduplicated in Rust; recursive numeric equivalence, nulls, booleans, entity identity, pagination order, and projected-only `ORDER BY` are covered in `arithmetic_and_distinct.rs` |
-| `RETURN *` and aggregates | Rejected | Wildcard and aggregate projection operators are not implemented yet |
+| Aggregation and implicit grouping | Covered | Top-level `count`, `sum`, `avg`, `min`, `max`, and `collect` work in `RETURN` and `WITH`; non-aggregate row-dependent projection items are grouping keys. Empty inputs, aliases, grouping scope, typed extrema/numerics, and chained stages are covered in `aggregation.rs` and `aggregation_edges.rs` |
+| Aggregate modifiers and unsupported forms | Partial | `count(DISTINCT expression)` and explicit `ALL` are covered. `DISTINCT` on other aggregates, collection of whole entities, nested aggregates, aggregates inside larger projection expressions, and aggregation after mutations are rejected during planning |
+| `RETURN *` | Rejected | Wildcard projection is not implemented yet |
 | General scalar/list/map functions | Rejected | Only the three graph functions above are recognized |
 
 ## Writes and execution guarantees
@@ -85,8 +88,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Undirected or untyped relationship creation | Rejected | Creation requires exactly one type and a concrete direction |
 | Writes in a `WITH` pipeline | Rejected | The composable clause pipeline is read-only; a mutation clause anywhere in it fails during planning |
 | Computed projections and projection modifiers after mutations | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
-| Normalized logical-plan explanation | Covered | `crabnet::explain` renders read-pipeline stages, `WITH` scopes, graph operators, and projections without depending on incidental backend aliases |
-| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders the generated read SQL/CTEs, bind positions, and any Rust distinct/pagination stage; mutation pipelines are not accepted by this debug view |
+| Normalized logical-plan explanation | Covered | `crabnet::explain` renders `MATCH`/`OPTIONAL MATCH`/`WITH`/`UNWIND` stages, aggregate expressions, union branches, scopes, graph operators, and projections without depending on incidental backend aliases |
+| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders generated SQL/CTEs, optional left joins, union branches, bind positions, and Rust semantic-distinct/pagination stages; mutation pipelines are not accepted by this debug view |
 
 ## Prioritized next-test backlog
 
@@ -99,8 +102,8 @@ move the row into the matrix when green.
 2. Relationship-property matching across boolean/numeric and nested structured values.
 3. Three-hop diamonds where different intermediate nodes converge, preserving one row
    per valid relationship sequence rather than collapsing endpoints.
-4. Aggregation, `UNWIND`, and `OPTIONAL MATCH` acceptance tests as milestone 6
-   begins; keep their additional scope rules separate from the completed basic
-   `WITH` contract.
+4. Bounded variable-length traversal acceptance tests for cycles, self-loops,
+   diamonds, parallel edges, dead ends, relationship uniqueness, and explicit
+   lower/upper bounds as milestone 7 begins.
 5. Curated openCypher TCK and differential tests after the selected scenarios' setup
    clauses and any required path values can be represented faithfully.

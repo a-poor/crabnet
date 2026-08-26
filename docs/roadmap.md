@@ -31,6 +31,9 @@ Crabnet already has more than a greenfield skeleton:
 - read-only queries can cross standalone or chained `WITH` boundaries, carrying
   explicitly projected entity and scalar bindings into later `MATCH` and
   `RETURN` clauses while enforcing scope loss;
+- aggregation/grouping, list expansion, query unions, and fixed-length optional
+  matching compose through that read pipeline with explicit bag, type, and
+  null-extension semantics;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically;
 - matched node and relationship properties support direct `SET`/`REMOVE` plus
@@ -151,8 +154,9 @@ silently coerced.
   explanations show stages and scopes, while the physical explanation shows
   the generated SQLite fragment and binding positions.
 - The pipeline retains bag semantics. `WITH ALL` is accepted; `WITH DISTINCT`,
-  `WITH *`, unaliased computed expressions, aggregation, and writes in a
-  `WITH` pipeline remain explicit planning-time rejections.
+  `WITH *`, unaliased computed expressions, and writes in a `WITH` pipeline
+  remain explicit planning-time rejections. Aggregation was added by milestone
+  6 without changing this clause-boundary model.
 
 Gate complete: `tests/with_pipeline.rs` covers standalone and chained stages,
 entity/scalar aliases, scope loss, filtering, intermediate pagination, later
@@ -185,17 +189,28 @@ cover node and relationship state, zero matches, multi-row and duplicate bags,
 return snapshots, counters, preflight rejection, foreign-key failures, and late
 transaction rollback.
 
-### 6. Add query composition
+### 6. Add query composition — complete
 
-- Aggregation and grouping (`count`, `sum`, `avg`, `min`, `max`, `collect`).
-- `UNWIND`, `UNION`/`UNION ALL`, and `OPTIONAL MATCH`.
-- For optional matches, test that predicates belonging to the optional pattern
-  do not accidentally become outer filters and erase null-extended rows.
-- Add commonly needed scalar and graph functions deliberately, with explicit
-  null/type semantics.
+- Top-level `count`, `sum`, `avg`, `min`, `max`, and `collect` projections use
+  implicit grouping and can cross `WITH` boundaries. Typed grouping and
+  `count(DISTINCT ...)` share recursive Cypher equivalence; aggregate aliases,
+  empty inputs, HAVING-style filters, ordering, and pagination are covered.
+- `UNWIND` expands typed list values without losing duplicates and composes
+  with matches, prior scalar scopes, and collected values.
+- Read-only `UNION`/`UNION DISTINCT` perform semantic row deduplication in
+  Rust, while `UNION ALL` appends bags. Branch-local scopes and modifiers are
+  preserved, and output columns are validated before execution.
+- Fixed-length `OPTIONAL MATCH` lowers to a null-extending SQLite stage. The
+  complete introduced pattern becomes null on failure, and its attached
+  predicate stays in the join condition instead of erasing the outer row.
+- Existing `elementId`, `labels`, and `type` functions now propagate null from
+  optional entities. Additional scalar functions remain incremental work, not
+  an implied openCypher compatibility claim.
 
-Gate: grouping, duplicate handling, empty input, and optional null propagation
-match the documented semantics.
+Gate complete: `tests/aggregation.rs`, `tests/aggregation_edges.rs`,
+`tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs` cover typed
+grouping, duplicate policies, empty input, composition, whole-pattern null
+propagation, and structured rejection boundaries.
 
 ### 7. Add bounded variable-length traversal
 
@@ -239,10 +254,11 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the typed-value, fixed-length-read, clause-pipeline, and matched-mutation
-gates from milestones 2–5 complete, the next active work is milestone 6: query
-composition. Small contract gaps may still be tightened when a focused test
-exposes them. Path values remain planned for the traversal and hybrid-executor
-milestones. The day-to-day test loop is documented in
+With the typed-value, fixed-length-read, clause-pipeline, matched-mutation, and
+query-composition gates from milestones 2–6 complete, the next active work is
+milestone 7: explicitly bounded variable-length traversal. Small contract gaps
+may still be tightened when a focused test exposes them. Path values remain
+planned for the traversal and hybrid-executor milestones. The day-to-day test
+loop is documented in
 [testing.md](testing.md); planned-but-inactive cases stay in the coverage
 backlog instead of accumulating as ignored tests.

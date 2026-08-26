@@ -45,7 +45,8 @@ The accepted statement shapes are:
 - `MATCH ... RETURN ...`
 - consecutive read-only `MATCH ... MATCH ... RETURN ...` stages
 - standalone or chained `WITH ... RETURN ...`, optionally interleaved with
-  `MATCH` clauses
+  `MATCH`, `OPTIONAL MATCH`, and `UNWIND` clauses
+- read-only branches joined by `UNION`, `UNION DISTINCT`, or `UNION ALL`
 - `CREATE ... [RETURN ...]`
 - `MATCH ... CREATE ... [RETURN ...]`
 - `MATCH ... SET/REMOVE ... [RETURN ...]`
@@ -62,6 +63,8 @@ Within those shapes, the first iteration supports:
 - matched node and relationship `DELETE`, plus `DETACH DELETE` for nodes with
   incident relationships
 - `MATCH` for nodes and fixed-length outgoing, incoming, or undirected patterns
+- fixed-length `OPTIONAL MATCH`, including whole-pattern null extension and
+  optional-local `WHERE` predicates
 - at most one node label; zero or one relationship type in `MATCH`, and exactly
   one type for each created relationship
 - literal maps and named `$parameters` for properties
@@ -72,6 +75,10 @@ Within those shapes, the first iteration supports:
   `elementId`, `labels`, and `type`
 - read-only `WITH` stages carrying aliased entities and scalars, with scope
   loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later clauses
+- implicit grouping with top-level `count`, `sum`, `avg`, `min`, `max`, and
+  `collect` projections in `RETURN` or `WITH`
+- list expansion with `UNWIND`, plus typed semantic `UNION` deduplication and
+  bag-preserving `UNION ALL`
 - `RETURN DISTINCT`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only
   returns
 - typed `CypherValue` result cells for null, booleans, integers, floats,
@@ -132,13 +139,14 @@ materialization, every mutation, and post-write result evaluation then share
 one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
-variable-length traversal, path bindings and path result values,
-`OPTIONAL MATCH`, parameter-map matching, `RETURN *`, aggregation, `MERGE`,
-`UNION`, `UNWIND`, exponentiation (`^`), concatenation (`||`), computed
-right-hand sides for property updates, and computed projections or
-`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. Within a `WITH`
-pipeline, `WITH DISTINCT`, `WITH *`, unaliased computed expressions,
-aggregation, and writes are explicitly rejected.
+variable-length traversal, path bindings and path result values, match modes
+and hints, parameter-map matching, `RETURN *`, `MERGE`, exponentiation (`^`),
+concatenation (`||`), computed right-hand sides for property updates, and
+computed projections or `DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after
+mutations. `WITH DISTINCT`, `WITH *`, unaliased computed `WITH` expressions,
+`collect(DISTINCT ...)`, nested/embedded aggregate projections, and writes in a
+read-composition pipeline are explicitly rejected. For now, `DISTINCT` is
+supported only by `count`; the other aggregate forms fail during planning.
 
 ## Planning and execution
 
@@ -149,14 +157,15 @@ The planner is deliberately small and layered:
 - `planner/sqlite.rs` compiles reads and mutation row sources to parameterized
   SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
   projected entity and scalar slots.
-- `database.rs` executes reads directly. For mutations, it materializes all
-  input rows before the first change and applies ordered mutation operators to
-  that stable row bag.
+- `database.rs` executes SQL read fragments and combines union branches. For
+  mutations, it materializes all input rows before the first change and applies
+  ordered mutation operators to that stable row bag.
 
-Read-only `RETURN DISTINCT` is a deliberate hybrid boundary: SQLite produces
-and orders candidate rows, Crabnet decodes them to `CypherValue` and performs
-semantic row deduplication in Rust, then applies pagination. With `DISTINCT`,
-`ORDER BY` is restricted to projected expressions or their aliases.
+Read-only `RETURN DISTINCT` and distinct query unions are deliberate hybrid
+boundaries: SQLite produces branch rows, Crabnet decodes them to `CypherValue`,
+and Rust performs recursive typed row deduplication. `RETURN DISTINCT` then
+applies its deferred pagination. With that projection modifier, `ORDER BY` is
+restricted to projected expressions or their aliases.
 
 `crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
 slots, graph operators, clause stages, and `WITH` scopes without turning
