@@ -40,8 +40,16 @@ pub type Parameters = BTreeMap<String, Value>;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct QuerySummary {
+    /// Nodes inserted by the statement.
     pub nodes_created: usize,
+    /// Relationships inserted by the statement.
     pub relationships_created: usize,
+    /// Top-level entity properties whose stored value changed or was removed.
+    pub properties_set: usize,
+    /// Distinct stored nodes removed by the statement.
+    pub nodes_deleted: usize,
+    /// Distinct stored relationships removed explicitly or by `DETACH DELETE`.
+    pub relationships_deleted: usize,
 }
 
 /// Ordered columns, rows, and mutation counters returned by a query.

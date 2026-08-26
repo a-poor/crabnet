@@ -256,6 +256,36 @@ fn render_mutation(mutation: &Mutation) -> String {
             slot_name(*to),
             render_value_expr(properties)
         ),
+        Mutation::SetProperty { slot, key, value } => format!(
+            "set-property slot={} key={} value={}",
+            slot_name(*slot),
+            quote(key),
+            render_value_expr(value)
+        ),
+        Mutation::ReplaceProperties { slot, properties } => format!(
+            "replace-properties slot={} properties={}",
+            slot_name(*slot),
+            render_value_expr(properties)
+        ),
+        Mutation::MergeProperties { slot, properties } => format!(
+            "merge-properties slot={} properties={}",
+            slot_name(*slot),
+            render_value_expr(properties)
+        ),
+        Mutation::RemoveProperty { slot, key } => format!(
+            "remove-property slot={} key={}",
+            slot_name(*slot),
+            quote(key)
+        ),
+        Mutation::Delete { targets, detach } => format!(
+            "{} targets=[{}]",
+            if *detach { "detach-delete" } else { "delete" },
+            targets
+                .iter()
+                .map(|(slot, kind)| format!("{}:{}", slot_name(*slot), entity_kind_name(*kind)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -541,6 +571,27 @@ mod tests {
     limit: none
 "#
         );
+    }
+
+    #[test]
+    fn explains_matched_property_and_delete_mutations() {
+        let query = "MATCH (item:Item)-[edge:LINK]->() \
+                     SET item.status = $status \
+                     REMOVE edge.old \
+                     DETACH DELETE item, edge \
+                     RETURN item.status";
+        let explanation = explain_logical(query).unwrap();
+
+        assert!(
+            explanation.contains("set-property slot=%0 key=\"status\" value=parameter(\"status\")")
+        );
+        assert!(explanation.contains("remove-property slot=%1 key=\"old\""));
+        assert!(explanation.contains("detach-delete targets=[%0:node, %1:relationship]"));
+        assert!(matches!(
+            explain_physical(query),
+            Err(crate::Error::Unsupported(message))
+                if message.contains("physical explanations for mutation pipelines")
+        ));
     }
 
     #[test]

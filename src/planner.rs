@@ -82,6 +82,27 @@ pub(crate) enum ResolvedMutation {
         to: SlotId,
         properties: serde_json::Value,
     },
+    SetProperty {
+        slot: SlotId,
+        key: String,
+        value: serde_json::Value,
+    },
+    ReplaceProperties {
+        slot: SlotId,
+        properties: serde_json::Value,
+    },
+    MergeProperties {
+        slot: SlotId,
+        properties: serde_json::Value,
+    },
+    RemoveProperty {
+        slot: SlotId,
+        key: String,
+    },
+    Delete {
+        targets: Vec<(SlotId, EntityKind)>,
+        detach: bool,
+    },
 }
 
 pub(crate) struct ResolvedProjection {
@@ -140,6 +161,29 @@ impl MutationPlan {
                         to,
                         properties,
                     })
+                }
+                Mutation::SetProperty { slot, key, value } => {
+                    let value = value.resolve(parameters)?;
+                    validate_storable_value(&value)?;
+                    Ok(ResolvedMutation::SetProperty { slot, key, value })
+                }
+                Mutation::ReplaceProperties { slot, properties } => {
+                    let properties = properties.resolve(parameters)?;
+                    require_object(&properties, "replacement properties")?;
+                    validate_storable_value(&properties)?;
+                    Ok(ResolvedMutation::ReplaceProperties { slot, properties })
+                }
+                Mutation::MergeProperties { slot, properties } => {
+                    let properties = properties.resolve(parameters)?;
+                    require_object(&properties, "merged properties")?;
+                    validate_storable_value(&properties)?;
+                    Ok(ResolvedMutation::MergeProperties { slot, properties })
+                }
+                Mutation::RemoveProperty { slot, key } => {
+                    Ok(ResolvedMutation::RemoveProperty { slot, key })
+                }
+                Mutation::Delete { targets, detach } => {
+                    Ok(ResolvedMutation::Delete { targets, detach })
                 }
             })
             .collect::<Result<Vec<_>>>()?;

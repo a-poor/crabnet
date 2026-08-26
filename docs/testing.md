@@ -49,6 +49,12 @@ end-to-end result test for user-visible semantics.
   recursive properties, identity, and stored-direction endpoints.
 - `tests/write_semantics.rs` holds focused write result/state contracts that do
   not need the longer scenarios in `engine.rs`.
+- `tests/matched_mutations.rs` covers matched node/relationship `SET` and
+  `REMOVE`, whole-map replace/merge semantics, counters, aliases, parameter
+  preflight, no-match behavior, and rollback.
+- `tests/delete_mutations.rs` covers node/relationship deletion, detach edge
+  cleanup, input-bag target deduplication, pre-delete return snapshots,
+  counters, constraint failures, and rollback.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.
@@ -94,6 +100,8 @@ cargo test --test read_semantics property_to_property_equality_is_type_aware -- 
 cargo test --test arithmetic_and_distinct dynamic_arithmetic_is_numeric_only_and_null_propagating -- --exact
 cargo test --test membership_and_string_predicates in_preserves_typed_membership_and_three_valued_null_semantics -- --exact
 cargo test --test write_semantics create_duplicate_property_keys_fail_before_any_mutation -- --exact
+cargo test --test matched_mutations set_equals_replaces_the_complete_property_map -- --exact
+cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
 ```
 
@@ -103,6 +111,8 @@ Then run the adjacent integration or unit group:
 cargo test --test engine match_create
 cargo test --test arithmetic_and_distinct
 cargo test --test membership_and_string_predicates
+cargo test --test matched_mutations
+cargo test --test delete_mutations
 cargo test --lib planner::sqlite
 ```
 
@@ -154,6 +164,8 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-The next active test slice is milestone 5: matched `SET`, `REMOVE`, `DELETE`,
-and `DETACH DELETE`, with graph-state, zero-match, multi-row, and rollback
-assertions added before each operator is implemented.
+The next active test slice is milestone 6 query composition: aggregation and
+grouping first, followed deliberately by `UNWIND`, `UNION`/`UNION ALL`, and
+`OPTIONAL MATCH`. Continue adding the smallest focused red cases for one
+operator at a time, especially empty-input, bag-multiplicity, grouping, scope,
+and null-extension boundaries.

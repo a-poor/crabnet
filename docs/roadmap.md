@@ -32,7 +32,11 @@ Crabnet already has more than a greenfield skeleton:
   explicitly projected entity and scalar bindings into later `MATCH` and
   `RETURN` clauses while enforcing scope loss;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
-  multiplicity, and roll back atomically; and
+  multiplicity, and roll back atomically;
+- matched node and relationship properties support direct `SET`/`REMOVE` plus
+  literal/parameter whole-map replacement and merge;
+- matched `DELETE` and `DETACH DELETE` deduplicate targets across the input bag,
+  report actual storage-row counters, and roll back atomically; and
 - unsupported, semantic, parse, data, and missing-parameter failures are
   distinguished.
 
@@ -157,16 +161,29 @@ and structured rejection.
 Multi-stage queries are inspectable through `crabnet::explain` and
 `crabnet::explain_physical`.
 
-### 5. Add core matched mutations
+### 5. Add core matched mutations — complete
 
-- Retain and extend the existing `CREATE` executor.
-- Add `SET`, `REMOVE`, `DELETE`, and `DETACH DELETE` with explicit graph-state,
-  zero-match, multi-row, and rollback tests.
-- Keep generated IDs opaque; changing their representation is a separate
+- The existing `CREATE` executor now composes with a bounded matched-mutation
+  path over a stable, materialized input bag.
+- `SET entity.key = value` and `REMOVE entity.key` update node or relationship
+  properties. Whole-map `=` replacement and shallow `+=` merge accept literal
+  or parameter maps; label mutation and computed right-hand sides remain
+  rejected.
+- `DELETE` removes matched relationships or unconnected nodes. Explicit
+  relationships are scheduled before nodes and targets are deduplicated across
+  duplicate match rows. `DETACH DELETE` additionally removes every incident
+  relationship before its node. In this bounded slice, deletion terminates the
+  mutation sequence before an optional `RETURN`.
+- Mutation results expose actual changed-property and deleted-storage-row
+  counters. A post-delete `RETURN` uses the materialized pre-delete snapshots,
+  while any runtime failure rolls back the entire statement.
+- Generated IDs remain opaque; changing their representation is a separate
   contract decision.
 
-Gate: each mutation composes after `MATCH`, returns the documented counters and
-rows, and is atomic across all input rows.
+Gate complete: `tests/matched_mutations.rs` and `tests/delete_mutations.rs`
+cover node and relationship state, zero matches, multi-row and duplicate bags,
+return snapshots, counters, preflight rejection, foreign-key failures, and late
+transaction rollback.
 
 ### 6. Add query composition
 
@@ -222,11 +239,10 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the typed-value, fixed-length-read, and clause-pipeline gates from
-milestones 2–4 complete, the next active work is milestone 5: matched
-mutations. Small contract gaps may still be tightened when a focused test
-exposes them. Aggregation and broader query composition remain milestone 6
-work, while path values remain planned for the traversal and hybrid-executor
+With the typed-value, fixed-length-read, clause-pipeline, and matched-mutation
+gates from milestones 2–5 complete, the next active work is milestone 6: query
+composition. Small contract gaps may still be tightened when a focused test
+exposes them. Path values remain planned for the traversal and hybrid-executor
 milestones. The day-to-day test loop is documented in
 [testing.md](testing.md); planned-but-inactive cases stay in the coverage
 backlog instead of accumulating as ignored tests.

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use rusqlite::{Connection, Transaction, TransactionBehavior, params, params_from_iter};
 
@@ -126,7 +126,7 @@ impl Database {
 
     fn execute_mutation(&mut self, plan: ResolvedMutationPlan) -> Result<QueryResult> {
         // IMMEDIATE obtains the SQLite write reservation up front. MATCH and
-        // CREATE still share one transaction, but do not risk a deferred
+        // its mutations still share one transaction, but do not risk a deferred
         // read-to-write upgrade failing halfway through the statement.
         let transaction = self
             .connection
@@ -135,14 +135,18 @@ impl Database {
         let mut rows = Vec::with_capacity(input_rows.len());
         let mut summary = QuerySummary::default();
 
-        for input_row in &mut input_rows {
-            for mutation in &plan.mutations {
-                match mutation {
-                    ResolvedMutation::CreateNode {
-                        slot,
-                        label,
-                        properties,
-                    } => {
+        // Mutation-major execution mirrors a Cypher update pipeline: each
+        // operation observes the complete input bag before the next operation
+        // starts. DELETE in particular must gather and deduplicate its targets
+        // across every matched row before removing anything.
+        for mutation in &plan.mutations {
+            match mutation {
+                ResolvedMutation::CreateNode {
+                    slot,
+                    label,
+                    properties,
+                } => {
+                    for input_row in &mut input_rows {
                         let properties_text = properties.to_string();
                         let id = transaction.query_row(
                             "INSERT INTO nodes (id, label, props)
@@ -162,13 +166,15 @@ impl Database {
                         )?;
                         summary.nodes_created += 1;
                     }
-                    ResolvedMutation::CreateRelationship {
-                        slot,
-                        relationship_type,
-                        from,
-                        to,
-                        properties,
-                    } => {
+                }
+                ResolvedMutation::CreateRelationship {
+                    slot,
+                    relationship_type,
+                    from,
+                    to,
+                    properties,
+                } => {
+                    for input_row in &mut input_rows {
                         let from = input_row.node_id(*from)?.to_owned();
                         let to = input_row.node_id(*to)?.to_owned();
                         let properties_text = properties.to_string();
@@ -193,9 +199,54 @@ impl Database {
                         summary.relationships_created += 1;
                     }
                 }
+                ResolvedMutation::SetProperty { slot, key, value } => {
+                    summary.properties_set +=
+                        update_properties(&transaction, &mut input_rows, *slot, |properties| {
+                            if value.is_null() {
+                                properties.remove(key);
+                            } else {
+                                properties.insert(key.clone(), value.clone());
+                            }
+                        })?;
+                }
+                ResolvedMutation::ReplaceProperties { slot, properties } => {
+                    let replacement = properties
+                        .as_object()
+                        .expect("resolved replacement properties are validated maps");
+                    summary.properties_set +=
+                        update_properties(&transaction, &mut input_rows, *slot, |current| {
+                            *current = replacement.clone()
+                        })?;
+                }
+                ResolvedMutation::MergeProperties { slot, properties } => {
+                    let patch = properties
+                        .as_object()
+                        .expect("resolved merged properties are validated maps");
+                    summary.properties_set +=
+                        update_properties(&transaction, &mut input_rows, *slot, |current| {
+                            for (key, value) in patch {
+                                if value.is_null() {
+                                    current.remove(key);
+                                } else {
+                                    current.insert(key.clone(), value.clone());
+                                }
+                            }
+                        })?;
+                }
+                ResolvedMutation::RemoveProperty { slot, key } => {
+                    summary.properties_set +=
+                        update_properties(&transaction, &mut input_rows, *slot, |properties| {
+                            properties.remove(key);
+                        })?;
+                }
+                ResolvedMutation::Delete { targets, detach } => {
+                    delete_entities(&transaction, &input_rows, targets, *detach, &mut summary)?;
+                }
             }
+        }
 
-            if let Some(projection) = &plan.projection {
+        if let Some(projection) = &plan.projection {
+            for input_row in &input_rows {
                 rows.push(
                     projection
                         .expressions
@@ -218,6 +269,135 @@ impl Database {
             summary,
         })
     }
+}
+
+fn delete_entities(
+    transaction: &Transaction<'_>,
+    rows: &[ExecutionRow],
+    targets: &[(SlotId, EntityKind)],
+    detach: bool,
+    summary: &mut QuerySummary,
+) -> Result<()> {
+    let mut node_ids = BTreeSet::new();
+    let mut relationship_ids = BTreeSet::new();
+
+    for row in rows {
+        for (slot, expected_kind) in targets {
+            let (actual_kind, id) = row.entity_identity(*slot)?;
+            if actual_kind != *expected_kind {
+                return Err(crate::Error::Data(format!(
+                    "logical slot {} changed entity kind during DELETE",
+                    slot.0
+                )));
+            }
+            match actual_kind {
+                EntityKind::Node => {
+                    node_ids.insert(id);
+                }
+                EntityKind::Relationship => {
+                    relationship_ids.insert(id);
+                }
+            }
+        }
+    }
+
+    // Relationship targets are removed first regardless of their textual
+    // position, so `DELETE node, relationship` can satisfy the node foreign
+    // keys just like `DELETE relationship, node`.
+    for id in relationship_ids {
+        summary.relationships_deleted +=
+            transaction.execute("DELETE FROM edges WHERE id = ?1", params![id])?;
+    }
+
+    if detach {
+        for id in &node_ids {
+            summary.relationships_deleted += transaction.execute(
+                "DELETE FROM edges WHERE from_node = ?1 OR to_node = ?1",
+                params![id],
+            )?;
+        }
+    }
+
+    for id in node_ids {
+        summary.nodes_deleted +=
+            transaction.execute("DELETE FROM nodes WHERE id = ?1", params![id])?;
+    }
+
+    Ok(())
+}
+
+fn update_properties(
+    transaction: &Transaction<'_>,
+    rows: &mut [ExecutionRow],
+    slot: SlotId,
+    update: impl Fn(&mut serde_json::Map<String, serde_json::Value>),
+) -> Result<usize> {
+    let mut total_changed = 0;
+    for target_index in 0..rows.len() {
+        let (kind, id) = rows[target_index].entity_identity(slot)?;
+        let select_sql = match kind {
+            EntityKind::Node => "SELECT props FROM nodes WHERE id = ?1",
+            EntityKind::Relationship => "SELECT props FROM edges WHERE id = ?1",
+        };
+        let encoded =
+            transaction.query_row(select_sql, params![id], |record| record.get::<_, String>(0))?;
+        let serde_json::Value::Object(mut properties) =
+            serde_json::from_str(&encoded).map_err(|error| {
+                crate::Error::Data(format!(
+                    "stored entity properties are malformed JSON: {error}"
+                ))
+            })?
+        else {
+            return Err(crate::Error::Data(
+                "stored entity properties are not an object".into(),
+            ));
+        };
+
+        let before = properties.clone();
+        update(&mut properties);
+        let changed = property_change_count(&before, &properties);
+        if changed > 0 {
+            let update_sql = match kind {
+                EntityKind::Node => "UPDATE nodes SET props = json(?1) WHERE id = ?2",
+                EntityKind::Relationship => "UPDATE edges SET props = json(?1) WHERE id = ?2",
+            };
+            transaction.execute(
+                update_sql,
+                params![
+                    serde_json::Value::Object(properties.clone()).to_string(),
+                    id
+                ],
+            )?;
+        }
+
+        let properties = cypher_properties(serde_json::Value::Object(properties))?;
+        let mut refreshed = false;
+        for row in rows.iter_mut() {
+            refreshed |= row.replace_properties_for_identity(kind, &id, &properties);
+        }
+        if !refreshed {
+            return Err(crate::Error::Data(format!(
+                "updated {kind:?} `{id}` is absent from the materialized input"
+            )));
+        }
+        total_changed += changed;
+    }
+
+    Ok(total_changed)
+}
+
+fn property_change_count(
+    before: &serde_json::Map<String, serde_json::Value>,
+    after: &serde_json::Map<String, serde_json::Value>,
+) -> usize {
+    before
+        .iter()
+        .filter(|(key, value)| after.get(*key) != Some(*value))
+        .count()
+        + after
+            .keys()
+            .filter(|key| !before.contains_key(*key))
+            .count()
 }
 
 fn distinct_rows(rows: Vec<Vec<CypherValue>>) -> Vec<Vec<CypherValue>> {
@@ -347,6 +527,40 @@ impl ExecutionRow {
                 slot.0
             ))),
         }
+    }
+
+    fn entity_identity(&self, slot: SlotId) -> Result<(EntityKind, String)> {
+        match self.entity(slot)? {
+            EntityValue::Node(node) => Ok((EntityKind::Node, node.element_id.clone())),
+            EntityValue::Relationship(relationship) => {
+                Ok((EntityKind::Relationship, relationship.element_id.clone()))
+            }
+        }
+    }
+
+    fn replace_properties_for_identity(
+        &mut self,
+        kind: EntityKind,
+        id: &str,
+        properties: &std::collections::BTreeMap<String, CypherValue>,
+    ) -> bool {
+        let mut found = false;
+        for entity in self.entities.iter_mut().flatten() {
+            match entity {
+                EntityValue::Node(node) if kind == EntityKind::Node && node.element_id == id => {
+                    node.properties = properties.clone();
+                    found = true;
+                }
+                EntityValue::Relationship(relationship)
+                    if kind == EntityKind::Relationship && relationship.element_id == id =>
+                {
+                    relationship.properties = properties.clone();
+                    found = true;
+                }
+                _ => {}
+            }
+        }
+        found
     }
 
     fn evaluate(&self, expression: &ResolvedExpr) -> Result<CypherValue> {

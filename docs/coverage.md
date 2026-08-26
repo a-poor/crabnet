@@ -25,6 +25,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Consecutive read-only `MATCH` clauses | Covered | Multiple `MATCH` stages compose in one read pipeline and preserve their Cartesian row semantics in `consecutive_match_clauses_use_the_composable_read_pipeline` |
 | `CREATE` with optional `RETURN` | Covered | Typed nodes and directed relationships, including whole created-entity results in `create_return_uses_the_same_whole_entity_values` |
 | `MATCH ... CREATE` with optional `RETURN` | Covered | Executes once per materialized input row, reuses bindings, handles no-match, and is atomic; whole matched and created entities also cross the Rust execution stage in `match_create_carries_matched_and_created_entities_through_rust_execution` |
+| `MATCH ... SET` / `REMOVE` with optional `RETURN` | Partial | Direct node/relationship properties and whole-map replacement/merge are covered in `matched_mutations.rs`; label mutations, computed right-hand sides, and writes in a `WITH` pipeline are rejected |
+| `MATCH ... DELETE` / `DETACH DELETE` with optional `RETURN` | Covered | Node and relationship targets, stable snapshots, input-bag deduplication, detach behavior, counters, and rollback are covered in `delete_mutations.rs` |
 | Node scan, optional single label, inline property map | Covered | Includes missing/null values and typed list/map equality (`missing_and_null_properties_follow_null_semantics`, `inline_structured_properties_keep_json_types`) |
 | Fixed-length relationship patterns | Covered | Outgoing, incoming, undirected, self-loop, and three-hop patterns, including parallel-path multiplicity; see `creates_and_matches_a_directed_relationship`, `undirected_matches_check_both_orientations_without_duplicating_self_loops`, and `parallel_three_hop_paths_preserve_row_multiplicity` |
 | Typed and untyped relationship scans | Covered | Multiple runtime types retain their own `type(r)` values in `untyped_relationship_matches_retain_each_runtime_type` |
@@ -70,14 +72,19 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Create nodes and directed relationships | Covered | Multi-element patterns, left arrows, self-relationships, fresh/reused variables, typed properties, and parameter maps |
 | Matched writes use a stable input | Covered | Input rows are materialized before mutation (`match_input_is_materialized_before_create_runs`) |
 | Atomic validation and rollback | Covered | Missing parameters, invalid values, invalid reuse, and late row failures leave no partial mutations |
-| Mutation summaries | Covered | Created node and relationship counts are asserted across standalone and matched creates |
+| Mutation summaries | Covered | Created, changed-property, and deleted node/relationship counts are asserted. `properties_set` counts observable top-level stored-map changes; deletion counters count actual stored rows removed |
 | Mutations without `RETURN` | Covered | Empty columns/rows and exact summaries are asserted in `mutations_without_return_have_empty_rows_and_accurate_summaries` |
 | Duplicate `CREATE` property keys | Covered | Planning fails before any mutation in `create_duplicate_property_keys_fail_before_any_mutation` |
-| `SET`, `REMOVE`, `DELETE`, `DETACH DELETE` | Rejected | `DELETE` is explicitly tested as non-mutating when unsupported |
+| Direct property `SET` / `REMOVE` | Covered | `entity.key` targets work for matched nodes and relationships. Direct `SET ... = null`, `REMOVE`, and null entries in `+=` remove keys; unchanged assignments and absent removals contribute zero to `properties_set` |
+| Whole-map `SET =` / `+=` | Partial | Literal and named-parameter maps replace or shallow-merge properties. Whole-map replacement retains explicit null as a Crabnet extension; computed right-hand sides are rejected |
+| `DELETE` | Covered | Matched node and relationship targets are deduplicated across the input bag. Explicit relationships are removed before nodes; deleting a still-connected node fails and rolls back the statement. `DELETE` is currently the final mutation clause before optional `RETURN` |
+| `DETACH DELETE` | Covered | Incident incoming, outgoing, and self-loop relationships are deleted before nodes, with shared and explicitly targeted edges counted only once |
+| Post-delete `RETURN` | Covered | Rows retain input-bag multiplicity and project materialized pre-delete entity/property snapshots even though each storage target is deleted once |
+| Label `SET` / `REMOVE` and computed update RHS | Rejected | The current mutation slice changes stored property maps only; it does not mutate labels or evaluate row-dependent/computed update values |
 | `MERGE` and `ON CREATE` / `ON MATCH` | Rejected | No match-or-create operator exists yet |
 | Undirected or untyped relationship creation | Rejected | Creation requires exactly one type and a concrete direction |
 | Writes in a `WITH` pipeline | Rejected | The composable clause pipeline is read-only; a mutation clause anywhere in it fails during planning |
-| Computed projections and projection modifiers after `CREATE` | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
+| Computed projections and projection modifiers after mutations | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
 | Normalized logical-plan explanation | Covered | `crabnet::explain` renders read-pipeline stages, `WITH` scopes, graph operators, and projections without depending on incidental backend aliases |
 | SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders the generated read SQL/CTEs, bind positions, and any Rust distinct/pagination stage; mutation pipelines are not accepted by this debug view |
 
@@ -87,15 +94,13 @@ Add a case here before or alongside implementation work. Once work starts, turn 
 smallest relevant case into a normal failing test, run it by name while iterating, and
 move the row into the matrix when green.
 
-1. Milestone 5 matched-mutation acceptance tests for `SET`, `REMOVE`, `DELETE`,
-   and `DETACH DELETE`, beginning with graph state and rollback assertions.
-2. The parser gap for a labeled node immediately following a relationship-local
+1. The parser gap for a labeled node immediately following a relationship-local
    `WHERE` predicate; promote the existing partial coverage after the parser accepts it.
-3. Relationship-property matching across boolean/numeric and nested structured values.
-4. Three-hop diamonds where different intermediate nodes converge, preserving one row
+2. Relationship-property matching across boolean/numeric and nested structured values.
+3. Three-hop diamonds where different intermediate nodes converge, preserving one row
    per valid relationship sequence rather than collapsing endpoints.
-5. Aggregation, `UNWIND`, and `OPTIONAL MATCH` acceptance tests when milestone 6
+4. Aggregation, `UNWIND`, and `OPTIONAL MATCH` acceptance tests as milestone 6
    begins; keep their additional scope rules separate from the completed basic
    `WITH` contract.
-6. Curated openCypher TCK and differential tests after the selected scenarios' setup
+5. Curated openCypher TCK and differential tests after the selected scenarios' setup
    clauses and any required path values can be represented faithfully.

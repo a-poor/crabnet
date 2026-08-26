@@ -53,3 +53,37 @@ fn mutations_without_return_have_empty_rows_and_accurate_summaries() {
         ]
     );
 }
+
+#[test]
+fn matched_property_and_delete_mutations_without_return_report_only_summaries() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (:Person {name: 'Ada'})-[:USES]->(:Tool {name: 'sqlite'}), \
+                    (:Person {name: 'Grace'})-[:USES]->(:Tool {name: 'rust'})",
+        )
+        .unwrap();
+
+    let updated = database
+        .execute("MATCH (person:Person) SET person.active = true")
+        .unwrap();
+    assert!(updated.columns.is_empty());
+    assert!(updated.rows.is_empty());
+    assert_eq!(updated.summary.properties_set, 2);
+    assert_eq!(updated.summary.nodes_deleted, 0);
+    assert_eq!(updated.summary.relationships_deleted, 0);
+
+    let deleted = database
+        .execute("MATCH (person:Person) DETACH DELETE person")
+        .unwrap();
+    assert!(deleted.columns.is_empty());
+    assert!(deleted.rows.is_empty());
+    assert_eq!(deleted.summary.properties_set, 0);
+    assert_eq!(deleted.summary.nodes_deleted, 2);
+    assert_eq!(deleted.summary.relationships_deleted, 2);
+
+    let remaining = database
+        .execute("MATCH (tool:Tool) RETURN tool.name AS name ORDER BY name")
+        .unwrap();
+    assert_eq!(remaining.rows, [vec![json!("rust")], vec![json!("sqlite")]]);
+}

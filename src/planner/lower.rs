@@ -3,10 +3,11 @@ use std::collections::{HashMap, HashSet};
 use open_cypher::{
     Span,
     ast::{
-        BinaryOperator, ClauseKind, CreateClause, Expr as AstExpr, ExprKind, FunctionInvocation,
-        IntegerRadix, IsPredicate, LabelExpression, LabelExpressionKind, LiteralKind, MatchClause,
-        NodePattern, ParameterName, PathFactor, PathFactorKind, Pattern, ProjectionClause,
-        ProjectionItemKind, RelationshipDirection, RelationshipPattern, SetQuantifier,
+        BinaryOperator, ClauseKind, CreateClause, DeleteClause, DeleteMode, Expr as AstExpr,
+        ExprKind, FunctionInvocation, IntegerRadix, IsPredicate, LabelExpression,
+        LabelExpressionKind, LiteralKind, MatchClause, NodePattern, ParameterName, PathFactor,
+        PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, RelationshipDirection,
+        RelationshipPattern, RemoveClause, RemoveItemKind, SetClause, SetItemKind, SetQuantifier,
         SortDirection as AstSortDirection, StatementKind, UnaryOperator as AstUnaryOperator,
         WithClause,
     },
@@ -62,6 +63,14 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
             .all(|clause| matches!(clause.kind, ClauseKind::Match(_) | ClauseKind::Return(_)));
     if contains_with || repeated_read_match {
         return lower_read_pipeline(source, clauses);
+    }
+    if clauses.iter().any(|clause| {
+        matches!(
+            clause.kind,
+            ClauseKind::Set(_) | ClauseKind::Remove(_) | ClauseKind::Delete(_)
+        )
+    }) {
+        return lower_matched_mutation_query(source, clauses);
     }
     let (match_clause, create_clause, return_clause) = match clauses.as_slice() {
         [only] => match &only.kind {
@@ -123,6 +132,87 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
         slots: lowerer.slots,
         scalar_slots: lowerer.scalar_slots,
         input,
+        mutations: lowerer.mutations,
+        projection,
+    })
+}
+
+fn lower_matched_mutation_query(
+    source: &str,
+    clauses: &[open_cypher::ast::Clause],
+) -> Result<Query> {
+    let mut lowerer = Lowerer::new(source);
+    let mut input = MatchPlan::default();
+    let mut saw_match = false;
+    let mut saw_mutation = false;
+    let mut saw_delete = false;
+    let mut projection = None;
+
+    for (index, clause) in clauses.iter().enumerate() {
+        if projection.is_some() {
+            return Err(unsupported(clause.span, "clauses after RETURN"));
+        }
+        match &clause.kind {
+            ClauseKind::Match(match_clause) if !saw_mutation => {
+                saw_match = true;
+                input
+                    .operators
+                    .extend(lowerer.match_clause(match_clause)?.operators);
+            }
+            ClauseKind::Match(_) => {
+                return Err(unsupported(clause.span, "MATCH after a mutation clause"));
+            }
+            ClauseKind::Set(set_clause) => {
+                if saw_delete {
+                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
+                }
+                if !saw_match {
+                    return Err(semantic(clause.span, "SET requires a MATCH input"));
+                }
+                saw_mutation = true;
+                lowerer.set_clause(set_clause)?;
+            }
+            ClauseKind::Remove(remove_clause) => {
+                if saw_delete {
+                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
+                }
+                if !saw_match {
+                    return Err(semantic(clause.span, "REMOVE requires a MATCH input"));
+                }
+                saw_mutation = true;
+                lowerer.remove_clause(remove_clause)?;
+            }
+            ClauseKind::Delete(delete_clause) => {
+                if saw_delete {
+                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
+                }
+                if !saw_match {
+                    return Err(semantic(clause.span, "DELETE requires a MATCH input"));
+                }
+                saw_mutation = true;
+                saw_delete = true;
+                lowerer.delete_clause(delete_clause)?;
+            }
+            ClauseKind::Return(return_clause) if index + 1 == clauses.len() => {
+                projection = Some(lowerer.projection(&return_clause.projection, true)?);
+            }
+            ClauseKind::Return(_) => {
+                return Err(unsupported(clause.span, "clauses after RETURN"));
+            }
+            kind => return Err(unsupported(clause.span, clause_name(kind))),
+        }
+    }
+
+    if !saw_mutation {
+        return Err(Error::Data(
+            "matched-mutation lowering produced no mutation".into(),
+        ));
+    }
+
+    Ok(Query {
+        slots: lowerer.slots,
+        scalar_slots: lowerer.scalar_slots,
+        input: Input::Match(input),
         mutations: lowerer.mutations,
         projection,
     })
@@ -595,6 +685,107 @@ impl<'source> Lowerer<'source> {
         Ok(slot)
     }
 
+    fn set_clause(&mut self, set_clause: &SetClause) -> Result<()> {
+        for item in &set_clause.items {
+            match &item.kind {
+                SetItemKind::Property { target, value } => {
+                    let (slot, key) = self.property_target(target)?;
+                    self.mutations.push(Mutation::SetProperty {
+                        slot,
+                        key,
+                        value: input_value(value)?,
+                    });
+                }
+                SetItemKind::ReplaceProperties { target, value } => {
+                    let slot = self.resolve_entity_name(target)?;
+                    self.mutations.push(Mutation::ReplaceProperties {
+                        slot,
+                        properties: input_value(value)?,
+                    });
+                }
+                SetItemKind::MergeProperties { target, value } => {
+                    let slot = self.resolve_entity_name(target)?;
+                    self.mutations.push(Mutation::MergeProperties {
+                        slot,
+                        properties: input_value(value)?,
+                    });
+                }
+                SetItemKind::Labels { .. } => {
+                    return Err(unsupported(item.span, "setting labels"));
+                }
+                _ => return Err(unsupported(item.span, "SET item")),
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_clause(&mut self, remove_clause: &RemoveClause) -> Result<()> {
+        for item in &remove_clause.items {
+            match &item.kind {
+                RemoveItemKind::Property(target) => {
+                    let (slot, key) = self.property_target(target)?;
+                    self.mutations.push(Mutation::RemoveProperty { slot, key });
+                }
+                RemoveItemKind::Labels { .. } => {
+                    return Err(unsupported(item.span, "removing labels"));
+                }
+                _ => return Err(unsupported(item.span, "REMOVE item")),
+            }
+        }
+        Ok(())
+    }
+
+    fn delete_clause(&mut self, delete_clause: &DeleteClause) -> Result<()> {
+        let detach = match delete_clause.mode.kind {
+            DeleteMode::Normal | DeleteMode::Nodetach => false,
+            DeleteMode::Detach => true,
+            _ => return Err(unsupported(delete_clause.mode.span, "DELETE mode")),
+        };
+        let targets = delete_clause
+            .expressions
+            .iter()
+            .map(|expression| {
+                let mut target = expression;
+                while let ExprKind::Parenthesized(inner) = &target.kind {
+                    target = inner;
+                }
+                let ExprKind::Variable(variable) = &target.kind else {
+                    return Err(semantic(
+                        target.span,
+                        "DELETE target must be a node or relationship variable",
+                    ));
+                };
+                let slot = self.resolve_entity_name(variable)?;
+                Ok((slot, self.kind(slot)))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.mutations.push(Mutation::Delete { targets, detach });
+        Ok(())
+    }
+
+    fn property_target(&self, target: &AstExpr) -> Result<(SlotId, String)> {
+        let ExprKind::Property { expression, key } = &target.kind else {
+            return Err(semantic(
+                target.span,
+                "property mutation requires `variable.key`",
+            ));
+        };
+        Ok((
+            self.resolve_entity_variable(expression)?,
+            key.kind.text.clone(),
+        ))
+    }
+
+    fn resolve_entity_name(&self, name: &open_cypher::ast::Name) -> Result<SlotId> {
+        match self.resolve_symbol(name)? {
+            Symbol::Entity(slot) => Ok(slot),
+            Symbol::Scalar(_) => Err(semantic(
+                name.span,
+                format!("scalar variable `{}` is not a graph entity", name.kind.text),
+            )),
+        }
+    }
+
     fn with_clause(&mut self, with_clause: &WithClause) -> Result<WithStage> {
         let projection = &with_clause.projection;
         match projection.quantifier.as_ref().map(|value| value.kind) {
@@ -696,7 +887,7 @@ impl<'source> Lowerer<'source> {
         {
             return Err(unsupported(
                 projection.span,
-                "projection modifiers after CREATE",
+                "projection modifiers after a mutation",
             ));
         }
         let distinct = match projection.quantifier.as_ref().map(|value| value.kind) {
@@ -721,7 +912,7 @@ impl<'source> Lowerer<'source> {
             {
                 return Err(unsupported(
                     expression.span,
-                    "computed projection after CREATE",
+                    "computed projection after a mutation",
                 ));
             }
             columns.push(column_name(self.source, expression, alias.as_ref()));

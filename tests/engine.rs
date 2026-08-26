@@ -432,12 +432,15 @@ fn integer_domain_and_duplicate_match_properties_are_validated() {
 }
 
 #[test]
-fn an_unsupported_write_does_not_mutate_the_graph() {
+fn unsupported_merge_does_not_mutate_the_graph() {
     let mut database = Database::in_memory().unwrap();
     database.execute("CREATE (:Person {name: 'Ada'})").unwrap();
 
     assert!(matches!(
-        database.execute("MATCH (person:Person) DELETE person"),
+        database.execute(
+            "MATCH (person:Person) \
+             MERGE (:Person {name: 'Grace'})"
+        ),
         Err(Error::Unsupported(_))
     ));
 

@@ -232,6 +232,27 @@ pub(crate) enum Mutation {
         to: SlotId,
         properties: ValueExpr,
     },
+    SetProperty {
+        slot: SlotId,
+        key: String,
+        value: ValueExpr,
+    },
+    ReplaceProperties {
+        slot: SlotId,
+        properties: ValueExpr,
+    },
+    MergeProperties {
+        slot: SlotId,
+        properties: ValueExpr,
+    },
+    RemoveProperty {
+        slot: SlotId,
+        key: String,
+    },
+    Delete {
+        targets: Vec<(SlotId, EntityKind)>,
+        detach: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug)]

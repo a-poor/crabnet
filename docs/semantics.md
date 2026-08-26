@@ -30,8 +30,8 @@ Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
 relative order of equal sort keys is unspecified. `SKIP`/`OFFSET` and `LIMIT`
 are applied after ordering when an order is present. Projection modifiers,
-including ordering and pagination, are not currently supported after
-`CREATE`; neither is `RETURN DISTINCT` after `CREATE`.
+including ordering and pagination, are not currently supported after a
+mutation; neither is `RETURN DISTINCT` after a mutation.
 
 ## `WITH` clause boundaries
 
@@ -92,9 +92,9 @@ their Cypher value kinds. Integers outside SQLite's signed 64-bit range and
 non-finite floats are rejected.
 
 A missing property and a property whose stored value is explicit JSON `null`
-both evaluate to Cypher `null`. Returning either produces
-`CypherValue::Null`, and `IS NULL` is true for either. Crabnet does not
-currently expose a supported query operation that distinguishes the two cases.
+both evaluate to Cypher `null`. Returning either property produces
+`CypherValue::Null`, and `IS NULL` is true for either. A returned whole entity
+does preserve whether its property map contains an explicit-null key.
 
 `NodeValue` contains an opaque `element_id`, a `labels` vector, and a recursive
 `properties` map. The current storage model produces zero or one label, while
@@ -107,10 +107,10 @@ regardless of whether a query matched it with a right arrow, left arrow, or
 undirected pattern.
 
 Whole nodes and relationships may be returned by reads and by `RETURN` after
-`CREATE`. Entity decoding follows the planned expression kind, so an ordinary
-map remains `CypherValue::Map` even if it contains keys resembling the public
-entity fields. Paths are not result values yet, and path bindings remain
-unsupported.
+supported mutations. Entity decoding follows the planned expression kind, so
+an ordinary map remains `CypherValue::Map` even if it contains keys resembling
+the public entity fields. Paths are not result values yet, and path bindings
+remain unsupported.
 
 ## Predicates and null
 
@@ -172,7 +172,7 @@ Crabnet never dynamically coerces them to numbers.
 
 Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
 rejections. Computed scalar projections are currently read-only: the
-post-`CREATE` result stage does not yet execute them.
+post-mutation result stage does not yet execute them.
 
 ## Labels and relationship types
 
@@ -222,13 +222,51 @@ materialized row. Consequently:
 - entities created by the statement cannot become additional input matches for
   that same statement.
 
+Matched `SET` and `REMOVE` currently accept direct property targets on nodes or
+relationships. `SET entity.key = value` assigns a literal or parameter value,
+and `REMOVE entity.key` deletes that key. `SET entity = map` replaces the
+complete property map, while `SET entity += map` performs a shallow merge; the
+map may be a literal or named parameter. Row-dependent or otherwise computed
+right-hand sides and label mutation are explicit planning-time rejections, as
+are writes in a query containing `WITH`.
+
+Direct assignment of `null` removes the targeted key. A null-valued entry in a
+`+=` map also removes that key. Whole-map replacement is deliberately
+different: an explicit null entry in `SET entity = {key: null}` remains stored
+in the replacement map. Retaining that key is a Crabnet extension to Cypher's
+usual property-null behavior and is observable when returning the whole
+entity. Map merge is shallow; nested maps replace their existing value rather
+than recursively merging it.
+
+`QuerySummary::properties_set` counts top-level property keys whose observable
+stored value changed or was removed. Reassigning the same value and removing an
+absent key contribute zero. A whole-map replacement counts additions,
+removals, and value changes rather than counting the clause as one operation.
+
+Matched `DELETE` accepts node and relationship variables. Targets are gathered
+and deduplicated across the complete materialized match bag, then explicitly
+targeted relationships are deleted before nodes regardless of target spelling
+order. Plain deletion of a node that still has an incident relationship fails
+the storage foreign-key constraint and rolls the entire statement back.
+`DETACH DELETE` first removes all incoming, outgoing, and self-loop
+relationships incident to its node targets; relationships shared by multiple
+targets or also named explicitly are deleted and counted once. `DELETE` or
+`DETACH DELETE` must currently be the final mutation clause before an optional
+`RETURN`; a later mutation clause is rejected during planning.
+
+`QuerySummary::nodes_deleted` and `relationships_deleted` count actual stored
+rows removed, not matched-row occurrences. A post-delete `RETURN` still emits
+one result per materialized input row and evaluates against its pre-delete
+entity snapshots. This intentionally allows the returned node or relationship
+value to describe an entity that no longer exists after commit.
+
 All parameters and storable property values for a write are resolved and
 validated before the write transaction starts. Match materialization, all
 mutations, and post-write result evaluation then occur in one immediate SQLite
 transaction. Any execution failure rolls back every mutation performed by the
-statement. A `RETURN` after `CREATE` emits one row per mutation input row and
-may project whole matched or created entities as well as supported properties
-and metadata.
+statement. An optional `RETURN` emits one row per mutation input row and may
+project whole matched or created entities as well as supported properties and
+metadata; for deleted entities it follows the snapshot rule above.
 
 ## Unsupported constructs and errors
 
@@ -241,6 +279,6 @@ execution, so an unsupported write statement cannot partially modify the
 graph.
 
 Semantics for unsupported constructs—including path values, variable-length
-traversal, optional matching, aggregation, `UNWIND`, `UNION`, and mutations
-other than `CREATE`—remain unresolved until those constructs are designed and
-implemented.
+traversal, optional matching, aggregation, `UNWIND`, `UNION`, `MERGE`, label
+mutation, and computed mutation right-hand sides—remain unresolved until those
+constructs are designed and implemented.

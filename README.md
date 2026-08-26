@@ -2,9 +2,9 @@
 
 Crabnet is an experiment in lowering a small, useful subset of openCypher into
 a logical row plan backed by SQLite. Read-only `MATCH`/`WITH` pipelines compile
-to parameterized SQL and CTEs; `CREATE` mutations are applied to matched rows
-inside one SQLite transaction. It is intentionally not a production database
-or a stable library API yet.
+to parameterized SQL and CTEs; core `CREATE`, matched property, and matched
+deletion mutations run inside one SQLite transaction. It is intentionally not
+a production database or a stable library API yet.
 
 ```rust
 use crabnet::{CypherValue, Database, Parameters};
@@ -48,11 +48,19 @@ The accepted statement shapes are:
   `MATCH` clauses
 - `CREATE ... [RETURN ...]`
 - `MATCH ... CREATE ... [RETURN ...]`
+- `MATCH ... SET/REMOVE ... [RETURN ...]`
+- `MATCH ... DELETE/DETACH DELETE ... [RETURN ...]`
 
 Within those shapes, the first iteration supports:
 
 - `CREATE` for nodes and fixed, directed relationship chains, including
   relationships between matched and fresh nodes
+- matched `SET entity.key = value` and `REMOVE entity.key` for node and
+  relationship properties
+- matched whole-property-map replacement (`SET entity = map`) and shallow
+  merge (`SET entity += map`) when the map is a literal or named parameter
+- matched node and relationship `DELETE`, plus `DETACH DELETE` for nodes with
+  incident relationships
 - `MATCH` for nodes and fixed-length outgoing, incoming, or undirected patterns
 - at most one node label; zero or one relationship type in `MATCH`, and exactly
   one type for each created relationship
@@ -100,6 +108,22 @@ node may be reused in `CREATE` only as a bare `(variable)` reference. When a
 `RETURN` is present, it emits one post-mutation row per input row and may refer
 to both matched and created entities.
 
+Matched property updates operate on the same materialized input bag. Direct
+assignment to `null` removes a property, as does a `null` entry in a `+=` map;
+whole-map `=` replacement retains explicit JSON-null entries. The latter is a
+documented Crabnet extension. `properties_set` counts top-level keys whose
+stored value actually changed or was removed, so assigning the same value or
+removing an absent key contributes zero.
+
+Deletion targets are deduplicated across the complete matched bag. Explicitly
+targeted relationships are removed before nodes, independent of their spelling
+order in `DELETE`. Plain deletion of a connected node fails SQLite's foreign-key
+check and rolls the statement back; `DETACH DELETE` first removes every incident
+relationship. The deletion counters report actual stored rows removed. A
+post-delete `RETURN` reads the materialized pre-delete entity snapshots and
+retains the input bag's row multiplicity. In the current bounded grammar,
+`DELETE` must be the final mutation clause before an optional `RETURN`.
+
 Unsupported syntax is parsed first and then reported as `Error::Unsupported`.
 Malformed Cypher, semantic errors such as unknown variables, and missing
 parameters have separate error variants. All parameters and stored property
@@ -107,11 +131,12 @@ values are resolved and validated before a write transaction begins. Match
 materialization, every mutation, and post-write result evaluation then share
 one immediate transaction; any runtime failure rolls the whole statement back.
 
-Notable omissions include multiple or boolean labels/types, variable-length
-traversal, path bindings and path result values, `OPTIONAL MATCH`, parameter-map
-matching, `RETURN *`, aggregation, `SET`, `DELETE`, `MERGE`, `UNION`, `UNWIND`,
-exponentiation (`^`), concatenation (`||`), and computed projections or
-`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after `CREATE`. Within a `WITH`
+Notable omissions include multiple or boolean labels/types, label mutations,
+variable-length traversal, path bindings and path result values,
+`OPTIONAL MATCH`, parameter-map matching, `RETURN *`, aggregation, `MERGE`,
+`UNION`, `UNWIND`, exponentiation (`^`), concatenation (`||`), computed
+right-hand sides for property updates, and computed projections or
+`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. Within a `WITH`
 pipeline, `WITH DISTINCT`, `WITH *`, unaliased computed expressions,
 aggregation, and writes are explicitly rejected.
 
@@ -125,8 +150,8 @@ The planner is deliberately small and layered:
   SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
   projected entity and scalar slots.
 - `database.rs` executes reads directly. For mutations, it materializes all
-  input rows before the first insert and applies the ordered `CREATE` operations
-  once per row.
+  input rows before the first change and applies ordered mutation operators to
+  that stable row bag.
 
 Read-only `RETURN DISTINCT` is a deliberate hybrid boundary: SQLite produces
 and orders candidate rows, Crabnet decodes them to `CypherValue` and performs
@@ -194,4 +219,6 @@ cargo test --all-targets
 The milestone 3 expression contracts have focused coverage in
 `tests/arithmetic_and_distinct.rs` and
 `tests/membership_and_string_predicates.rs`. Milestone 4 clause and scope
-contracts are covered in `tests/with_pipeline.rs`.
+contracts are covered in `tests/with_pipeline.rs`. Milestone 5 property and
+deletion contracts are covered in `tests/matched_mutations.rs` and
+`tests/delete_mutations.rs`.
