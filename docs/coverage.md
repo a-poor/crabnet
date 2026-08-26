@@ -30,13 +30,14 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Node scan, optional single label, inline property map | Covered | Includes missing/null values and typed list/map equality (`missing_and_null_properties_follow_null_semantics`, `inline_structured_properties_keep_json_types`) |
 | Fixed-length relationship patterns | Covered | Outgoing, incoming, undirected, self-loop, and three-hop patterns, including parallel-path multiplicity; see `creates_and_matches_a_directed_relationship`, `undirected_matches_check_both_orientations_without_duplicating_self_loops`, and `parallel_three_hop_paths_preserve_row_multiplicity` |
 | Typed and untyped relationship scans | Covered | Multiple runtime types retain their own `type(r)` values in `untyped_relationship_matches_retain_each_runtime_type` |
-| Relationship inline properties | Covered | `relationship_properties_filter_matches` |
+| Relationship inline properties | Covered | Fixed patterns are covered by `relationship_properties_filter_matches`; a bounded traversal applies its inline map to every hop in `relationship_and_endpoint_properties_apply_to_every_candidate_path` |
 | Element-local `WHERE` | Partial | Node- and relationship-local predicates execute in `element_local_where_filters_nodes_and_relationships`; the current parser still rejects some valid following-label combinations, so the full syntax is not claimed |
 | Comma-separated patterns / bag multiplicity | Covered | Disconnected Cartesian products and repeated node bindings in `disconnected_patterns_preserve_cartesian_multiplicity` and `repeated_node_variables_reuse_the_same_binding` |
-| Relationship uniqueness within one fixed path | Covered | The same stored relationship cannot fill two positions; explicit variable reuse is semantic error (`one_relationship_cannot_fill_two_positions_in_a_path`) |
+| Relationship uniqueness within one path | Covered | Fixed positions and bounded traversal segments cannot reuse a stored relationship in the same path. Traversal uniqueness tracks edge IDs rather than nodes, including across mixed fixed/quantified segments; see `one_relationship_cannot_fill_two_positions_in_a_path`, `cycles_may_revisit_nodes_but_may_not_reuse_an_edge`, and `fixed_and_quantified_segments_cannot_reuse_the_same_relationship` |
 | Multiple labels/types and boolean label expressions | Rejected | Storage and lowering currently require at most one node label and one relationship type |
-| Variable-length relationships and path values/bindings | Rejected | Quantified patterns, selectors, and returned whole paths are not implemented yet |
-| `OPTIONAL MATCH` | Covered | Fixed-length optional patterns null-extend the complete introduced pattern, preserve outer rows and bag multiplicity, and keep optional `WHERE` predicates in the join condition; see `optional_match.rs`. Match modes and hints remain rejected |
+| Bounded legacy variable-length relationships | Covered | Mandatory read-only `MATCH` supports anonymous `*n`, `*min..max`, and `*..max` forms through depth 32 in outgoing, incoming, and undirected directions. Endpoint-only results, zero-hop identity, empty reversed ranges, types, per-hop inline properties, cycles, self-loops, diamonds, parallel edges, composition, and multiplicity are covered in `bounded_traversal.rs` |
+| Other variable-length and path forms | Rejected | Unbounded traversal, postfix graph quantifiers, named relationship lists, path values/bindings/selectors, quantified `OPTIONAL MATCH`, and traversal-fed writes fail during planning |
+| `OPTIONAL MATCH` | Covered | Fixed-length optional patterns null-extend the complete introduced pattern, preserve outer rows and bag multiplicity, and keep optional `WHERE` predicates in the join condition; see `optional_match.rs`. Quantified optional patterns, match modes, and hints remain rejected |
 | Read-only `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, aggregation, and later `MATCH`/`UNWIND`/`OPTIONAL MATCH` stages are covered. `WITH ALL` is accepted. `WITH DISTINCT`, `WITH *`, unaliased computed expressions, and writes anywhere in the pipeline remain rejected |
 | `UNWIND` | Covered | Literal, parameter, property, and prior-aggregate lists expand with bag semantics; null, empty, and non-list runtime values produce no rows. Scope and composition cases are covered in `unwind.rs` |
 | `UNION`, `UNION DISTINCT`, `UNION ALL` | Covered | Read-only branches are independently planned and must return the same column names in the same positions. `ALL` preserves duplicates; default/`DISTINCT` use recursive typed row equivalence in Rust. Mixed operators apply left-to-right; see `union.rs` |
@@ -87,9 +88,10 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `MERGE` and `ON CREATE` / `ON MATCH` | Rejected | No match-or-create operator exists yet |
 | Undirected or untyped relationship creation | Rejected | Creation requires exactly one type and a concrete direction |
 | Writes in a `WITH` pipeline | Rejected | The composable clause pipeline is read-only; a mutation clause anywhere in it fails during planning |
+| Writes fed by variable-length traversal | Rejected | A mutation whose matched input contains a bounded traversal fails before execution and cannot leave side effects (`writes_fed_by_quantified_match_are_rejected_without_side_effects`) |
 | Computed projections and projection modifiers after mutations | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
-| Normalized logical-plan explanation | Covered | `crabnet::explain` renders `MATCH`/`OPTIONAL MATCH`/`WITH`/`UNWIND` stages, aggregate expressions, union branches, scopes, graph operators, and projections without depending on incidental backend aliases |
-| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders generated SQL/CTEs, optional left joins, union branches, bind positions, and Rust semantic-distinct/pagination stages; mutation pipelines are not accepted by this debug view |
+| Normalized logical-plan explanation | Covered | `crabnet::explain` renders `MATCH`/`OPTIONAL MATCH`/`WITH`/`UNWIND` stages, bounded traversal ranges, aggregate expressions, union branches, scopes, graph operators, and projections without depending on incidental backend aliases |
+| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders generated SQL/CTEs, recursive traversal CTEs, optional left joins, union branches, bind positions, and Rust semantic-distinct/pagination stages; mutation pipelines are not accepted by this debug view |
 
 ## Prioritized next-test backlog
 
@@ -100,10 +102,9 @@ move the row into the matrix when green.
 1. The parser gap for a labeled node immediately following a relationship-local
    `WHERE` predicate; promote the existing partial coverage after the parser accepts it.
 2. Relationship-property matching across boolean/numeric and nested structured values.
-3. Three-hop diamonds where different intermediate nodes converge, preserving one row
-   per valid relationship sequence rather than collapsing endpoints.
-4. Bounded variable-length traversal acceptance tests for cycles, self-loops,
-   diamonds, parallel edges, dead ends, relationship uniqueness, and explicit
-   lower/upper bounds as milestone 7 begins.
+3. A hybrid-executor acceptance case that crosses an explicit SQLite/Rust
+   operator boundary without losing scope, order, nulls, or bag multiplicity.
+4. Path-value and relationship-list result contracts once milestone 8 adds
+   their public value representation.
 5. Curated openCypher TCK and differential tests after the selected scenarios' setup
    clauses and any required path values can be represented faithfully.

@@ -147,8 +147,8 @@ erase the incoming row. Chained optional clauses can consume nullable entity
 bindings, and properties plus `elementId`, `labels`, and `type` evaluate to
 null for a null-extended entity. Fixed-pattern direction, type, property,
 relationship-uniqueness, and variable-kind rules are otherwise the same as
-mandatory `MATCH`. Variable-length patterns, path bindings/selectors, match
-modes, and hints remain rejected.
+mandatory `MATCH`. Quantified optional patterns, path bindings/selectors,
+match modes, and hints remain rejected.
 
 ## Values and properties
 
@@ -268,7 +268,7 @@ pattern may omit its type or specify one type. A created relationship must
 specify exactly one type. Multiple and boolean relationship-type expressions
 are unsupported. `type(relationship)` returns the relationship's single type.
 
-## Fixed-length paths and direction
+## Paths, direction, and bounded traversal
 
 Every stored edge is directed from `from_node` to `to_node`. A right-arrow
 pattern matches that direction, a left-arrow pattern matches the reverse
@@ -280,8 +280,39 @@ Within one fixed-length path pattern, one stored relationship cannot occupy two
 relationship positions. Nodes may repeat, so cycles and self-relationships are
 allowed as long as each relationship position uses a distinct relationship.
 Relationship uniqueness is per path pattern, not global across disconnected
-comma-separated pattern parts. Variable-length paths and path bindings are not
-supported.
+comma-separated pattern parts.
+
+Mandatory read-only `MATCH` also supports anonymous legacy bounded relationship
+forms. `*n` selects exactly `n` hops, `*min..max` selects every inclusive depth
+in that range, and `*..max` defaults its omitted lower bound to one. Bounds are
+non-negative integer literals, and the maximum may not exceed 32. Zero-hop
+identity is available only through an explicit zero such as `*0` or `*0..2`;
+the endpoint is then the starting node and must still satisfy its node label,
+property, and binding constraints. A range whose lower bound exceeds its upper
+bound is valid and emits no rows.
+
+Bounded traversal supports right-arrow, left-arrow, and undirected spelling. It
+may omit the relationship type or specify one type, and an inline property map
+must match every traversed relationship. The zero-hop candidate traverses no
+relationship, so relationship type and property conditions are vacuously
+satisfied at depth zero.
+
+SQLite evaluates each bounded segment with a recursive CTE carrying the start
+node, current endpoint, depth, and edge IDs used by that candidate. A node may
+be revisited, including through cycles and self-loops, but a stored edge cannot
+be reused within one complete path. The uniqueness rule also spans fixed and
+bounded segments in the same path. Each distinct valid edge sequence remains a
+separate result row, so diamonds and parallel edges can produce duplicate
+endpoint projections. The current naive physical plan seeds every stored node
+before applying selective endpoint constraints; the depth-32 ceiling bounds
+recursion depth, not total path count or memory. Start-domain pushdown remains
+future optimization work.
+
+This slice exposes endpoints only. It does not construct a path result or bind
+the traversed relationships as a named list. Unbounded legacy traversal,
+postfix graph quantifiers, named variable-length relationships, path
+bindings/selectors, quantified `OPTIONAL MATCH`, and writes whose input is fed
+by a bounded traversal are structured planning-time rejections.
 
 ## Entity identifiers
 
@@ -311,7 +342,7 @@ and `REMOVE entity.key` deletes that key. `SET entity = map` replaces the
 complete property map, while `SET entity += map` performs a shallow merge; the
 map may be a literal or named parameter. Row-dependent or otherwise computed
 right-hand sides and label mutation are explicit planning-time rejections, as
-are writes in a query containing `WITH`.
+are writes in a query containing `WITH` or fed by variable-length traversal.
 
 Direct assignment of `null` removes the targeted key. A null-valued entry in a
 `+=` map also removes that key. Whole-map replacement is deliberately
@@ -361,6 +392,7 @@ entity kinds uses `Error::Semantic`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
-Semantics for unsupported constructs—including path values, variable-length
-traversal, `MERGE`, label mutation, and computed mutation right-hand sides—
-remain unresolved until those constructs are designed and implemented.
+Semantics for unsupported constructs—including path values and bindings,
+relationship-list bindings, unbounded or postfix-graph traversal, quantified
+optional matching, `MERGE`, label mutation, and computed mutation right-hand
+sides—remain unresolved until those constructs are designed and implemented.

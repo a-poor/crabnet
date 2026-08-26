@@ -34,6 +34,8 @@ Crabnet already has more than a greenfield skeleton:
 - aggregation/grouping, list expansion, query unions, and fixed-length optional
   matching compose through that read pipeline with explicit bag, type, and
   null-extension semantics;
+- anonymous legacy bounded traversal compiles to recursive SQLite CTEs with an
+  explicit maximum depth, endpoint results, and per-path edge uniqueness;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically;
 - matched node and relationship properties support direct `SET`/`REMOVE` plus
@@ -115,8 +117,7 @@ multiplicity, and boundary coverage where applicable.
 
 Gate complete: `MATCH (n) RETURN n`, relationship equivalents, and post-create
 returns round-trip without confusing graph entities with ordinary maps. Path
-values remain deliberately deferred to the traversal and hybrid-execution
-milestones.
+values remain deliberately deferred to the hybrid-execution milestone.
 
 ### 3. Finish the fixed-length read core — complete
 
@@ -212,19 +213,27 @@ Gate complete: `tests/aggregation.rs`, `tests/aggregation_edges.rs`,
 grouping, duplicate policies, empty input, composition, whole-pattern null
 propagation, and structured rejection boundaries.
 
-### 7. Add bounded variable-length traversal
+### 7. Add bounded variable-length traversal — complete
 
-- Lower explicitly bounded relationship quantifiers to recursive CTEs.
-- Track used **edge IDs** per candidate path; revisiting a node is legal, while
-  reusing a relationship in the same path is not.
-- Test cycles, self-loops, diamonds, parallel edges, dead ends, bounds, and row
-  multiplicity.
-- Start with endpoint results, then expose relationship lists/path values.
-- Keep truly unbounded traversal rejected until it has complete semantics; do
-  not silently substitute a hidden depth cap.
+- Anonymous legacy `*n`, `*min..max`, and `*..max` relationship forms lower to
+  recursive SQLite CTEs for mandatory read-only `MATCH`; the omitted lower
+  bound is one, explicit zero-hop is supported, reversed ranges are empty, and
+  the maximum upper bound is 32.
+- Outgoing, incoming, and undirected traversal may use zero or one relationship
+  type plus an inline property map applied at every hop.
+- Each recursive candidate carries used edge IDs. Nodes may be revisited, but a
+  relationship cannot be reused in one complete path, including across mixed
+  fixed and bounded segments.
+- Endpoint rows retain one result per relationship sequence across cycles,
+  self-loops, diamonds, parallel edges, and dead ends, and compose with the
+  existing read pipeline and aggregation.
+- Unbounded traversal, postfix graph quantifiers, named relationship lists,
+  path values/bindings/selectors, quantified `OPTIONAL MATCH`, and
+  traversal-fed writes remain structured rejections.
 
-Gate: bounded traversal is correct on adversarial small graph shapes and its
-resource limit is explicit.
+Gate complete: `tests/bounded_traversal.rs` covers bounds, directions,
+properties, identity paths, adversarial graph shapes, edge-trail uniqueness,
+composition, explicit resource limits, and rejection boundaries.
 
 ### 8. Generalize hybrid execution
 
@@ -254,11 +263,11 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the typed-value, fixed-length-read, clause-pipeline, matched-mutation, and
-query-composition gates from milestones 2–6 complete, the next active work is
-milestone 7: explicitly bounded variable-length traversal. Small contract gaps
-may still be tightened when a focused test exposes them. Path values remain
-planned for the traversal and hybrid-executor milestones. The day-to-day test
-loop is documented in
-[testing.md](testing.md); planned-but-inactive cases stay in the coverage
-backlog instead of accumulating as ignored tests.
+With the typed-value, fixed-length-read, clause-pipeline, matched-mutation,
+query-composition, and bounded-traversal gates from milestones 2–7 complete,
+the next active work is milestone 8: generalizing hybrid execution. Small
+contract gaps may still be tightened when a focused test exposes them. Path
+values, relationship-list results, and deep or unbounded traversal remain
+planned for that hybrid-executor milestone. The day-to-day test loop is
+documented in [testing.md](testing.md); planned-but-inactive cases stay in the
+coverage backlog instead of accumulating as ignored tests.

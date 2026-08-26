@@ -61,6 +61,10 @@ end-to-end result test for user-visible semantics.
 - `tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs` cover the
   row-expanding and null/deduplication composition operators, including bag
   multiplicity and clause-local scope.
+- `tests/bounded_traversal.rs` covers exact/ranged/zero bounds, outgoing,
+  incoming, and undirected traversal, per-hop type/property filters, cycles,
+  self-loops, diamonds, parallel edges, dead ends, edge-trail uniqueness,
+  composition, the depth limit, and structured rejection boundaries.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.
@@ -108,6 +112,7 @@ cargo test --test membership_and_string_predicates in_preserves_typed_membership
 cargo test --test write_semantics create_duplicate_property_keys_fail_before_any_mutation -- --exact
 cargo test --test matched_mutations set_equals_replaces_the_complete_property_map -- --exact
 cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
+cargo test --test bounded_traversal cycles_may_revisit_nodes_but_may_not_reuse_an_edge -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
 ```
 
@@ -119,6 +124,7 @@ cargo test --test arithmetic_and_distinct
 cargo test --test membership_and_string_predicates
 cargo test --test matched_mutations
 cargo test --test delete_mutations
+cargo test --test bounded_traversal
 cargo test --lib planner::sqlite
 ```
 
@@ -170,9 +176,9 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-The next active test slice is milestone 7 bounded variable-length traversal.
-Start with explicit lower/upper bounds and endpoint results, then exercise
-cycles, self-loops, diamonds, parallel edges, dead ends, bag multiplicity, and
-per-path relationship uniqueness. Truly unbounded traversal and whole path
-values should remain structured rejections until their resource and result
-contracts are implemented.
+The next active test slice is milestone 8 hybrid execution. Start with one
+query whose physical plan crosses an explicit SQLite/Rust operator boundary,
+then lock down scope, ordering, null propagation, bag multiplicity, and failure
+behavior at that boundary. Path values, relationship-list results, and deep or
+unbounded traversal should gain focused result/resource contracts only as
+their executor operators are implemented.

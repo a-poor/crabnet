@@ -7,8 +7,8 @@ use crate::{Error, Parameters, Result};
 
 use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    Projection, ReadStage, ScalarSlotId, SlotId, SortDirection, UnaryOp, UnwindStage, ValueExpr,
-    WithBinding, WithStage, validate_storable_value,
+    Projection, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, TraversalId,
+    UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage, validate_storable_value,
 };
 
 #[derive(Clone, Debug)]
@@ -289,6 +289,11 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
 }
 
 pub(crate) fn compile_row_source(plan: &MatchPlan) -> Result<RowSource> {
+    if plan.has_variable_length() {
+        return Err(Error::Unsupported(
+            "writes fed by variable-length traversal".into(),
+        ));
+    }
     let mut compiler = Compiler::new();
     compiler.compile_match(plan)?;
     compiler.scanned.sort_by_key(|(slot, _)| *slot);
@@ -321,15 +326,28 @@ impl EntitySource {
     }
 }
 
+struct VariableLengthSpec<'a> {
+    traversal: TraversalId,
+    left: SlotId,
+    right: SlotId,
+    direction: Direction,
+    minimum: usize,
+    maximum: usize,
+    relationship_type: Option<&'a str>,
+    properties: &'a [(String, ValueExpr)],
+}
+
 struct Compiler {
     entities: HashMap<SlotId, EntitySource>,
     scalars: HashMap<ScalarSlotId, String>,
+    traversals: HashMap<TraversalId, String>,
     scanned: Vec<(SlotId, EntityKind)>,
     from: Vec<String>,
     filters: Vec<String>,
     ordering: Option<String>,
     bindings: Vec<SqlBinding>,
     ctes: Vec<(String, String)>,
+    has_recursive_cte: bool,
 }
 
 impl Compiler {
@@ -337,12 +355,14 @@ impl Compiler {
         Self {
             entities: HashMap::new(),
             scalars: HashMap::new(),
+            traversals: HashMap::new(),
             scanned: Vec::new(),
             from: Vec::new(),
             filters: Vec::new(),
             ordering: None,
             bindings: Vec::new(),
             ctes: Vec::new(),
+            has_recursive_cte: false,
         }
     }
 
@@ -402,16 +422,29 @@ impl Compiler {
                         Direction::Undirected => format!("({forward} OR {reverse})"),
                     });
                 }
-                MatchOperator::DistinctRelationships(slots) => {
-                    for (index, slot) in slots.iter().enumerate() {
-                        for previous in &slots[..index] {
-                            self.filters.push(format!(
-                                "{} <> {}",
-                                self.entity_field(*slot, "id")?,
-                                self.entity_field(*previous, "id")?
-                            ));
-                        }
-                    }
+                MatchOperator::ExpandVariableLength {
+                    traversal,
+                    left,
+                    right,
+                    direction,
+                    minimum,
+                    maximum,
+                    relationship_type,
+                    properties,
+                } => {
+                    self.compile_variable_length(VariableLengthSpec {
+                        traversal: *traversal,
+                        left: *left,
+                        right: *right,
+                        direction: *direction,
+                        minimum: *minimum,
+                        maximum: *maximum,
+                        relationship_type: relationship_type.as_deref(),
+                        properties,
+                    })?;
+                }
+                MatchOperator::DistinctRelationships(relationships) => {
+                    self.compile_relationship_uniqueness(relationships)?;
                 }
                 MatchOperator::Filter(expression) => {
                     let predicate = self.predicate_expression(expression)?;
@@ -422,7 +455,160 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_variable_length(&mut self, spec: VariableLengthSpec<'_>) -> Result<()> {
+        let VariableLengthSpec {
+            traversal,
+            left,
+            right,
+            direction,
+            minimum,
+            maximum,
+            relationship_type,
+            properties,
+        } = spec;
+        if self.traversals.contains_key(&traversal) {
+            return Err(Error::Data(format!(
+                "logical traversal {} is expanded twice",
+                traversal.0
+            )));
+        }
+
+        let cte = format!("_crabnet_walk_{}", traversal.0);
+        let recursive_row = format!("walk{}", traversal.0);
+        let edge = format!("walk_edge{}", traversal.0);
+        let used_edge = format!("walk_used{}", traversal.0);
+        let (edge_join, next_node) = match direction {
+            Direction::Right => (
+                format!("{edge}.from_node = {recursive_row}.end_id"),
+                format!("{edge}.to_node"),
+            ),
+            Direction::Left => (
+                format!("{edge}.to_node = {recursive_row}.end_id"),
+                format!("{edge}.from_node"),
+            ),
+            Direction::Undirected => (
+                format!(
+                    "({edge}.from_node = {recursive_row}.end_id OR \
+                     {edge}.to_node = {recursive_row}.end_id)"
+                ),
+                format!(
+                    "CASE WHEN {edge}.from_node = {recursive_row}.end_id \
+                     THEN {edge}.to_node ELSE {edge}.from_node END"
+                ),
+            ),
+        };
+
+        let mut recursive_filters = vec![
+            format!("{recursive_row}.depth < {maximum}"),
+            format!(
+                "NOT EXISTS (SELECT 1 FROM json_each({recursive_row}.used_edges) \
+                 AS {used_edge} WHERE {used_edge}.value = {edge}.id)"
+            ),
+        ];
+        if let Some(relationship_type) = relationship_type {
+            let expected = self.push_binding(SqlBinding::Text(relationship_type.to_owned()));
+            recursive_filters.push(format!("{edge}.edge_type = {expected}"));
+        }
+        for (key, expected) in properties {
+            let (property, property_type) = self.json_property_parts(format!("{edge}.props"), key);
+            recursive_filters.push(self.typed_value_comparison(
+                property,
+                property_type,
+                expected.clone(),
+                BinaryOp::Equal,
+            ));
+        }
+
+        // Seed one identity trail per node, then append eligible edges with
+        // UNION ALL so separate relationship sequences retain bag
+        // multiplicity. `used_edges` enforces Cypher trail semantics without
+        // forbidding a path from revisiting the same node.
+        let body = format!(
+            "SELECT seed.id, seed.id, 0, json_array() FROM nodes AS seed \
+             UNION ALL \
+             SELECT {recursive_row}.start_id, {next_node}, {recursive_row}.depth + 1, \
+                    json_insert({recursive_row}.used_edges, '$[#]', {edge}.id) \
+             FROM {cte} AS {recursive_row} \
+             JOIN edges AS {edge} ON ({edge_join}) \
+             WHERE {}",
+            recursive_filters.join(" AND ")
+        );
+        self.ctes
+            .push((format!("{cte}(start_id, end_id, depth, used_edges)"), body));
+        self.has_recursive_cte = true;
+
+        let relation = format!("walk_result{}", traversal.0);
+        self.from.push(format!("{cte} AS {relation}"));
+        self.filters.push(format!("{relation}.depth >= {minimum}"));
+        self.filters.push(format!("{relation}.depth <= {maximum}"));
+        self.filters.push(format!(
+            "{relation}.start_id = {}",
+            self.entity_field(left, "id")?
+        ));
+        self.filters.push(format!(
+            "{relation}.end_id = {}",
+            self.entity_field(right, "id")?
+        ));
+        self.traversals
+            .insert(traversal, format!("{relation}.used_edges"));
+        Ok(())
+    }
+
+    fn compile_relationship_uniqueness(&mut self, relationships: &[RelationshipUse]) -> Result<()> {
+        for (index, relationship) in relationships.iter().enumerate() {
+            for (previous_index, previous) in relationships[..index].iter().enumerate() {
+                let predicate = match (*relationship, *previous) {
+                    (RelationshipUse::Single(left), RelationshipUse::Single(right)) => format!(
+                        "{} <> {}",
+                        self.entity_field(left, "id")?,
+                        self.entity_field(right, "id")?
+                    ),
+                    (RelationshipUse::Single(single), RelationshipUse::Traversal(traversal))
+                    | (RelationshipUse::Traversal(traversal), RelationshipUse::Single(single)) => {
+                        let used_edges = self.traversal_edges(traversal)?;
+                        let member = format!("trail_member_{index}_{previous_index}");
+                        format!(
+                            "NOT EXISTS (SELECT 1 FROM json_each({used_edges}) AS {member} \
+                             WHERE {member}.value = {})",
+                            self.entity_field(single, "id")?
+                        )
+                    }
+                    (RelationshipUse::Traversal(left), RelationshipUse::Traversal(right)) => {
+                        let left_edges = self.traversal_edges(left)?;
+                        let right_edges = self.traversal_edges(right)?;
+                        let left_member = format!("left_trail_{index}_{previous_index}");
+                        let right_member = format!("right_trail_{index}_{previous_index}");
+                        format!(
+                            "NOT EXISTS (SELECT 1 FROM json_each({left_edges}) AS {left_member} \
+                             JOIN json_each({right_edges}) AS {right_member} \
+                               ON {left_member}.value = {right_member}.value)"
+                        )
+                    }
+                };
+                self.filters.push(predicate);
+            }
+        }
+        Ok(())
+    }
+
+    fn traversal_edges(&self, traversal: TraversalId) -> Result<&str> {
+        self.traversals
+            .get(&traversal)
+            .map(String::as_str)
+            .ok_or_else(|| {
+                Error::Data(format!(
+                    "logical traversal {} has no SQL source",
+                    traversal.0
+                ))
+            })
+    }
+
     fn compile_optional_match(&mut self, plan: &MatchPlan) -> Result<()> {
+        if plan.has_variable_length() {
+            return Err(Error::Unsupported(
+                "variable-length traversal in OPTIONAL MATCH".into(),
+            ));
+        }
         let stage_index = self.ctes.len();
         let input_cte = format!("_crabnet_optional_input_{stage_index}");
         let input_relation = format!("oi{stage_index}");
@@ -743,7 +929,14 @@ impl Compiler {
             .map(|(name, sql)| format!("{name} AS MATERIALIZED ({sql})"))
             .collect::<Vec<_>>()
             .join(", ");
-        format!("WITH {ctes} {sql}")
+        format!(
+            "WITH {}{ctes} {sql}",
+            if self.has_recursive_cte {
+                "RECURSIVE "
+            } else {
+                ""
+            }
+        )
     }
 
     fn entity_source(&self, slot: SlotId) -> Result<&EntitySource> {
@@ -1174,12 +1367,16 @@ impl Compiler {
 
     fn entity_property_parts(&mut self, slot: SlotId, key: &str) -> Result<(String, String)> {
         let props = self.entity_props(slot)?;
+        Ok(self.json_property_parts(props, key))
+    }
+
+    fn json_property_parts(&mut self, props: String, key: &str) -> (String, String) {
         let path = self.push_binding(SqlBinding::Text(key.to_owned()));
         let json_path = format!("'$.' || json_quote({path})");
-        Ok((
+        (
             format!("json_extract({props}, {json_path})"),
             format!("json_type({props}, {json_path})"),
-        ))
+        )
     }
 
     fn typed_value_comparison(

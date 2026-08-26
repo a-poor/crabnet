@@ -63,6 +63,8 @@ Within those shapes, the first iteration supports:
 - matched node and relationship `DELETE`, plus `DETACH DELETE` for nodes with
   incident relationships
 - `MATCH` for nodes and fixed-length outgoing, incoming, or undirected patterns
+- anonymous legacy bounded traversal in mandatory `MATCH`: `*n`,
+  `*min..max`, and `*..max`, with outgoing, incoming, and undirected direction
 - fixed-length `OPTIONAL MATCH`, including whole-pattern null extension and
   optional-local `WHERE` predicates
 - at most one node label; zero or one relationship type in `MATCH`, and exactly
@@ -131,6 +133,16 @@ post-delete `RETURN` reads the materialized pre-delete entity snapshots and
 retains the input bag's row multiplicity. In the current bounded grammar,
 `DELETE` must be the final mutation clause before an optional `RETURN`.
 
+Bounded traversal returns endpoint rows without constructing a path value or a
+relationship list. Its upper bound may be at most 32. An omitted lower bound in
+`*..max` means one, while an explicit zero permits the identity path and still
+applies the endpoint node constraints. A reversed range is valid but produces
+no rows. An optional relationship type and inline property map filter every
+traversed edge. SQLite evaluates the traversal as a recursive CTE that carries
+the edge IDs already used by each candidate: nodes may be revisited, but a
+stored edge may appear only once in one path. Distinct edge sequences retain
+their normal bag multiplicity even when they reach the same endpoint.
+
 Unsupported syntax is parsed first and then reported as `Error::Unsupported`.
 Malformed Cypher, semantic errors such as unknown variables, and missing
 parameters have separate error variants. All parameters and stored property
@@ -139,14 +151,16 @@ materialization, every mutation, and post-write result evaluation then share
 one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
-variable-length traversal, path bindings and path result values, match modes
-and hints, parameter-map matching, `RETURN *`, `MERGE`, exponentiation (`^`),
-concatenation (`||`), computed right-hand sides for property updates, and
-computed projections or `DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after
-mutations. `WITH DISTINCT`, `WITH *`, unaliased computed `WITH` expressions,
-`collect(DISTINCT ...)`, nested/embedded aggregate projections, and writes in a
-read-composition pipeline are explicitly rejected. For now, `DISTINCT` is
-supported only by `count`; the other aggregate forms fail during planning.
+unbounded traversal, postfix graph quantifiers, named variable-length
+relationship lists, path bindings/selectors/result values, quantified
+`OPTIONAL MATCH`, traversal-fed writes, match modes and hints, parameter-map
+matching, `RETURN *`, `MERGE`, exponentiation (`^`), concatenation (`||`),
+computed right-hand sides for property updates, and computed projections or
+`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. `WITH DISTINCT`,
+`WITH *`, unaliased computed `WITH` expressions, `collect(DISTINCT ...)`,
+nested/embedded aggregate projections, and writes in a read-composition
+pipeline are explicitly rejected. For now, `DISTINCT` is supported only by
+`count`; the other aggregate forms fail during planning.
 
 ## Planning and execution
 
@@ -156,7 +170,8 @@ The planner is deliberately small and layered:
   slot-based row plan in `planner/logical.rs`.
 - `planner/sqlite.rs` compiles reads and mutation row sources to parameterized
   SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
-  projected entity and scalar slots.
+  projected entity and scalar slots, while bounded traversal becomes a
+  recursive CTE carrying depth and per-path edge identity.
 - `database.rs` executes SQL read fragments and combines union branches. For
   mutations, it materializes all input rows before the first change and applies
   ordered mutation operators to that stable row bag.
@@ -230,4 +245,7 @@ The milestone 3 expression contracts have focused coverage in
 `tests/membership_and_string_predicates.rs`. Milestone 4 clause and scope
 contracts are covered in `tests/with_pipeline.rs`. Milestone 5 property and
 deletion contracts are covered in `tests/matched_mutations.rs` and
-`tests/delete_mutations.rs`.
+`tests/delete_mutations.rs`. Milestone 6 query-composition contracts are
+covered in `tests/aggregation.rs`, `tests/aggregation_edges.rs`,
+`tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs`. Milestone 7
+bounded traversal is covered in `tests/bounded_traversal.rs`.

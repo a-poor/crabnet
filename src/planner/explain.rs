@@ -238,16 +238,59 @@ fn render_match_operator(operator: &MatchOperator) -> String {
             slot_name(*right),
             direction_name(*direction)
         ),
-        MatchOperator::DistinctRelationships(slots) => format!(
+        MatchOperator::ExpandVariableLength {
+            traversal,
+            left,
+            right,
+            direction,
+            minimum,
+            maximum,
+            relationship_type,
+            properties,
+        } => format!(
+            "expand-variable traversal=~{} left={} right={} direction={} bounds={}..{} type={} properties={}",
+            traversal.0,
+            slot_name(*left),
+            slot_name(*right),
+            direction_name(*direction),
+            minimum,
+            maximum,
+            relationship_type
+                .as_ref()
+                .map_or_else(|| "any".to_owned(), |value| quote(value)),
+            render_property_values(properties)
+        ),
+        MatchOperator::DistinctRelationships(relationships) => format!(
             "distinct-relationships [{}]",
-            slots
+            relationships
                 .iter()
-                .map(|slot| slot_name(*slot))
+                .map(|relationship| match relationship {
+                    super::logical::RelationshipUse::Single(slot) => slot_name(*slot),
+                    super::logical::RelationshipUse::Traversal(traversal) => {
+                        format!("~{}", traversal.0)
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
         MatchOperator::Filter(expression) => format!("filter {}", render_expr(expression)),
     }
+}
+
+fn render_property_values(properties: &[(String, ValueExpr)]) -> String {
+    if properties.is_empty() {
+        return "{}".to_owned();
+    }
+    let mut properties = properties.iter().collect::<Vec<_>>();
+    properties.sort_by(|left, right| left.0.cmp(&right.0));
+    format!(
+        "{{{}}}",
+        properties
+            .into_iter()
+            .map(|(key, value)| format!("{}: {}", quote(key), render_value_expr(value)))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn render_mutation(mutation: &Mutation) -> String {
@@ -755,6 +798,28 @@ mod tests {
             !optional_tail.contains(" WHERE "),
             "the optional predicate must not become an outer WHERE filter: {physical}"
         );
+    }
+
+    #[test]
+    fn explains_bounded_traversal_as_a_recursive_edge_trail() {
+        let query = "MATCH (start:Node)-[:NEXT*0..3 {open: true}]->(end:Node) RETURN end";
+
+        let logical = explain_logical(query).unwrap();
+        assert!(logical.contains("%0 node"));
+        assert!(logical.contains("%1 node"));
+        assert!(!logical.contains(" relationship\n"));
+        assert!(logical.contains(
+            "expand-variable traversal=~0 left=%0 right=%1 direction=right bounds=0..3 \
+             type=\"NEXT\" properties={\"open\": literal(true)}"
+        ));
+
+        let physical = explain_physical(query).unwrap();
+        assert!(physical.contains("WITH RECURSIVE _crabnet_walk_0"));
+        assert!(physical.contains("UNION ALL"));
+        assert!(physical.contains("json_each(walk0.used_edges)"));
+        assert!(physical.contains("walk0.depth < 3"));
+        assert!(physical.contains("walk_result0.depth >= 0"));
+        assert!(physical.contains("walk_result0.depth <= 3"));
     }
 
     #[test]

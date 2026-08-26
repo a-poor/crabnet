@@ -6,10 +6,10 @@ use open_cypher::{
         BinaryOperator, ClauseKind, CreateClause, DeleteClause, DeleteMode, Expr as AstExpr,
         ExprKind, FunctionInvocation, IntegerRadix, IsPredicate, LabelExpression,
         LabelExpressionKind, LiteralKind, MatchClause, NodePattern, ParameterName, PathFactor,
-        PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, RelationshipDirection,
-        RelationshipPattern, RemoveClause, RemoveItemKind, SetClause, SetItemKind, SetQuantifier,
-        SortDirection as AstSortDirection, StatementKind, UnaryOperator as AstUnaryOperator,
-        UnwindClause, WithClause,
+        PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, Quantifier, QuantifierKind,
+        RelationshipDirection, RelationshipPattern, RemoveClause, RemoveItemKind, SetClause,
+        SetItemKind, SetQuantifier, SortDirection as AstSortDirection, StatementKind,
+        UnaryOperator as AstUnaryOperator, UnwindClause, WithClause,
     },
     parse,
 };
@@ -20,9 +20,11 @@ use crate::{Error, Result};
 use super::UnionKind;
 use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    Mutation, Projection, Query, ReadPipeline, ReadStage, ScalarSlotId, SlotId, SortDirection,
-    SortItem, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    Mutation, Projection, Query, ReadPipeline, ReadStage, RelationshipUse, ScalarSlotId, SlotId,
+    SortDirection, SortItem, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
+
+pub(super) const MAX_BOUNDED_TRAVERSAL_DEPTH: usize = 32;
 
 pub(super) struct UnionSource {
     pub(super) head: String,
@@ -372,6 +374,7 @@ struct Lowerer<'source> {
     source: &'source str,
     slots: Vec<EntityKind>,
     scalar_slots: usize,
+    traversal_slots: usize,
     symbols: HashMap<String, Symbol>,
     mutations: Vec<Mutation>,
 }
@@ -382,6 +385,7 @@ impl<'source> Lowerer<'source> {
             source,
             slots: Vec::new(),
             scalar_slots: 0,
+            traversal_slots: 0,
             symbols: HashMap::new(),
             mutations: Vec::new(),
         }
@@ -401,6 +405,12 @@ impl<'source> Lowerer<'source> {
         let slot = ScalarSlotId(self.scalar_slots);
         self.scalar_slots += 1;
         slot
+    }
+
+    fn allocate_traversal(&mut self) -> TraversalId {
+        let traversal = TraversalId(self.traversal_slots);
+        self.traversal_slots += 1;
+        traversal
     }
 
     fn match_clause(&mut self, match_clause: &MatchClause) -> Result<MatchPlan> {
@@ -458,16 +468,6 @@ impl<'source> Lowerer<'source> {
             let PathFactorKind::Node(node_pattern) = &node.kind else {
                 return Err(unsupported(node.span, "non-node path factor"));
             };
-            let relationship_slot =
-                self.match_relationship(plan, relationship_pattern, relationship.span)?;
-            if relationships.contains(&relationship_slot) {
-                return Err(semantic(
-                    relationship.span,
-                    "a relationship variable cannot be reused in one path",
-                ));
-            }
-            relationships.push(relationship_slot);
-            let right = self.match_node(plan, node_pattern, node.span)?;
             let direction = match relationship_pattern.direction.kind {
                 RelationshipDirection::Right => Direction::Right,
                 RelationshipDirection::Left => Direction::Left,
@@ -485,12 +485,71 @@ impl<'source> Lowerer<'source> {
                     ));
                 }
             };
-            plan.operators.push(MatchOperator::ExpandRelationship {
-                relationship: relationship_slot,
-                left,
-                right,
-                direction,
-            });
+            let (right, relationship_use) = match (
+                relationship_pattern.legacy_quantifier.as_ref(),
+                relationship_pattern.graph_quantifier.as_ref(),
+            ) {
+                (None, None) => {
+                    let relationship_slot =
+                        self.match_relationship(plan, relationship_pattern, relationship.span)?;
+                    let right = self.match_node(plan, node_pattern, node.span)?;
+                    plan.operators.push(MatchOperator::ExpandRelationship {
+                        relationship: relationship_slot,
+                        left,
+                        right,
+                        direction,
+                    });
+                    (right, RelationshipUse::Single(relationship_slot))
+                }
+                (_, Some(_)) => {
+                    return Err(unsupported(
+                        relationship.span,
+                        "graph-pattern relationship quantifiers",
+                    ));
+                }
+                (Some(quantifier), None) => {
+                    if relationship_pattern.variable.is_some() {
+                        return Err(unsupported(
+                            relationship.span,
+                            "variable-length relationship bindings",
+                        ));
+                    }
+                    if relationship_pattern.where_clause.is_some() {
+                        return Err(unsupported(
+                            relationship.span,
+                            "predicates on variable-length relationships",
+                        ));
+                    }
+                    let (minimum, maximum) = bounded_legacy_quantifier(quantifier)?;
+                    let traversal = self.allocate_traversal();
+                    let relationship_type = relationship_pattern
+                        .labels
+                        .as_ref()
+                        .map(|label| single_label(label, "multiple or boolean relationship types"))
+                        .transpose()?;
+                    let properties =
+                        self.match_property_values(relationship_pattern.properties.as_deref())?;
+                    let right = self.match_node(plan, node_pattern, node.span)?;
+                    plan.operators.push(MatchOperator::ExpandVariableLength {
+                        traversal,
+                        left,
+                        right,
+                        direction,
+                        minimum,
+                        maximum,
+                        relationship_type,
+                        properties,
+                    });
+                    (right, RelationshipUse::Traversal(traversal))
+                }
+            };
+            if relationships.contains(&relationship_use) {
+                return Err(semantic(
+                    relationship.span,
+                    "a relationship variable cannot be reused in one path",
+                ));
+            }
+            relationships.push(relationship_use);
             left = right;
             remaining = rest;
         }
@@ -598,8 +657,19 @@ impl<'source> Lowerer<'source> {
         slot: SlotId,
         properties: Option<&AstExpr>,
     ) -> Result<()> {
+        for (key, value) in self.match_property_values(properties)? {
+            plan.operators
+                .push(MatchOperator::PropertyEquals { slot, key, value });
+        }
+        Ok(())
+    }
+
+    fn match_property_values(
+        &self,
+        properties: Option<&AstExpr>,
+    ) -> Result<Vec<(String, ValueExpr)>> {
         let Some(properties) = properties else {
-            return Ok(());
+            return Ok(Vec::new());
         };
         let ExprKind::Map(entries) = &properties.kind else {
             return Err(unsupported(
@@ -608,6 +678,7 @@ impl<'source> Lowerer<'source> {
             ));
         };
         let mut keys = HashSet::with_capacity(entries.len());
+        let mut values = Vec::with_capacity(entries.len());
         for entry in entries {
             if !keys.insert(&entry.key.kind.text) {
                 return Err(semantic(
@@ -618,13 +689,9 @@ impl<'source> Lowerer<'source> {
                     ),
                 ));
             }
-            plan.operators.push(MatchOperator::PropertyEquals {
-                slot,
-                key: entry.key.kind.text.clone(),
-                value: input_value(&entry.value)?,
-            });
+            values.push((entry.key.kind.text.clone(), input_value(&entry.value)?));
         }
-        Ok(())
+        Ok(values)
     }
 
     fn create_clause(&mut self, create: &CreateClause) -> Result<()> {
@@ -1718,6 +1785,64 @@ fn integer_parts(integer: &open_cypher::ast::IntegerLiteral) -> Result<(String, 
         )),
         _ => Err(Error::Unsupported("integer radix".into())),
     }
+}
+
+fn bounded_legacy_quantifier(quantifier: &Quantifier) -> Result<(usize, usize)> {
+    let parse_bound = |text: &str| {
+        text.replace('_', "").parse::<usize>().map_err(|_| {
+            semantic(
+                quantifier.span,
+                format!("invalid variable-length bound `{text}`"),
+            )
+        })
+    };
+
+    let (minimum, maximum) = match &quantifier.kind {
+        QuantifierKind::Fixed(value) => {
+            let value = parse_bound(value)?;
+            (value, value)
+        }
+        QuantifierKind::Range { lower, upper } => {
+            let Some(upper) = upper else {
+                return Err(unsupported(
+                    quantifier.span,
+                    "unbounded variable-length traversal",
+                ));
+            };
+            // Legacy openCypher ranges default the omitted lower bound to one.
+            // Zero-hop traversal must be requested explicitly with `*0...`.
+            (
+                lower.as_deref().map(parse_bound).transpose()?.unwrap_or(1),
+                parse_bound(upper)?,
+            )
+        }
+        QuantifierKind::ZeroOrMore | QuantifierKind::OneOrMore => {
+            return Err(unsupported(
+                quantifier.span,
+                "unbounded variable-length traversal",
+            ));
+        }
+        QuantifierKind::Optional => {
+            return Err(unsupported(
+                quantifier.span,
+                "legacy variable-length quantifier",
+            ));
+        }
+        _ => {
+            return Err(unsupported(quantifier.span, "variable-length quantifier"));
+        }
+    };
+
+    if maximum > MAX_BOUNDED_TRAVERSAL_DEPTH {
+        return Err(unsupported(
+            quantifier.span,
+            format!(
+                "variable-length upper bound {maximum} exceeds the traversal limit of \
+                 {MAX_BOUNDED_TRAVERSAL_DEPTH}"
+            ),
+        ));
+    }
+    Ok((minimum, maximum))
 }
 
 fn single_label(label: &LabelExpression, feature: &str) -> Result<String> {

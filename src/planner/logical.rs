@@ -8,6 +8,9 @@ pub(crate) struct SlotId(pub(crate) usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct ScalarSlotId(pub(crate) usize);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct TraversalId(pub(crate) usize);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EntityKind {
     Node,
@@ -234,13 +237,37 @@ pub(crate) enum MatchOperator {
         right: SlotId,
         direction: Direction,
     },
-    DistinctRelationships(Vec<SlotId>),
+    ExpandVariableLength {
+        traversal: TraversalId,
+        left: SlotId,
+        right: SlotId,
+        direction: Direction,
+        minimum: usize,
+        maximum: usize,
+        relationship_type: Option<String>,
+        properties: Vec<(String, ValueExpr)>,
+    },
+    DistinctRelationships(Vec<RelationshipUse>),
     Filter(Expr),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RelationshipUse {
+    Single(SlotId),
+    Traversal(TraversalId),
 }
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct MatchPlan {
     pub(crate) operators: Vec<MatchOperator>,
+}
+
+impl MatchPlan {
+    pub(crate) fn has_variable_length(&self) -> bool {
+        self.operators
+            .iter()
+            .any(|operator| matches!(operator, MatchOperator::ExpandVariableLength { .. }))
+    }
 }
 
 #[derive(Clone, Debug)]
