@@ -154,5 +154,6 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-The next active test slice is milestone 4: `WITH` clause boundaries, aliases,
-scope loss, filtering, ordering, and pagination between pipeline stages.
+The next active test slice is milestone 5: matched `SET`, `REMOVE`, `DELETE`,
+and `DETACH DELETE`, with graph-state, zero-match, multi-row, and rollback
+assertions added before each operator is implemented.

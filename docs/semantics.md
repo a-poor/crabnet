@@ -33,6 +33,40 @@ are applied after ordering when an order is present. Projection modifiers,
 including ordering and pagination, are not currently supported after
 `CREATE`; neither is `RETURN DISTINCT` after `CREATE`.
 
+## `WITH` clause boundaries
+
+`WITH` is supported in read-only pipelines. It may begin a query, appear more
+than once, or separate `MATCH` clauses. Each `WITH` consumes the current row
+bag and emits one row for every retained input row; it does not implicitly
+deduplicate. A later `MATCH` therefore expands every carried row independently,
+preserving duplicate and Cartesian-product multiplicity.
+
+A `WITH` projection can carry whole node or relationship bindings and typed
+scalar values. A bare variable keeps its name, while `AS` may give either kind
+of value a new name. After the boundary, only projected names remain in scope:
+an entity or scalar that was not projected cannot be referenced by a later
+`MATCH`, `WITH`, or `RETURN`.
+
+`WHERE` attached to a `WITH` is evaluated at that boundary. It may refer to the
+new projected aliases and to variables from the incoming row, with a projected
+name shadowing the same incoming name. This extra incoming visibility belongs
+only to that filter; using a variable there does not carry it into the next
+clause.
+
+`ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on `WITH` are applied before any
+subsequent clause. Intermediate ordering determines which rows pagination
+retains and is carried into the immediately following clause across the SQLite
+CTE boundary. As with Cypher generally, use `ORDER BY` on the final `RETURN`
+when presentation order after additional clauses is part of the caller's
+contract. Named pagination parameters follow the same validation rules as
+`RETURN` modifiers.
+
+Omitting a quantifier and spelling `WITH ALL` have the same bag-preserving
+behavior. `WITH DISTINCT` is not yet implemented. `WITH *`, computed
+expressions without an alias, aggregate expressions, and mutation clauses in a
+query containing `WITH` are also explicit planning-time rejections. The
+implemented acceptance and rejection cases live in `tests/with_pipeline.rs`.
+
 ## Values and properties
 
 Named parameters and stored properties use `serde_json::Value`, while every
@@ -207,6 +241,6 @@ execution, so an unsupported write statement cannot partially modify the
 graph.
 
 Semantics for unsupported constructs—including path values, variable-length
-traversal, optional matching, aggregation, query composition, and mutations
+traversal, optional matching, aggregation, `UNWIND`, `UNION`, and mutations
 other than `CREATE`—remain unresolved until those constructs are designed and
 implemented.

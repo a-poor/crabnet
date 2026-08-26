@@ -28,6 +28,9 @@ Crabnet already has more than a greenfield skeleton:
 - computed scalar projections, typed JSON properties, comparisons, membership,
   string predicates, arithmetic, semantic distinctness, ordering, pagination,
   and named parameters cover a useful read subset;
+- read-only queries can cross standalone or chained `WITH` boundaries, carrying
+  explicitly projected entity and scalar bindings into later `MATCH` and
+  `RETURN` clauses while enforcing scope loss;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically; and
 - unsupported, semantic, parse, data, and missing-parameter failures are
@@ -130,17 +133,29 @@ Gate complete: the fixed-pattern subset has a broad semantic corpus in
 entity suites, with dynamic invalid operands covered as null rather than
 silently coerced.
 
-### 4. Model clauses and scopes as a pipeline
+### 4. Model clauses and scopes as a pipeline — complete
 
-- Separate binding/scoping from lowering enough to model clause boundaries.
-- Turn the current flat read plan into composable row operators.
-- Implement `WITH` first, including scope loss, aliases, filtering, ordering,
-  skip, and limit between segments.
-- Introduce a small SQL/CTE representation once composition makes direct string
-  assembly hard to reason about.
+- Read-only `MATCH` and `WITH` clauses are composable logical stages rather
+  than one hard-coded read shape; standalone and chained `WITH` queries are
+  supported.
+- `WITH` carries explicitly projected entity and scalar bindings, supports
+  aliases and scope loss, and can feed a subsequent `MATCH` or final `RETURN`.
+- A `WITH`-local `WHERE` can use projected aliases and incoming variables; only
+  the projected bindings survive into the next clause. `ORDER BY`,
+  `SKIP`/`OFFSET`, and `LIMIT` are applied at that boundary.
+- Each `WITH` stage lowers to a parameterized SQLite CTE. Normalized logical
+  explanations show stages and scopes, while the physical explanation shows
+  the generated SQLite fragment and binding positions.
+- The pipeline retains bag semantics. `WITH ALL` is accepted; `WITH DISTINCT`,
+  `WITH *`, unaliased computed expressions, aggregation, and writes in a
+  `WITH` pipeline remain explicit planning-time rejections.
 
-Gate: multi-stage queries have inspectable logical and physical plans and obey
-Cypher variable-scope rules.
+Gate complete: `tests/with_pipeline.rs` covers standalone and chained stages,
+entity/scalar aliases, scope loss, filtering, intermediate pagination, later
+matching, consecutive `MATCH` stages, parameters, empty input, multiplicity,
+and structured rejection.
+Multi-stage queries are inspectable through `crabnet::explain` and
+`crabnet::explain_physical`.
 
 ### 5. Add core matched mutations
 
@@ -207,10 +222,11 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the typed-value gate from milestone 2 and the fixed-length read gate from
-milestone 3 complete, the next active work is milestone 4: model clauses and
-scopes as a pipeline, beginning with `WITH`. Small contract gaps may still be
-tightened when a focused test exposes them. Path values remain planned for the
-traversal and hybrid-executor milestones. The day-to-day test loop is
-documented in [testing.md](testing.md); planned-but-inactive cases stay in the
-coverage backlog instead of accumulating as ignored tests.
+With the typed-value, fixed-length-read, and clause-pipeline gates from
+milestones 2–4 complete, the next active work is milestone 5: matched
+mutations. Small contract gaps may still be tightened when a focused test
+exposes them. Aggregation and broader query composition remain milestone 6
+work, while path values remain planned for the traversal and hybrid-executor
+milestones. The day-to-day test loop is documented in
+[testing.md](testing.md); planned-but-inactive cases stay in the coverage
+backlog instead of accumulating as ignored tests.

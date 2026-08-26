@@ -25,6 +25,14 @@ pub fn explain(cypher: &str) -> Result<String> {
     planner::explain_logical(cypher)
 }
 
+/// Parses, validates, and renders Crabnet's current SQLite execution plan.
+///
+/// Unlike [`explain`], this experimental view includes generated SQL and bind
+/// positions. It currently supports read pipelines only.
+pub fn explain_physical(cypher: &str) -> Result<String> {
+    planner::explain_physical(cypher)
+}
+
 /// Named values available to `$parameter` expressions in a Cypher query.
 pub type Parameters = BTreeMap<String, Value>;
 

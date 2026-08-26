@@ -5,6 +5,9 @@ use crate::{Error, Parameters, Result};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct SlotId(pub(crate) usize);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct ScalarSlotId(pub(crate) usize);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EntityKind {
     Node,
@@ -118,6 +121,7 @@ pub(crate) enum UnaryOp {
 pub(crate) enum Expr {
     Value(ValueExpr),
     Entity(SlotId),
+    Scalar(ScalarSlotId),
     Property(SlotId, String),
     ElementId(SlotId),
     Labels(SlotId),
@@ -174,9 +178,44 @@ pub(crate) struct MatchPlan {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) enum WithBinding {
+    Entity {
+        name: String,
+        slot: SlotId,
+        kind: EntityKind,
+    },
+    Scalar {
+        name: String,
+        slot: ScalarSlotId,
+        expression: Expr,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct WithStage {
+    pub(crate) bindings: Vec<WithBinding>,
+    pub(crate) filter: Option<Expr>,
+    pub(crate) order_by: Vec<SortItem>,
+    pub(crate) offset: Option<ValueExpr>,
+    pub(crate) limit: Option<ValueExpr>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum ReadStage {
+    Match(MatchPlan),
+    With(WithStage),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ReadPipeline {
+    pub(crate) stages: Vec<ReadStage>,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum Input {
     Unit,
     Match(MatchPlan),
+    Pipeline(ReadPipeline),
 }
 
 #[derive(Clone, Debug)]
@@ -220,6 +259,7 @@ pub(crate) struct Projection {
 #[derive(Clone, Debug)]
 pub(crate) struct Query {
     pub(crate) slots: Vec<EntityKind>,
+    pub(crate) scalar_slots: usize,
     pub(crate) input: Input,
     pub(crate) mutations: Vec<Mutation>,
     pub(crate) projection: Option<Projection>,
@@ -240,6 +280,9 @@ impl Expr {
         match self {
             Self::Value(value) => value.resolve(parameters).map(ResolvedExpr::Value),
             Self::Entity(slot) => Ok(ResolvedExpr::Entity(*slot)),
+            Self::Scalar(_) => Err(Error::Data(
+                "a write projection contained an intermediate scalar slot".into(),
+            )),
             Self::Property(slot, key) => Ok(ResolvedExpr::Property(*slot, key.clone())),
             Self::ElementId(slot) => Ok(ResolvedExpr::ElementId(*slot)),
             Self::Labels(slot) => Ok(ResolvedExpr::Labels(*slot)),

@@ -27,6 +27,16 @@ pub(crate) fn explain_logical(source: &str) -> Result<String> {
     lower::lower(source).map(|query| explain::render(&query))
 }
 
+/// Render the backend plan, including generated SQL and bind positions.
+pub(crate) fn explain_physical(source: &str) -> Result<String> {
+    match compile(source)? {
+        Plan::Read(plan) => Ok(plan.render_physical()),
+        Plan::Mutate(_) => Err(Error::Unsupported(
+            "physical explanations for mutation pipelines".into(),
+        )),
+    }
+}
+
 fn compile_logical(query: Query) -> Result<Plan> {
     if query.mutations.is_empty() {
         let projection = query.projection.as_ref().ok_or_else(|| {
@@ -38,6 +48,11 @@ fn compile_logical(query: Query) -> Result<Plan> {
     let input = match &query.input {
         Input::Unit => None,
         Input::Match(plan) => Some(sqlite::compile_row_source(plan)?),
+        Input::Pipeline(_) => {
+            return Err(Error::Data(
+                "a mutation plan cannot contain a read-only WITH pipeline".into(),
+            ));
+        }
     };
     Ok(Plan::Mutate(MutationPlan {
         input,

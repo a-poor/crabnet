@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use super::logical::{
     BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation, Projection, Query,
-    SlotId, SortDirection, UnaryOp, ValueExpr,
+    ReadStage, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr, WithBinding, WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -22,6 +22,15 @@ pub(super) fn render(query: &Query) -> String {
             renderer.line(2, format!("%{index} {}", entity_kind_name(*kind)));
         }
     }
+    if query.scalar_slots > 0 {
+        renderer.line(1, "scalar-slots:");
+        for index in 0..query.scalar_slots {
+            renderer.line(
+                2,
+                format!("{} scalar", scalar_slot_name(ScalarSlotId(index))),
+            );
+        }
+    }
 
     renderer.line(1, "input:");
     match &query.input {
@@ -33,6 +42,27 @@ pub(super) fn render(query: &Query) -> String {
             } else {
                 for operator in &plan.operators {
                     renderer.line(3, render_match_operator(operator));
+                }
+            }
+        }
+        Input::Pipeline(pipeline) => {
+            renderer.line(2, "pipeline");
+            for (index, stage) in pipeline.stages.iter().enumerate() {
+                match stage {
+                    ReadStage::Match(plan) => {
+                        renderer.line(3, format!("stage {index}: match"));
+                        if plan.operators.is_empty() {
+                            renderer.line(4, "none");
+                        } else {
+                            for operator in &plan.operators {
+                                renderer.line(4, render_match_operator(operator));
+                            }
+                        }
+                    }
+                    ReadStage::With(stage) => {
+                        renderer.line(3, format!("stage {index}: with"));
+                        render_with_stage(&mut renderer, stage);
+                    }
                 }
             }
         }
@@ -54,6 +84,86 @@ pub(super) fn render(query: &Query) -> String {
     }
 
     renderer.finish()
+}
+
+fn render_with_stage(renderer: &mut Renderer, stage: &WithStage) {
+    renderer.line(4, "scope:");
+    for binding in &stage.bindings {
+        match binding {
+            WithBinding::Entity {
+                name, slot, kind, ..
+            } => renderer.line(
+                5,
+                format!(
+                    "{} = entity({}) kind={}",
+                    quote(name),
+                    slot_name(*slot),
+                    entity_kind_name(*kind)
+                ),
+            ),
+            WithBinding::Scalar {
+                name,
+                slot,
+                expression,
+            } => renderer.line(
+                5,
+                format!(
+                    "{} = scalar({}) <- {}",
+                    quote(name),
+                    scalar_slot_name(*slot),
+                    render_expr(expression)
+                ),
+            ),
+        }
+    }
+    renderer.line(
+        4,
+        format!(
+            "filter: {}",
+            stage
+                .filter
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), render_expr)
+        ),
+    );
+    renderer.line(4, "order-by:");
+    if stage.order_by.is_empty() {
+        renderer.line(5, "none");
+    } else {
+        for item in &stage.order_by {
+            renderer.line(
+                5,
+                format!(
+                    "{} {}",
+                    render_expr(&item.expression),
+                    match item.direction {
+                        SortDirection::Ascending => "ascending",
+                        SortDirection::Descending => "descending",
+                    }
+                ),
+            );
+        }
+    }
+    renderer.line(
+        4,
+        format!(
+            "offset: {}",
+            stage
+                .offset
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), render_value_expr)
+        ),
+    );
+    renderer.line(
+        4,
+        format!(
+            "limit: {}",
+            stage
+                .limit
+                .as_ref()
+                .map_or_else(|| "none".to_owned(), render_value_expr)
+        ),
+    );
 }
 
 #[derive(Default)]
@@ -204,6 +314,7 @@ fn render_expr(expression: &Expr) -> String {
     match expression {
         Expr::Value(value) => render_value_expr(value),
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
+        Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
         Expr::Property(slot, key) => {
             format!("property({}, {})", slot_name(*slot), quote(key))
         }
@@ -299,6 +410,10 @@ fn slot_name(slot: SlotId) -> String {
     format!("%{}", slot.0)
 }
 
+fn scalar_slot_name(slot: ScalarSlotId) -> String {
+    format!("%s{}", slot.0)
+}
+
 fn entity_kind_name(kind: EntityKind) -> &'static str {
     match kind {
         EntityKind::Node => "node",
@@ -346,7 +461,7 @@ fn unary_op_name(operator: UnaryOp) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::super::explain_logical;
+    use super::super::{explain_logical, explain_physical};
 
     #[test]
     fn explains_a_representative_read_as_a_normalized_logical_pipeline() {
@@ -444,5 +559,40 @@ mod tests {
 
         assert!(explanation.contains("distinct: true"));
         assert!(explanation.contains("\"adjusted\" = add(property(%0, \"score\"), literal(1))"));
+    }
+
+    #[test]
+    fn explains_with_boundaries_and_their_outgoing_scopes() {
+        let explanation = explain_logical(
+            "MATCH (person:Person) \
+             WITH person.name AS name, person AS candidate \
+             WHERE name STARTS WITH $prefix \
+             WITH name AS result \
+             RETURN result",
+        )
+        .unwrap();
+
+        assert!(explanation.contains("stage 0: match"));
+        assert!(explanation.contains("stage 1: with"));
+        assert!(explanation.contains("\"name\" = scalar(%s0) <- property(%0, \"name\")"));
+        assert!(explanation.contains("\"candidate\" = entity(%0) kind=node"));
+        assert!(explanation.contains("stage 2: with"));
+        assert!(explanation.contains("\"result\" = scalar(%s1) <- scalar(%s0)"));
+    }
+
+    #[test]
+    fn physical_explain_shows_cte_boundaries_and_bind_positions() {
+        let explanation = explain_physical(
+            "WITH $start AS value \
+             WITH value + $step AS result \
+             RETURN result",
+        )
+        .unwrap();
+
+        assert!(explanation.starts_with("physical-query\n  sqlite-fragment:\n"));
+        assert!(explanation.contains("WITH _crabnet_with_0 AS MATERIALIZED"));
+        assert!(explanation.contains("_crabnet_with_1 AS MATERIALIZED"));
+        assert!(explanation.contains("      ?1 scalar"));
+        assert!(explanation.contains("  rust-stage: none"));
     }
 }

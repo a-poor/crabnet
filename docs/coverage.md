@@ -22,6 +22,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | --- | --- | --- |
 | Standalone `RETURN` | Covered | Typed literals, collections, maps, and named parameters in `return_without_match_supports_typed_values_and_parameters` |
 | `MATCH ... RETURN` | Covered | Scalar and whole-entity results throughout `engine.rs`, `read_semantics.rs`, and `entity_values.rs` |
+| Consecutive read-only `MATCH` clauses | Covered | Multiple `MATCH` stages compose in one read pipeline and preserve their Cartesian row semantics in `consecutive_match_clauses_use_the_composable_read_pipeline` |
 | `CREATE` with optional `RETURN` | Covered | Typed nodes and directed relationships, including whole created-entity results in `create_return_uses_the_same_whole_entity_values` |
 | `MATCH ... CREATE` with optional `RETURN` | Covered | Executes once per materialized input row, reuses bindings, handles no-match, and is atomic; whole matched and created entities also cross the Rust execution stage in `match_create_carries_matched_and_created_entities_through_rust_execution` |
 | Node scan, optional single label, inline property map | Covered | Includes missing/null values and typed list/map equality (`missing_and_null_properties_follow_null_semantics`, `inline_structured_properties_keep_json_types`) |
@@ -34,7 +35,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Multiple labels/types and boolean label expressions | Rejected | Storage and lowering currently require at most one node label and one relationship type |
 | Variable-length relationships and path values/bindings | Rejected | Quantified patterns, selectors, and returned whole paths are not implemented yet |
 | `OPTIONAL MATCH` and match modes/hints | Rejected | No null-extending logical operator yet |
-| `WITH`, `UNWIND`, `UNION` | Rejected | Current clause pipeline supports only `MATCH`, `CREATE`, and `RETURN` in the documented arrangements |
+| Read-only `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, and a later `MATCH` are covered in `tests/with_pipeline.rs`. `WITH ALL` is accepted. `WITH DISTINCT`, `WITH *`, unaliased computed expressions, aggregation, and writes anywhere in a `WITH` pipeline are explicitly rejected |
+| `UNWIND` and `UNION` | Rejected | No row-expansion or query-union logical operator exists yet |
 
 ## Expressions and projection
 
@@ -49,8 +51,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Exponentiation (`^`) and concatenation (`\|\|`) | Rejected | Both parser operators fail with a structured planning error rather than being approximated |
 | `IN` | Covered | Typed scalar and structured membership, list parameters, empty lists, null members, and non-list RHS behavior are covered in `membership_and_string_predicates.rs` |
 | `STARTS WITH`, `CONTAINS`, `ENDS WITH` | Covered | Case-sensitive, literal string behavior plus empty, Unicode, parameter, null, and wrong-kind operands are covered in `membership_and_string_predicates.rs` |
-| Aliases and column names | Covered | Aliased projections and source-text fallback names are exercised |
-| `ORDER BY`, `SKIP`/`OFFSET`, `LIMIT` | Covered | Ascending/descending and alias ordering, both offset spellings, offset without limit, zero boundaries, named pagination parameters, and validation are covered |
+| Aliases and column names | Covered | Aliased `RETURN` projections and source-text fallback names are exercised; `WITH` aliases create the names visible after the clause boundary |
+| `ORDER BY`, `SKIP`/`OFFSET`, `LIMIT` | Covered | Ascending/descending and alias ordering, both offset spellings, offset without limit, zero boundaries, named pagination parameters, and validation are covered. On `WITH`, these modifiers run before the next clause |
 | `RETURN ALL` | Covered | `offset_without_limit_and_return_all_are_supported` locks down its accepted projection behavior |
 | Computed read projections | Covered | Supported comparison, boolean, membership, string-predicate, and arithmetic expressions return typed `CypherValue` cells |
 | `elementId()`, `labels()`, `type()` | Covered | Read and post-create results plus arity, argument, unknown-variable, and wrong-kind diagnostics are covered |
@@ -74,8 +76,10 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `SET`, `REMOVE`, `DELETE`, `DETACH DELETE` | Rejected | `DELETE` is explicitly tested as non-mutating when unsupported |
 | `MERGE` and `ON CREATE` / `ON MATCH` | Rejected | No match-or-create operator exists yet |
 | Undirected or untyped relationship creation | Rejected | Creation requires exactly one type and a concrete direction |
+| Writes in a `WITH` pipeline | Rejected | The composable clause pipeline is read-only; a mutation clause anywhere in it fails during planning |
 | Computed projections and projection modifiers after `CREATE` | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
-| Normalized logical-plan explanation | Covered | `crabnet::explain` has exact contracts for a representative read and matched `CREATE`; it intentionally excludes incidental backend SQL formatting |
+| Normalized logical-plan explanation | Covered | `crabnet::explain` renders read-pipeline stages, `WITH` scopes, graph operators, and projections without depending on incidental backend aliases |
+| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders the generated read SQL/CTEs, bind positions, and any Rust distinct/pagination stage; mutation pipelines are not accepted by this debug view |
 
 ## Prioritized next-test backlog
 
@@ -83,16 +87,15 @@ Add a case here before or alongside implementation work. Once work starts, turn 
 smallest relevant case into a normal failing test, run it by name while iterating, and
 move the row into the matrix when green.
 
-1. Milestone 4 clause-pipeline acceptance tests for `WITH`: alias scope, scope
-   loss, filtering, ordering, skip, and limit between segments.
+1. Milestone 5 matched-mutation acceptance tests for `SET`, `REMOVE`, `DELETE`,
+   and `DETACH DELETE`, beginning with graph state and rollback assertions.
 2. The parser gap for a labeled node immediately following a relationship-local
    `WHERE` predicate; promote the existing partial coverage after the parser accepts it.
 3. Relationship-property matching across boolean/numeric and nested structured values.
 4. Three-hop diamonds where different intermediate nodes converge, preserving one row
    per valid relationship sequence rather than collapsing endpoints.
-5. A normalized physical-plan rendering and a few reviewed SQL/binding fixtures once
-   that debug surface exists.
-6. Aggregation, `UNWIND`, and `OPTIONAL MATCH` acceptance tests when milestone 6
-   begins; do not mix their scope rules into milestone 4 prematurely.
-7. Curated openCypher TCK and differential tests after the selected scenarios' setup
+5. Aggregation, `UNWIND`, and `OPTIONAL MATCH` acceptance tests when milestone 6
+   begins; keep their additional scope rules separate from the completed basic
+   `WITH` contract.
+6. Curated openCypher TCK and differential tests after the selected scenarios' setup
    clauses and any required path values can be represented faithfully.

@@ -6,8 +6,8 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, Projection, SlotId,
-    SortDirection, UnaryOp, ValueExpr,
+    BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, Projection, ReadStage,
+    ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr, WithBinding, WithStage,
 };
 
 #[derive(Clone, Debug)]
@@ -19,6 +19,15 @@ enum SqlBinding {
 }
 
 impl SqlBinding {
+    fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "text",
+            Self::Scalar(_) => "scalar",
+            Self::Json(_) => "json",
+            Self::Page(_) => "page",
+        }
+    }
+
     fn resolve(&self, parameters: &Parameters) -> Result<SqlValue> {
         match self {
             Self::Text(value) => Ok(SqlValue::Text(value.clone())),
@@ -97,6 +106,30 @@ impl SqlQuery {
         self.distinct
     }
 
+    pub(crate) fn render_physical(&self) -> String {
+        let mut output = String::from("physical-query\n  sqlite-fragment:\n    sql: ");
+        output.push_str(&self.sql);
+        output.push_str("\n    bindings:\n");
+        if self.bindings.is_empty() {
+            output.push_str("      none\n");
+        } else {
+            for (index, binding) in self.bindings.iter().enumerate() {
+                output.push_str(&format!("      ?{} {}\n", index + 1, binding.kind_name()));
+            }
+        }
+        output.push_str("  rust-stage: ");
+        if self.distinct {
+            output.push_str("semantic-distinct");
+            if self.post_offset.is_some() || self.post_limit.is_some() {
+                output.push_str(" then pagination");
+            }
+        } else {
+            output.push_str("none");
+        }
+        output.push('\n');
+        output
+    }
+
     pub(crate) fn resolve_post_pagination(
         &self,
         parameters: &Parameters,
@@ -155,8 +188,17 @@ fn resolve_bindings(bindings: &[SqlBinding], parameters: &Parameters) -> Result<
 
 pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<SqlQuery> {
     let mut compiler = Compiler::new();
-    if let Input::Match(plan) = input {
-        compiler.compile_match(plan)?;
+    match input {
+        Input::Unit => {}
+        Input::Match(plan) => compiler.compile_match(plan)?,
+        Input::Pipeline(pipeline) => {
+            for stage in &pipeline.stages {
+                match stage {
+                    ReadStage::Match(plan) => compiler.compile_match(plan)?,
+                    ReadStage::With(stage) => compiler.compile_with(stage)?,
+                }
+            }
+        }
     }
 
     let outputs = projection
@@ -187,6 +229,9 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
             .collect::<Result<Vec<_>>>()?;
         sql.push_str(" ORDER BY ");
         sql.push_str(&items.join(", "));
+    } else if let Some(ordering) = &compiler.ordering {
+        sql.push_str(" ORDER BY ");
+        sql.push_str(ordering);
     }
 
     if !projection.distinct && (projection.limit.is_some() || projection.offset.is_some()) {
@@ -202,6 +247,8 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
         sql.push_str(" OFFSET ");
         sql.push_str(&compiler.push_binding(SqlBinding::Page(offset.clone())));
     }
+
+    sql = compiler.with_ctes(sql);
 
     debug_assert_eq!(projection.columns.len(), output_shapes.len());
     Ok(SqlQuery {
@@ -240,22 +287,42 @@ pub(crate) fn compile_row_source(plan: &MatchPlan) -> Result<RowSource> {
     })
 }
 
+#[derive(Clone, Debug)]
+enum EntitySource {
+    Table { alias: String, kind: EntityKind },
+    Encoded { sql: String, kind: EntityKind },
+}
+
+impl EntitySource {
+    fn kind(&self) -> EntityKind {
+        match self {
+            Self::Table { kind, .. } | Self::Encoded { kind, .. } => *kind,
+        }
+    }
+}
+
 struct Compiler {
-    aliases: HashMap<SlotId, String>,
+    entities: HashMap<SlotId, EntitySource>,
+    scalars: HashMap<ScalarSlotId, String>,
     scanned: Vec<(SlotId, EntityKind)>,
     from: Vec<String>,
     filters: Vec<String>,
+    ordering: Option<String>,
     bindings: Vec<SqlBinding>,
+    ctes: Vec<(String, String)>,
 }
 
 impl Compiler {
     fn new() -> Self {
         Self {
-            aliases: HashMap::new(),
+            entities: HashMap::new(),
+            scalars: HashMap::new(),
             scanned: Vec::new(),
             from: Vec::new(),
             filters: Vec::new(),
+            ordering: None,
             bindings: Vec::new(),
+            ctes: Vec::new(),
         }
     }
 
@@ -273,21 +340,20 @@ impl Compiler {
                     self.from.push(format!("edges AS {alias}"));
                 }
                 MatchOperator::HasLabel { slot, label } => {
-                    let alias = self.alias(*slot)?.to_owned();
+                    let label_sql = self.entity_field(*slot, "label")?;
                     let value = self.push_binding(SqlBinding::Text(label.clone()));
-                    self.filters.push(format!("{alias}.label = {value}"));
+                    self.filters.push(format!("{label_sql} = {value}"));
                 }
                 MatchOperator::HasRelationshipType {
                     slot,
                     relationship_type,
                 } => {
-                    let alias = self.alias(*slot)?.to_owned();
+                    let type_sql = self.entity_field(*slot, "type")?;
                     let value = self.push_binding(SqlBinding::Text(relationship_type.clone()));
-                    self.filters.push(format!("{alias}.edge_type = {value}"));
+                    self.filters.push(format!("{type_sql} = {value}"));
                 }
                 MatchOperator::PropertyEquals { slot, key, value } => {
-                    let alias = self.alias(*slot)?.to_owned();
-                    let (property, property_type) = self.property_parts(&alias, key);
+                    let (property, property_type) = self.entity_property_parts(*slot, key)?;
                     let comparison = self.typed_value_comparison(
                         property,
                         property_type,
@@ -302,17 +368,14 @@ impl Compiler {
                     right,
                     direction,
                 } => {
-                    let relationship = self.alias(*relationship)?;
-                    let left = self.alias(*left)?;
-                    let right = self.alias(*right)?;
-                    let forward = format!(
-                        "({relationship}.from_node = {left}.id AND \
-                         {relationship}.to_node = {right}.id)"
-                    );
-                    let reverse = format!(
-                        "({relationship}.from_node = {right}.id AND \
-                         {relationship}.to_node = {left}.id)"
-                    );
+                    let relationship_from = self.entity_field(*relationship, "from")?;
+                    let relationship_to = self.entity_field(*relationship, "to")?;
+                    let left = self.entity_field(*left, "id")?;
+                    let right = self.entity_field(*right, "id")?;
+                    let forward =
+                        format!("({relationship_from} = {left} AND {relationship_to} = {right})");
+                    let reverse =
+                        format!("({relationship_from} = {right} AND {relationship_to} = {left})");
                     self.filters.push(match direction {
                         Direction::Right => forward,
                         Direction::Left => reverse,
@@ -323,9 +386,9 @@ impl Compiler {
                     for (index, slot) in slots.iter().enumerate() {
                         for previous in &slots[..index] {
                             self.filters.push(format!(
-                                "{}.id <> {}.id",
-                                self.alias(*slot)?,
-                                self.alias(*previous)?
+                                "{} <> {}",
+                                self.entity_field(*slot, "id")?,
+                                self.entity_field(*previous, "id")?
                             ));
                         }
                     }
@@ -339,8 +402,126 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_with(&mut self, stage: &WithStage) -> Result<()> {
+        if let Some(filter) = &stage.filter {
+            let predicate = self.predicate_expression(filter)?;
+            self.filters.push(format!("({predicate})"));
+        }
+
+        let mut select = Vec::new();
+        let mut entity_bindings = Vec::new();
+        let mut scalar_bindings = Vec::new();
+        for binding in &stage.bindings {
+            match binding {
+                WithBinding::Entity { slot, kind, .. } => {
+                    if !entity_bindings
+                        .iter()
+                        .any(|(candidate, _)| candidate == slot)
+                    {
+                        select.push(format!(
+                            "{} AS e{}",
+                            self.encoded_entity(*slot, *kind)?,
+                            slot.0
+                        ));
+                        entity_bindings.push((*slot, *kind));
+                    }
+                }
+                WithBinding::Scalar {
+                    slot, expression, ..
+                } => {
+                    let (value, value_type) = self.scalar_parts(expression)?;
+                    select.push(format!(
+                        "{} AS s{}",
+                        encoded_scalar(&value, &value_type),
+                        slot.0
+                    ));
+                    scalar_bindings.push(*slot);
+                }
+            }
+        }
+
+        let order_items = stage
+            .order_by
+            .iter()
+            .map(|item| {
+                let expression = self.raw_expression(&item.expression)?;
+                let direction = match item.direction {
+                    SortDirection::Ascending => " ASC",
+                    SortDirection::Descending => " DESC",
+                };
+                Ok(format!("{expression}{direction}"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let inherited_ordering = self.ordering.clone();
+        if !order_items.is_empty() {
+            select.push(format!(
+                "row_number() OVER (ORDER BY {}) AS _crabnet_order",
+                order_items.join(", ")
+            ));
+        } else if let Some(ordering) = &inherited_ordering {
+            select.push(format!("{ordering} AS _crabnet_order"));
+        }
+
+        let mut sql = self.select_sql(&select);
+        if !order_items.is_empty() {
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&order_items.join(", "));
+        } else if let Some(ordering) = &inherited_ordering {
+            sql.push_str(" ORDER BY ");
+            sql.push_str(ordering);
+        }
+        if stage.limit.is_some() || stage.offset.is_some() {
+            sql.push_str(" LIMIT ");
+            match &stage.limit {
+                Some(limit) => sql.push_str(&self.push_binding(SqlBinding::Page(limit.clone()))),
+                None => sql.push_str("-1"),
+            }
+        }
+        if let Some(offset) = &stage.offset {
+            sql.push_str(" OFFSET ");
+            sql.push_str(&self.push_binding(SqlBinding::Page(offset.clone())));
+        }
+
+        let stage_index = self.ctes.len();
+        let cte = format!("_crabnet_with_{stage_index}");
+        self.ctes.push((cte.clone(), sql));
+        let relation = format!("w{stage_index}");
+
+        self.entities = entity_bindings
+            .into_iter()
+            .map(|(slot, kind)| {
+                (
+                    slot,
+                    EntitySource::Encoded {
+                        sql: format!("{relation}.e{}", slot.0),
+                        kind,
+                    },
+                )
+            })
+            .collect();
+        self.scalars = scalar_bindings
+            .into_iter()
+            .map(|slot| (slot, format!("{relation}.s{}", slot.0)))
+            .collect();
+        self.from = vec![format!("{cte} AS {relation}")];
+        self.ordering = (!order_items.is_empty() || inherited_ordering.is_some())
+            .then(|| format!("{relation}._crabnet_order"));
+        self.filters.clear();
+        Ok(())
+    }
+
     fn insert_scan(&mut self, slot: SlotId, kind: EntityKind, alias: String) -> Result<()> {
-        if self.aliases.insert(slot, alias).is_some() {
+        if self
+            .entities
+            .insert(
+                slot,
+                EntitySource::Table {
+                    alias: alias.clone(),
+                    kind,
+                },
+            )
+            .is_some()
+        {
             return Err(Error::Data("logical plan scans an entity twice".into()));
         }
         self.scanned.push((slot, kind));
@@ -360,35 +541,84 @@ impl Compiler {
         sql
     }
 
-    fn alias(&self, slot: SlotId) -> Result<&str> {
-        self.aliases
+    fn with_ctes(&self, sql: String) -> String {
+        if self.ctes.is_empty() {
+            return sql;
+        }
+        let ctes = self
+            .ctes
+            .iter()
+            .map(|(name, sql)| format!("{name} AS MATERIALIZED ({sql})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("WITH {ctes} {sql}")
+    }
+
+    fn entity_source(&self, slot: SlotId) -> Result<&EntitySource> {
+        self.entities
             .get(&slot)
-            .map(String::as_str)
-            .ok_or_else(|| Error::Data(format!("logical slot {} has no SQL scan", slot.0)))
+            .ok_or_else(|| Error::Data(format!("logical slot {} has no SQL source", slot.0)))
     }
 
     fn entity_kind(&self, slot: SlotId) -> Result<EntityKind> {
-        self.scanned
-            .iter()
-            .find_map(|(candidate, kind)| (*candidate == slot).then_some(*kind))
-            .ok_or_else(|| Error::Data(format!("logical slot {} has no entity kind", slot.0)))
+        self.entity_source(slot).map(EntitySource::kind)
+    }
+
+    fn entity_field(&self, slot: SlotId, field: &str) -> Result<String> {
+        let source = self.entity_source(slot)?;
+        let column = match (source.kind(), field) {
+            (_, "id") => "id",
+            (EntityKind::Node, "label") => "label",
+            (EntityKind::Relationship, "type") => "edge_type",
+            (EntityKind::Relationship, "from") => "from_node",
+            (EntityKind::Relationship, "to") => "to_node",
+            _ => {
+                return Err(Error::Data(format!(
+                    "field `{field}` does not exist on logical slot {}",
+                    slot.0
+                )));
+            }
+        };
+        Ok(match source {
+            EntitySource::Table { alias, .. } => format!("{alias}.{column}"),
+            EntitySource::Encoded { sql, .. } => format!("json_extract({sql}, '$.{field}')"),
+        })
+    }
+
+    fn entity_props(&self, slot: SlotId) -> Result<String> {
+        Ok(match self.entity_source(slot)? {
+            EntitySource::Table { alias, .. } => format!("{alias}.props"),
+            EntitySource::Encoded { sql, .. } => format!("json_extract({sql}, '$.props')"),
+        })
     }
 
     fn encoded_entity(&self, slot: SlotId, kind: EntityKind) -> Result<String> {
-        let alias = self.alias(slot)?;
+        if self.entity_kind(slot)? != kind {
+            return Err(Error::Data(format!(
+                "logical slot {} changed entity kind across a WITH boundary",
+                slot.0
+            )));
+        }
+        if let EntitySource::Encoded { sql, .. } = self.entity_source(slot)? {
+            return Ok(sql.clone());
+        }
+        let id = self.entity_field(slot, "id")?;
+        let props = self.entity_props(slot)?;
         let record = match kind {
-            EntityKind::Node => format!(
-                "json_object('id', {alias}.id, 'label', {alias}.label, \
-                 'props', json({alias}.props))"
-            ),
+            EntityKind::Node => {
+                let label = self.entity_field(slot, "label")?;
+                format!("json_object('id', {id}, 'label', {label}, 'props', json({props}))")
+            }
             EntityKind::Relationship => format!(
-                "json_object('id', {alias}.id, 'type', {alias}.edge_type, \
-                 'from', {alias}.from_node, 'to', {alias}.to_node, \
-                 'props', json({alias}.props))"
+                "json_object('id', {id}, 'type', {}, 'from', {}, 'to', {}, \
+                 'props', json({props}))",
+                self.entity_field(slot, "type")?,
+                self.entity_field(slot, "from")?,
+                self.entity_field(slot, "to")?,
             ),
         };
         Ok(format!(
-            "CASE WHEN {alias}.id IS NULL THEN 'null' ELSE {record} END"
+            "CASE WHEN {id} IS NULL THEN 'null' ELSE {record} END"
         ))
     }
 
@@ -416,26 +646,29 @@ impl Compiler {
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),
             )),
+            Expr::Scalar(slot) => {
+                let source = self.scalars.get(slot).cloned().ok_or_else(|| {
+                    Error::Data(format!("scalar slot {} has no SQL source", slot.0))
+                })?;
+                Ok((
+                    format!("json_extract({source}, '$')"),
+                    format!("json_type({source}, '$')"),
+                ))
+            }
             Expr::Value(value) => {
                 let scalar = self.push_binding(SqlBinding::Scalar(value.clone()));
                 let json = self.push_binding(SqlBinding::Json(value.clone()));
                 Ok((scalar, format!("json_type(json({json}))")))
             }
-            Expr::Property(slot, key) => {
-                let alias = self.alias(*slot)?.to_owned();
-                Ok(self.property_parts(&alias, key))
-            }
-            Expr::ElementId(slot) => Ok((format!("{}.id", self.alias(*slot)?), "'text'".into())),
+            Expr::Property(slot, key) => self.entity_property_parts(*slot, key),
+            Expr::ElementId(slot) => Ok((self.entity_field(*slot, "id")?, "'text'".into())),
             Expr::RelationshipType(slot) => {
-                Ok((format!("{}.edge_type", self.alias(*slot)?), "'text'".into()))
+                Ok((self.entity_field(*slot, "type")?, "'text'".into()))
             }
             Expr::Labels(slot) => {
-                let alias = self.alias(*slot)?;
+                let label = self.entity_field(*slot, "label")?;
                 Ok((
-                    format!(
-                        "CASE WHEN {alias}.label IS NULL THEN '[]' \
-                         ELSE json_array({alias}.label) END"
-                    ),
+                    format!("CASE WHEN {label} IS NULL THEN '[]' ELSE json_array({label}) END"),
                     "'array'".into(),
                 ))
             }
@@ -627,13 +860,14 @@ impl Compiler {
         ))
     }
 
-    fn property_parts(&mut self, alias: &str, key: &str) -> (String, String) {
+    fn entity_property_parts(&mut self, slot: SlotId, key: &str) -> Result<(String, String)> {
+        let props = self.entity_props(slot)?;
         let path = self.push_binding(SqlBinding::Text(key.to_owned()));
         let json_path = format!("'$.' || json_quote({path})");
-        (
-            format!("json_extract({alias}.props, {json_path})"),
-            format!("json_type({alias}.props, {json_path})"),
-        )
+        Ok((
+            format!("json_extract({props}, {json_path})"),
+            format!("json_type({props}, {json_path})"),
+        ))
     }
 
     fn typed_value_comparison(
@@ -830,5 +1064,48 @@ mod tests {
         assert!(!plan.sql.contains(" LIKE "));
         assert!(!plan.sql.contains("prefix"));
         assert!(!plan.sql.contains("allowed"));
+    }
+
+    #[test]
+    fn with_boundaries_use_ctes_and_carried_entity_accessors() {
+        let query = lower::lower(
+            "MATCH (source:Person) \
+             WITH source WHERE source.active = true \
+             MATCH (source)-[edge:LINK]->(target) \
+             RETURN source.name, type(edge), target.name",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.sql.starts_with("WITH _crabnet_with_0 AS MATERIALIZED"));
+        assert!(plan.sql.contains("_crabnet_with_0 AS w0"));
+        assert!(plan.sql.contains("json_extract(w0.e0, '$.id')"));
+        assert!(plan.sql.contains("edges AS r1"));
+        assert!(plan.sql.contains("nodes AS n2"));
+        assert!(
+            plan.sql
+                .contains("r1.from_node = json_extract(w0.e0, '$.id')")
+        );
+    }
+
+    #[test]
+    fn bind_positions_are_shared_across_chained_ctes() {
+        let query = lower::lower(
+            "WITH $start AS value WHERE value >= $floor \
+             WITH value + $step AS total LIMIT $limit \
+             RETURN total",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.sql.contains("_crabnet_with_1 AS MATERIALIZED"));
+        for index in 1..=plan.bindings.len() {
+            assert!(
+                plan.sql.contains(&format!("?{index}")),
+                "missing bind position ?{index} in {}",
+                plan.sql
+            );
+        }
+        assert!(!plan.sql.contains(&format!("?{}", plan.bindings.len() + 1)));
     }
 }

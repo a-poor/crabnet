@@ -1,10 +1,10 @@
 # crabnet
 
 Crabnet is an experiment in lowering a small, useful subset of openCypher into
-a logical row plan backed by SQLite. Read queries and `MATCH` inputs compile to
-parameterized SQL; `CREATE` mutations are applied to those rows inside one
-SQLite transaction. It is intentionally not a production database or a stable
-library API yet.
+a logical row plan backed by SQLite. Read-only `MATCH`/`WITH` pipelines compile
+to parameterized SQL and CTEs; `CREATE` mutations are applied to matched rows
+inside one SQLite transaction. It is intentionally not a production database
+or a stable library API yet.
 
 ```rust
 use crabnet::{CypherValue, Database, Parameters};
@@ -43,6 +43,9 @@ The accepted statement shapes are:
 
 - `RETURN ...`
 - `MATCH ... RETURN ...`
+- consecutive read-only `MATCH ... MATCH ... RETURN ...` stages
+- standalone or chained `WITH ... RETURN ...`, optionally interleaved with
+  `MATCH` clauses
 - `CREATE ... [RETURN ...]`
 - `MATCH ... CREATE ... [RETURN ...]`
 
@@ -59,6 +62,8 @@ Within those shapes, the first iteration supports:
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
   including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
   `elementId`, `labels`, and `type`
+- read-only `WITH` stages carrying aliased entities and scalars, with scope
+  loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later clauses
 - `RETURN DISTINCT`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only
   returns
 - typed `CypherValue` result cells for null, booleans, integers, floats,
@@ -71,6 +76,21 @@ MATCH (alice:Person {name: $from}), (bob:Person {name: $to})
 CREATE (alice)-[knows:KNOWS {since: $since}]->(bob)
 RETURN alice.name AS from, type(knows) AS kind, bob.name AS to
 ```
+
+A read pipeline can carry a parameter and an entity across clause boundaries:
+
+```cypher
+WITH $minimum AS minimum
+MATCH (person:Person) WHERE person.score >= minimum
+WITH person AS candidate ORDER BY candidate.score DESC LIMIT 5
+RETURN candidate.name AS name ORDER BY name
+```
+
+Each `WITH` keeps only the names it projects. It preserves bag multiplicity,
+and a later `MATCH` expands each carried row independently. `WITH ALL` is
+accepted as the default behavior. A `WHERE` attached to `WITH` may inspect both
+projected aliases and incoming variables, but an incoming variable that was
+not projected is unavailable after that filter and clause boundary.
 
 `MATCH ... CREATE` follows row semantics. Crabnet materializes the complete
 match result before writing, then applies the `CREATE` template once per input
@@ -89,9 +109,11 @@ one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, variable-length
 traversal, path bindings and path result values, `OPTIONAL MATCH`, parameter-map
-matching, `RETURN *`, `SET`, `DELETE`, `MERGE`, `WITH`, `UNION`,
+matching, `RETURN *`, aggregation, `SET`, `DELETE`, `MERGE`, `UNION`, `UNWIND`,
 exponentiation (`^`), concatenation (`||`), and computed projections or
-`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after `CREATE`.
+`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after `CREATE`. Within a `WITH`
+pipeline, `WITH DISTINCT`, `WITH *`, unaliased computed expressions,
+aggregation, and writes are explicitly rejected.
 
 ## Planning and execution
 
@@ -100,7 +122,8 @@ The planner is deliberately small and layered:
 - `planner/lower.rs` converts the openCypher AST into the backend-neutral,
   slot-based row plan in `planner/logical.rs`.
 - `planner/sqlite.rs` compiles reads and mutation row sources to parameterized
-  SQLite queries.
+  SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
+  projected entity and scalar slots.
 - `database.rs` executes reads directly. For mutations, it materializes all
   input rows before the first insert and applies the ordered `CREATE` operations
   once per row.
@@ -111,8 +134,10 @@ semantic row deduplication in Rust, then applies pagination. With `DISTINCT`,
 `ORDER BY` is restricted to projected expressions or their aliases.
 
 `crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
-slots and graph operators without turning incidental SQLite aliases or SQL
-formatting into the debug contract.
+slots, graph operators, clause stages, and `WITH` scopes without turning
+incidental SQLite aliases into the debug contract.
+`crabnet::explain_physical(cypher)` exposes the generated read SQL/CTEs, bind
+positions, and any Rust distinct/pagination stage when backend details matter.
 
 Materializing the input is intentionally naive, but gives this iteration clear
 snapshot, multiplicity, and rollback behavior. A streaming or staged executor
@@ -168,4 +193,5 @@ cargo test --all-targets
 
 The milestone 3 expression contracts have focused coverage in
 `tests/arithmetic_and_distinct.rs` and
-`tests/membership_and_string_predicates.rs`.
+`tests/membership_and_string_predicates.rs`. Milestone 4 clause and scope
+contracts are covered in `tests/with_pipeline.rs`.

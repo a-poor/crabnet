@@ -8,6 +8,7 @@ use open_cypher::{
         NodePattern, ParameterName, PathFactor, PathFactorKind, Pattern, ProjectionClause,
         ProjectionItemKind, RelationshipDirection, RelationshipPattern, SetQuantifier,
         SortDirection as AstSortDirection, StatementKind, UnaryOperator as AstUnaryOperator,
+        WithClause,
     },
     parse,
 };
@@ -17,7 +18,8 @@ use crate::{Error, Result};
 
 use super::logical::{
     BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, Mutation, Projection,
-    Query, SlotId, SortDirection, SortItem, UnaryOp, ValueExpr,
+    Query, ReadPipeline, ReadStage, ScalarSlotId, SlotId, SortDirection, SortItem, UnaryOp,
+    ValueExpr, WithBinding, WithStage,
 };
 
 pub(crate) fn lower(source: &str) -> Result<Query> {
@@ -47,6 +49,20 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
     }
 
     let clauses = &query.head.kind.clauses;
+    let contains_with = clauses
+        .iter()
+        .any(|clause| matches!(clause.kind, ClauseKind::With(_)));
+    let repeated_read_match = clauses
+        .iter()
+        .filter(|clause| matches!(clause.kind, ClauseKind::Match(_)))
+        .count()
+        > 1
+        && clauses
+            .iter()
+            .all(|clause| matches!(clause.kind, ClauseKind::Match(_) | ClauseKind::Return(_)));
+    if contains_with || repeated_read_match {
+        return lower_read_pipeline(source, clauses);
+    }
     let (match_clause, create_clause, return_clause) = match clauses.as_slice() {
         [only] => match &only.kind {
             ClauseKind::Create(create) => (None, Some(create), None),
@@ -105,16 +121,69 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
 
     Ok(Query {
         slots: lowerer.slots,
+        scalar_slots: lowerer.scalar_slots,
         input,
         mutations: lowerer.mutations,
         projection,
     })
 }
 
+fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Result<Query> {
+    let mut lowerer = Lowerer::new(source);
+    let mut stages = Vec::new();
+    let mut projection = None;
+
+    for (index, clause) in clauses.iter().enumerate() {
+        if projection.is_some() {
+            return Err(unsupported(clause.span, "clauses after RETURN"));
+        }
+        match &clause.kind {
+            ClauseKind::Match(match_clause) => {
+                stages.push(ReadStage::Match(lowerer.match_clause(match_clause)?));
+            }
+            ClauseKind::With(with_clause) => {
+                stages.push(ReadStage::With(lowerer.with_clause(with_clause)?));
+            }
+            ClauseKind::Return(return_clause) if index + 1 == clauses.len() => {
+                projection = Some(lowerer.projection(&return_clause.projection, false)?);
+            }
+            ClauseKind::Return(_) => {
+                return Err(unsupported(clause.span, "clauses after RETURN"));
+            }
+            ClauseKind::Create(_) => {
+                return Err(unsupported(clause.span, "writes in a WITH pipeline"));
+            }
+            kind => return Err(unsupported(clause.span, clause_name(kind))),
+        }
+    }
+
+    let projection = projection.ok_or_else(|| {
+        semantic(
+            clauses.last().map_or(Span::new(0, 0), |clause| clause.span),
+            "a read pipeline must end with RETURN",
+        )
+    })?;
+
+    Ok(Query {
+        slots: lowerer.slots,
+        scalar_slots: lowerer.scalar_slots,
+        input: Input::Pipeline(ReadPipeline { stages }),
+        mutations: Vec::new(),
+        projection: Some(projection),
+    })
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Symbol {
+    Entity(SlotId),
+    Scalar(ScalarSlotId),
+}
+
 struct Lowerer<'source> {
     source: &'source str,
     slots: Vec<EntityKind>,
-    symbols: HashMap<String, SlotId>,
+    scalar_slots: usize,
+    symbols: HashMap<String, Symbol>,
     mutations: Vec<Mutation>,
 }
 
@@ -123,6 +192,7 @@ impl<'source> Lowerer<'source> {
         Self {
             source,
             slots: Vec::new(),
+            scalar_slots: 0,
             symbols: HashMap::new(),
             mutations: Vec::new(),
         }
@@ -136,6 +206,12 @@ impl<'source> Lowerer<'source> {
 
     fn kind(&self, slot: SlotId) -> EntityKind {
         self.slots[slot.0]
+    }
+
+    fn allocate_scalar(&mut self) -> ScalarSlotId {
+        let slot = ScalarSlotId(self.scalar_slots);
+        self.scalar_slots += 1;
+        slot
     }
 
     fn match_clause(&mut self, match_clause: &MatchClause) -> Result<MatchPlan> {
@@ -303,8 +379,14 @@ impl<'source> Lowerer<'source> {
         span: Span,
     ) -> Result<(SlotId, bool)> {
         if let Some(variable) = variable
-            && let Some(slot) = self.symbols.get(variable).copied()
+            && let Some(symbol) = self.symbols.get(variable).copied()
         {
+            let Symbol::Entity(slot) = symbol else {
+                return Err(semantic(
+                    span,
+                    format!("scalar variable `{variable}` cannot be used in a graph pattern"),
+                ));
+            };
             if self.kind(slot) != kind {
                 return Err(semantic(
                     span,
@@ -316,7 +398,7 @@ impl<'source> Lowerer<'source> {
 
         let slot = self.allocate(kind);
         if let Some(variable) = variable {
-            self.symbols.insert(variable.clone(), slot);
+            self.symbols.insert(variable.clone(), Symbol::Entity(slot));
         }
         Ok((slot, true))
     }
@@ -422,8 +504,14 @@ impl<'source> Lowerer<'source> {
             return Err(unsupported(span, "element WHERE in CREATE"));
         }
         if let Some(variable) = &node.variable
-            && let Some(slot) = self.symbols.get(&variable.kind.text).copied()
+            && let Some(symbol) = self.symbols.get(&variable.kind.text).copied()
         {
+            let Symbol::Entity(slot) = symbol else {
+                return Err(semantic(
+                    variable.span,
+                    "a scalar variable cannot be reused as a CREATE node",
+                ));
+            };
             if self.kind(slot) != EntityKind::Node {
                 return Err(semantic(
                     variable.span,
@@ -452,7 +540,8 @@ impl<'source> Lowerer<'source> {
             properties,
         });
         if let Some(variable) = &node.variable {
-            self.symbols.insert(variable.kind.text.clone(), slot);
+            self.symbols
+                .insert(variable.kind.text.clone(), Symbol::Entity(slot));
         }
         Ok(slot)
     }
@@ -500,9 +589,101 @@ impl<'source> Lowerer<'source> {
             properties: properties_input(relationship.properties.as_deref())?,
         });
         if let Some(variable) = &relationship.variable {
-            self.symbols.insert(variable.kind.text.clone(), slot);
+            self.symbols
+                .insert(variable.kind.text.clone(), Symbol::Entity(slot));
         }
         Ok(slot)
+    }
+
+    fn with_clause(&mut self, with_clause: &WithClause) -> Result<WithStage> {
+        let projection = &with_clause.projection;
+        match projection.quantifier.as_ref().map(|value| value.kind) {
+            None | Some(SetQuantifier::All) => {}
+            Some(SetQuantifier::Distinct) => {
+                return Err(unsupported(projection.span, "WITH DISTINCT"));
+            }
+            Some(_) => return Err(unsupported(projection.span, "WITH quantifier")),
+        }
+
+        let incoming_symbols = self.symbols.clone();
+        let mut bindings = Vec::with_capacity(projection.items.len());
+        let mut projected_symbols = HashMap::new();
+        let mut aliases = HashMap::new();
+
+        for item in &projection.items {
+            let ProjectionItemKind::Expression { expression, alias } = &item.kind else {
+                return Err(unsupported(item.span, "WITH *"));
+            };
+            let name = match (alias, &expression.kind) {
+                (Some(alias), _) => alias.kind.text.clone(),
+                (None, ExprKind::Variable(variable)) => variable.kind.text.clone(),
+                (None, _) => {
+                    return Err(unsupported(
+                        item.span,
+                        "computed WITH expressions without aliases",
+                    ));
+                }
+            };
+            if projected_symbols.contains_key(&name) {
+                return Err(semantic(
+                    item.span,
+                    format!("WITH projects duplicate variable `{name}`"),
+                ));
+            }
+
+            let expression = self.output_expression(expression)?;
+            match expression {
+                Expr::Entity(slot) => {
+                    let kind = self.kind(slot);
+                    bindings.push(WithBinding::Entity {
+                        name: name.clone(),
+                        slot,
+                        kind,
+                    });
+                    projected_symbols.insert(name.clone(), Symbol::Entity(slot));
+                    aliases.insert(name, Expr::Entity(slot));
+                }
+                expression => {
+                    let slot = self.allocate_scalar();
+                    bindings.push(WithBinding::Scalar {
+                        name: name.clone(),
+                        slot,
+                        expression: expression.clone(),
+                    });
+                    projected_symbols.insert(name.clone(), Symbol::Scalar(slot));
+                    aliases.insert(name, expression);
+                }
+            }
+        }
+
+        if bindings.is_empty() {
+            return Err(semantic(
+                projection.span,
+                "WITH must contain at least one item",
+            ));
+        }
+
+        // Cypher permits WITH's WHERE and ORDER BY to refer to projected
+        // aliases. WHERE may also inspect incoming variables that are not
+        // carried beyond this boundary. Projected names shadow incoming ones.
+        self.symbols = incoming_symbols.clone();
+        self.symbols.extend(projected_symbols.clone());
+        let filter = with_clause
+            .where_clause
+            .as_ref()
+            .map(|expression| self.scalar_expression_with_aliases(expression, &aliases))
+            .transpose()?;
+        let order_by = self.order_by(&projection.order_by, &aliases, false, &[])?;
+        let (offset, limit) = projection_pagination(projection, "WITH")?;
+
+        self.symbols = projected_symbols;
+        Ok(WithStage {
+            bindings,
+            filter,
+            order_by,
+            offset,
+            limit,
+        })
     }
 
     fn projection(&self, projection: &ProjectionClause, after_write: bool) -> Result<Projection> {
@@ -556,21 +737,34 @@ impl<'source> Lowerer<'source> {
             ));
         }
 
+        let order_by = self.order_by(&projection.order_by, &aliases, distinct, &expressions)?;
+        let (offset_expression, limit) = projection_pagination(projection, "RETURN")?;
+
+        Ok(Projection {
+            columns,
+            expressions,
+            distinct,
+            order_by,
+            offset: offset_expression,
+            limit,
+        })
+    }
+
+    fn order_by(
+        &self,
+        order: &Option<open_cypher::ast::OrderBy>,
+        aliases: &HashMap<String, Expr>,
+        distinct: bool,
+        projected: &[Expr],
+    ) -> Result<Vec<SortItem>> {
         let mut order_by = Vec::new();
-        if let Some(order) = &projection.order_by {
+        if let Some(order) = order {
             for item in &order.items {
                 if item.nulls.is_some() {
                     return Err(unsupported(item.span, "ORDER BY NULLS FIRST/LAST"));
                 }
-                let expression = if let ExprKind::Variable(variable) = &item.expression.kind {
-                    aliases
-                        .get(&variable.kind.text)
-                        .cloned()
-                        .map_or_else(|| self.scalar_expression(&item.expression), Ok)?
-                } else {
-                    self.scalar_expression(&item.expression)?
-                };
-                if distinct && !expressions.contains(&expression) {
+                let expression = self.scalar_expression_with_aliases(&item.expression, aliases)?;
+                if distinct && !projected.contains(&expression) {
                     return Err(semantic(
                         item.expression.span,
                         "ORDER BY expressions must be projected when RETURN DISTINCT is used",
@@ -587,27 +781,7 @@ impl<'source> Lowerer<'source> {
                 });
             }
         }
-
-        let offset_expression = match (&projection.offset, &projection.skip) {
-            (Some(_), Some(_)) => {
-                return Err(semantic(
-                    projection.span,
-                    "RETURN cannot contain OFFSET and SKIP",
-                ));
-            }
-            (Some(offset), None) | (None, Some(offset)) => Some(page_value(offset)?),
-            (None, None) => None,
-        };
-        let limit = projection.limit.as_ref().map(page_value).transpose()?;
-
-        Ok(Projection {
-            columns,
-            expressions,
-            distinct,
-            order_by,
-            offset: offset_expression,
-            limit,
-        })
+        Ok(order_by)
     }
 
     fn output_expression(&self, expression: &AstExpr) -> Result<Expr> {
@@ -616,10 +790,13 @@ impl<'source> Lowerer<'source> {
                 expression: base,
                 key,
             } => Ok(Expr::Property(
-                self.resolve_variable(base)?,
+                self.resolve_entity_variable(base)?,
                 key.kind.text.clone(),
             )),
-            ExprKind::Variable(_) => Ok(Expr::Entity(self.resolve_variable(expression)?)),
+            ExprKind::Variable(variable) => match self.resolve_symbol(variable)? {
+                Symbol::Entity(slot) => Ok(Expr::Entity(slot)),
+                Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
+            },
             ExprKind::Function(function) => self.function_expression(function, expression.span),
             ExprKind::Parenthesized(inner) => self.output_expression(inner),
             _ => self.scalar_expression(expression),
@@ -627,6 +804,14 @@ impl<'source> Lowerer<'source> {
     }
 
     fn scalar_expression(&self, expression: &AstExpr) -> Result<Expr> {
+        self.scalar_expression_with_aliases(expression, &HashMap::new())
+    }
+
+    fn scalar_expression_with_aliases(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
         // The positive spelling of i64::MIN does not fit Crabnet's integer
         // domain, so preserve a directly negated integer literal as one value.
         // Other unary expressions stay in the scalar IR and receive the same
@@ -648,7 +833,7 @@ impl<'source> Lowerer<'source> {
                 expression: base,
                 key,
             } => Ok(Expr::Property(
-                self.resolve_variable(base)?,
+                self.resolve_entity_variable(base)?,
                 key.kind.text.clone(),
             )),
             ExprKind::Binary {
@@ -677,9 +862,9 @@ impl<'source> Lowerer<'source> {
                     _ => return Err(unsupported(operator.span, "binary operator")),
                 };
                 Ok(Expr::Binary {
-                    left: Box::new(self.scalar_expression(left)?),
+                    left: Box::new(self.scalar_expression_with_aliases(left, aliases)?),
                     operator,
-                    right: Box::new(self.scalar_expression(right)?),
+                    right: Box::new(self.scalar_expression_with_aliases(right, aliases)?),
                 })
             }
             ExprKind::Unary { operator, operand } => {
@@ -691,7 +876,7 @@ impl<'source> Lowerer<'source> {
                 };
                 Ok(Expr::Unary {
                     operator,
-                    operand: Box::new(self.scalar_expression(operand)?),
+                    operand: Box::new(self.scalar_expression_with_aliases(operand, aliases)?),
                 })
             }
             ExprKind::Is {
@@ -699,19 +884,36 @@ impl<'source> Lowerer<'source> {
                 negated,
                 predicate: IsPredicate::Null,
             } => Ok(Expr::IsNull {
-                expression: Box::new(self.scalar_expression(expression)?),
+                expression: Box::new(self.scalar_expression_with_aliases(expression, aliases)?),
                 negated: *negated,
             }),
             ExprKind::Is { .. } => Err(unsupported(expression.span, "IS predicate")),
             ExprKind::Function(function) => self.function_expression(function, expression.span),
-            ExprKind::Parenthesized(inner) => self.scalar_expression(inner),
-            ExprKind::Variable(variable) => Err(semantic(
-                variable.span,
-                format!(
-                    "graph variable `{}` is not a scalar expression",
-                    variable.kind.text
-                ),
-            )),
+            ExprKind::Parenthesized(inner) => self.scalar_expression_with_aliases(inner, aliases),
+            ExprKind::Variable(variable) => {
+                if let Some(expression) = aliases.get(&variable.kind.text) {
+                    return match expression {
+                        Expr::Entity(_) => Err(semantic(
+                            variable.span,
+                            format!(
+                                "graph variable `{}` is not a scalar expression",
+                                variable.kind.text
+                            ),
+                        )),
+                        expression => Ok(expression.clone()),
+                    };
+                }
+                match self.resolve_symbol(variable)? {
+                    Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
+                    Symbol::Entity(_) => Err(semantic(
+                        variable.span,
+                        format!(
+                            "graph variable `{}` is not a scalar expression",
+                            variable.kind.text
+                        ),
+                    )),
+                }
+            }
             _ => Err(unsupported(expression.span, "expression")),
         }
     }
@@ -753,21 +955,35 @@ impl<'source> Lowerer<'source> {
                 "graph function argument must be a variable",
             ));
         };
-        self.symbols
-            .get(&variable.kind.text)
-            .copied()
-            .ok_or_else(|| {
-                semantic(
-                    variable.span,
-                    format!("unknown variable `{}`", variable.kind.text),
-                )
-            })
+        match self.resolve_symbol(variable)? {
+            Symbol::Entity(slot) => Ok(slot),
+            Symbol::Scalar(_) => Err(semantic(
+                variable.span,
+                format!(
+                    "scalar variable `{}` cannot be used as a graph entity",
+                    variable.kind.text
+                ),
+            )),
+        }
     }
 
-    fn resolve_variable(&self, expression: &AstExpr) -> Result<SlotId> {
+    fn resolve_entity_variable(&self, expression: &AstExpr) -> Result<SlotId> {
         let ExprKind::Variable(variable) = &expression.kind else {
             return Err(unsupported(expression.span, "nested property access"));
         };
+        match self.resolve_symbol(variable)? {
+            Symbol::Entity(slot) => Ok(slot),
+            Symbol::Scalar(_) => Err(semantic(
+                variable.span,
+                format!(
+                    "scalar variable `{}` does not have graph properties",
+                    variable.kind.text
+                ),
+            )),
+        }
+    }
+
+    fn resolve_symbol(&self, variable: &open_cypher::ast::Name) -> Result<Symbol> {
         self.symbols
             .get(&variable.kind.text)
             .copied()
@@ -778,6 +994,24 @@ impl<'source> Lowerer<'source> {
                 )
             })
     }
+}
+
+fn projection_pagination(
+    projection: &ProjectionClause,
+    clause_name: &str,
+) -> Result<(Option<ValueExpr>, Option<ValueExpr>)> {
+    let offset = match (&projection.offset, &projection.skip) {
+        (Some(_), Some(_)) => {
+            return Err(semantic(
+                projection.span,
+                format!("{clause_name} cannot contain OFFSET and SKIP"),
+            ));
+        }
+        (Some(offset), None) | (None, Some(offset)) => Some(page_value(offset)?),
+        (None, None) => None,
+    };
+    let limit = projection.limit.as_ref().map(page_value).transpose()?;
+    Ok((offset, limit))
 }
 
 fn properties_input(properties: Option<&AstExpr>) -> Result<ValueExpr> {
