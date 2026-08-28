@@ -721,10 +721,8 @@ fn physical_plan_shapes_distinct_path_identities_before_batch_hydration() {
     )
     .unwrap();
 
-    assert!(
-        explanation
-            .contains("rust-stage: semantic-distinct then pagination then batch-hydrate-paths")
-    );
+    assert_stage_precedes(&explanation, "semantic-distinct", "pagination");
+    assert_stage_precedes(&explanation, "pagination", "batch-hydrate-paths");
 }
 
 #[test]
@@ -756,8 +754,8 @@ fn physical_union_plans_share_one_batch_hydration_after_bag_shaping() {
                   RETURN path, 7 AS marker";
 
     for (operator, stage) in [
-        ("UNION", "union: semantic-distinct"),
-        ("UNION ALL", "union: all"),
+        ("UNION", "union mode=semantic-distinct"),
+        ("UNION ALL", "union mode=all"),
     ] {
         let explanation = explain_physical(&format!("{branch} {operator} {branch}")).unwrap();
         assert_stage_precedes(&explanation, stage, "batch-hydrate-paths");

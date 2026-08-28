@@ -350,6 +350,13 @@ The current Rust stages fully materialize eligible graph inputs and their JSON
 trail relations; selective seeding and payload accounting remain future
 hardening.
 
+The physical read plan represents Rust-produced relations as explicit value
+operators with branch-local runtime slots; they are not special SQL parameter
+variants. Before any producer or SQLite fragment executes, preparation walks
+the complete tree and resolves ordinary parameters, deferred pagination, and
+traversal-edge filters in every `UNION` branch. A preparation error therefore
+does not spend traversal budget or expose partial rows.
+
 Legacy pattern-position `shortestPath` and `allShortestPaths` are supported in
 mandatory read-only `MATCH`. The inner pattern must be exactly two nodes joined
 by one legacy variable-length relationship. Its lower bound must be zero or
@@ -433,9 +440,10 @@ from their already-materialized snapshots; Rust then loads every remaining ID
 in batches, using at most one node query and one edge query before constructing
 public paths and typed lists in traversal order.
 
-The complete read—hybrid traversal-input queries, every branch SQL fragment, and
-both possible hydration queries—shares one deferred SQLite read snapshot.
-Concurrent external-writer semantics beyond that snapshot remain a non-goal.
+The complete read—runtime traversal producers, every branch SQL fragment, and
+union evaluation plus both possible hydration queries—shares one deferred
+SQLite read snapshot. Concurrent external-writer semantics beyond that snapshot
+remain a non-goal.
 
 ## Entity identifiers
 

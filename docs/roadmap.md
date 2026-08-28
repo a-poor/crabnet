@@ -21,7 +21,7 @@ Update it when implementation work teaches us something better.
 Crabnet already has more than a greenfield skeleton:
 
 - openCypher text is parsed by the in-house parser, bound, and lowered into a
-  backend-neutral slot-based logical row plan;
+  slot-based logical row plan;
 - fixed-length node/relationship patterns compile to parameterized SQLite;
 - the physical schema uses `nodes` and `edges`, while Cypher-facing code uses
   the word *relationship*;
@@ -261,10 +261,12 @@ Gate complete: `tests/bounded_traversal.rs` covers bounds, directions,
 properties, identity paths, adversarial graph shapes, edge-trail uniqueness,
 composition, the SQLite-depth threshold, and rejection boundaries.
 
-### 8. Generalize hybrid execution — in progress
+### 8. Generalize hybrid execution — complete
 
-- Generalize the matched-write row executor into SQL fragments connected by
-  streaming or materialized Rust operators.
+- Read plans now form explicit physical operator trees connecting parameterized
+  SQLite fragments, Rust value producers, pending-row transforms,
+  left-associated unions, and one query-wide hydration operator when graph
+  identities require it.
 - The path-value slice is green: mandatory read-only fixed, variable-length,
   and mixed patterns bind public `PathValue` results, including zero-hop paths.
   Direct `WITH` aliases, `RETURN DISTINCT`, and `UNION` preserve ordered node and
@@ -280,8 +282,8 @@ composition, the SQLite-depth threshold, and rejection boundaries.
 - Only surviving IDs of the required entity kinds are deduplicated query-wide.
   Directly projected graph entities seed the hydration maps, and the remainder
   uses at most one node query and one edge query.
-- Every hybrid traversal-input query, branch SQL fragment, and hydration query
-  shares one deferred read snapshot. External-writer semantics remain a
+- Every runtime traversal producer, branch SQL fragment, union, and hydration
+  query shares one deferred read snapshot. External-writer semantics remain a
   non-goal.
 - The relationship-list slice is green. A fresh legacy binding such as
   `[rels:TYPE*min..]` yields traversal-ordered hydrated relationships across
@@ -304,24 +306,32 @@ composition, the SQLite-depth threshold, and rejection boundaries.
   `WHERE`/multi-part forms, lower bounds above one, and writes remain structured
   rejections.
 - Rust preserves relationship uniqueness across every constituent pattern in
-  one `MATCH`, materializes ordered trail identities as JSON, and lets SQLite
-  consume them for endpoint joins and later row operators. Physical explanation
-  prints `trail-expand` or `shortest-expand` before its consuming SQLite fragment.
+  one `MATCH`, materializes ordered trail identities as JSON, and exposes each
+  relation through a branch-local runtime slot consumed by SQLite. Numbered
+  physical explanations show each producer before its consuming fragment and
+  keep SQL plus static/runtime placeholder descriptors beneath that fragment.
+- Whole-tree preparation resolves deferred pagination, ordinary parameters, and
+  traversal-edge filters in every `UNION` branch before the first producer or
+  SQL fragment executes.
 - One fixed 100,000 explored-trail-state work guard is shared query-wide and
   fails closed with `Error::ResourceLimit`; it is neither truncation nor a
   claimed memory bound. The Rust stages currently fully materialize eligible
   graph inputs and JSON trail relations without start/end-domain pushdown.
   Payload-byte accounting and selective seeding remain hardening work.
-- A general physical split for arbitrary non-pushable operators remains. Exact
-  matching against a pre-bound relationship sequence, optional-bound paths or
-  relationship lists, modern selectors and deferred shortest forms, and writes
-  fed by a named path or relationship list remain explicit rejections meanwhile.
+- The explicit read boundary is complete for the supported operator set, with
+  one SQL fragment per branch. Future non-pushable reads can add a value or row
+  operator without reviving traversal-specific SQL bindings; a construct that
+  requires SQL-to-Rust-row-to-SQL composition will first need a multi-fragment
+  extension. Exact pre-bound relationship-sequence matching, optional-bound
+  paths or relationship lists, modern selectors, deferred shortest forms, and
+  path-fed writes remain explicit rejections.
 - Implement `MERGE` last as transactional whole-pattern match/create behavior,
   not as a misleading single-row SQLite upsert.
 
-Gate: a query can mix pushable and Rust-executed operators without changing
-scope, ordering, null, or bag semantics. This gate is not complete. Concurrent
-external-writer semantics remain a non-goal.
+Gate complete: supported queries mix pushable and Rust-executed operators
+without changing scope, ordering, null, bag, snapshot, or parameter-preflight
+semantics. `tests/physical_plan.rs` locks down the operator boundary.
+Concurrent external-writer semantics remain a non-goal.
 
 ### 9. Conformance and optimization
 
@@ -338,12 +348,12 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With the gates from milestones 2–7 complete, milestone 8 hybrid execution is
-active. Named path values, path functions, legacy relationship-list bindings,
-query-wide batch hydration, deep/open-ended trail expansion, and legacy shortest
-paths are green. The remaining milestone work is a general physical split for
-arbitrary non-pushable operators. Selective traversal seeding and payload
-accounting remain hardening work around the fixed work guard. Small contract
-gaps may still be tightened when focused tests expose them. The working loop is
-documented in [testing.md](testing.md); planned cases stay in the coverage
-backlog instead of becoming ignored tests.
+With milestones 2–8 complete, the next active gate is milestone 9.
+The immediate work is to broaden invariant/property coverage, close the
+remaining parser and relationship-property gaps, and use the new physical
+boundary for the next genuinely non-pushable read construct. Selective
+traversal seeding, public default-budget exhaustion, and payload accounting
+remain traversal hardening. After those local contracts stabilize, adopt a
+small pinned openCypher TCK allowlist and deterministic differential cases.
+The working loop is documented in [testing.md](testing.md); planned cases stay
+in the coverage backlog instead of becoming ignored tests.

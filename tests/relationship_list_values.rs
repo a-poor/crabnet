@@ -299,10 +299,10 @@ fn physical_plan_shapes_relationship_list_identities_before_one_batch_hydration(
     )
     .unwrap();
 
-    assert!(
-        explanation
-            .contains("rust-stage: semantic-distinct then pagination then batch-hydrate-paths")
-    );
+    let distinct = explanation.find(": semantic-distinct").unwrap();
+    let pagination = explanation.find(": pagination").unwrap();
+    let hydration = explanation.find(": batch-hydrate-paths").unwrap();
+    assert!(distinct < pagination && pagination < hydration);
     assert_eq!(
         explanation.matches("batch-hydrate-paths").count(),
         1,

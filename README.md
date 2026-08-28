@@ -252,39 +252,44 @@ supported only by `count`; the other aggregate forms fail during planning.
 
 The planner is deliberately small and layered:
 
-- `planner/lower.rs` converts the openCypher AST into the backend-neutral,
-  slot-based row plan in `planner/logical.rs`.
-- `planner/sqlite.rs` compiles reads and mutation row sources to parameterized
-  SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
-  projected entity, path, and scalar slots. Explicit traversal bounds through
-  32 become recursive CTEs carrying ordered per-path identity; deep,
-  open-ended, and shortest-path traversals reserve JSON relations supplied by
-  Rust.
-- `database.rs` executes SQL read fragments into pending typed cells, applies
-  relationship-unique Rust trail expansion or shortest-path BFS where
-  requested, applies branch-local semantic distinctness and deferred pagination
-  plus left-to-right unions, and then batch-hydrates surviving path and
-  path-derived graph-list identities into public rows.
-  Every read fragment and hydration query shares one deferred snapshot. For
-  mutations, it materializes all input rows before the first change and applies
-  ordered mutation operators to that stable row bag.
+- `planner/lower.rs` converts the openCypher AST into the slot-based logical
+  row plan in `planner/logical.rs`.
+- `planner/sqlite.rs` generates parameterized `SqlFragment` values. Each
+  read-only `WITH` boundary becomes a CTE carrying projected entity, path,
+  and scalar slots. Explicit traversal bounds through 32 become recursive CTEs;
+  deep, open-ended, and shortest-path traversals instead declare typed runtime
+  inputs consumed through branch-local runtime slots.
+- `planner/physical.rs` connects SQLite fragments to explicit
+  `trail-expand`, `shortest-expand`, semantic-distinct, pagination, union,
+  and batch-hydration operators. Static parameters and runtime-slot arguments
+  retain their exact SQLite placeholder order.
+  Each supported read branch currently has one consuming SQL fragment; a
+  future SQL-to-Rust-row-to-SQL construct will require a multi-fragment
+  extension.
+- `database.rs` prepares the complete physical tree before executing it, then
+  evaluates its SQL and Rust operators into pending typed cells under one
+  deferred snapshot and one query-wide traversal budget. Mutations continue to
+  materialize their input rows before the first change and apply ordered
+  mutation operators to that stable row bag.
 
 Trail and shortest-path expansion, pending-row shaping, and path hydration are
-deliberate hybrid boundaries. Rust fully materializes deep/open-ended trail
-identities or shortest-path BFS results for SQLite to consume, then applies
-semantic row operations before one query-wide hydration pass. Directly
-projected entities can satisfy path references without another lookup, and the
-remaining IDs use at most one node query and one edge query. With
-`RETURN DISTINCT`, `ORDER BY` is restricted to
-projected expressions or their aliases.
+deliberate hybrid boundaries. Whole-tree preparation resolves every static
+argument, deferred page value, and traversal filter across all `UNION`
+branches before any runtime producer or SQLite fragment runs. At execution,
+Rust materializes deep/open-ended trails or shortest-path BFS results for
+SQLite to consume, applies semantic row operators, and performs one final
+query-wide hydration pass. Direct entities seed that pass; remaining IDs use
+at most one node query and one edge query. With `RETURN DISTINCT`, `ORDER BY`
+is restricted to projected expressions or their aliases.
 
 `crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
 slots, graph operators, clause stages, and `WITH` scopes without turning
 incidental SQLite aliases into the debug contract.
-`crabnet::explain_physical(cypher)` exposes the generated read SQL/CTEs, bind
-positions, Rust `trail-expand` and `shortest-expand` stages before their
-consuming SQLite fragments, Rust distinct/pagination and union stages, and the
-final shared batch-hydration boundary when backend details matter.
+`crabnet::explain_physical(cypher)` renders the numbered physical
+operator pipeline: generated SQL/CTEs and ordered bind descriptors, explicit
+`trail-expand` or `shortest-expand` runtime-slot producers, semantic
+distinct/pagination and union operators, and one final shared batch-hydration
+operator when graph identities require it.
 
 Materializing mutation input is intentionally naive, but gives this iteration
 clear snapshot, multiplicity, and rollback behavior. A streaming or more

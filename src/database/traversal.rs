@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use crate::{
     Error, Result,
-    planner::{ResolvedTrailExpansion, TrailDirection, TrailSelection},
+    planner::{ResolvedTrailExpansion, ShortestMode, TrailDirection},
 };
 
 // This limits explored work and fails closed; it is deliberately not presented
@@ -62,38 +62,62 @@ struct TrailState {
 
 // The consuming SQLite fragment reads this ordered trail relation through
 // json_each(), keeping endpoint joins and downstream row operators in SQL.
-pub(super) fn materialize(
+pub(super) fn materialize_trails(
     connection: &Connection,
     spec: &ResolvedTrailExpansion,
     budget: &mut TrailBudget,
 ) -> Result<SqlValue> {
-    if spec.maximum.is_some_and(|maximum| spec.minimum > maximum) {
+    let Some((edges, nodes)) = load_expansion_inputs(connection, spec)? else {
         return Ok(SqlValue::Text("[]".into()));
-    }
-
-    let edges = load_edges(connection, spec)?;
-    let nodes = load_nodes(connection)?;
-    let rows = match spec.selection {
-        TrailSelection::AllTrails => enumerate_trails(
-            &nodes,
-            &edges,
-            spec.direction,
-            spec.minimum,
-            spec.maximum,
-            spec.traversal,
-            budget,
-        )?,
-        TrailSelection::OneShortest | TrailSelection::AllShortest => enumerate_shortest_paths(
-            &nodes,
-            &edges,
-            spec.direction,
-            (spec.minimum, spec.maximum),
-            spec.selection,
-            spec.traversal,
-            budget,
-        )?,
     };
-    Ok(SqlValue::Text(Value::Array(rows).to_string()))
+    let rows = enumerate_trails(
+        &nodes,
+        &edges,
+        spec.direction,
+        spec.minimum,
+        spec.maximum,
+        spec.traversal,
+        budget,
+    )?;
+    Ok(encoded_rows(rows))
+}
+
+pub(super) fn materialize_shortest(
+    connection: &Connection,
+    spec: &ResolvedTrailExpansion,
+    mode: ShortestMode,
+    budget: &mut TrailBudget,
+) -> Result<SqlValue> {
+    let Some((edges, nodes)) = load_expansion_inputs(connection, spec)? else {
+        return Ok(SqlValue::Text("[]".into()));
+    };
+    let rows = enumerate_shortest_paths(
+        &nodes,
+        &edges,
+        spec.direction,
+        (spec.minimum, spec.maximum),
+        mode,
+        spec.traversal,
+        budget,
+    )?;
+    Ok(encoded_rows(rows))
+}
+
+fn load_expansion_inputs(
+    connection: &Connection,
+    spec: &ResolvedTrailExpansion,
+) -> Result<Option<(Vec<StoredEdge>, Vec<String>)>> {
+    if spec.maximum.is_some_and(|maximum| spec.minimum > maximum) {
+        return Ok(None);
+    }
+    Ok(Some((
+        load_edges(connection, spec)?,
+        load_nodes(connection)?,
+    )))
+}
+
+fn encoded_rows(rows: Vec<Value>) -> SqlValue {
+    SqlValue::Text(Value::Array(rows).to_string())
 }
 
 fn load_nodes(connection: &Connection) -> Result<Vec<String>> {
@@ -183,11 +207,10 @@ fn enumerate_shortest_paths(
     edges: &[StoredEdge],
     direction: TrailDirection,
     bounds: (usize, Option<usize>),
-    selection: TrailSelection,
+    mode: ShortestMode,
     traversal: usize,
     budget: &mut TrailBudget,
 ) -> Result<Vec<Value>> {
-    debug_assert!(selection != TrailSelection::AllTrails);
     let (minimum, maximum) = bounds;
     let effective_maximum = maximum.unwrap_or(edges.len()).min(edges.len());
     if minimum > effective_maximum {
@@ -195,7 +218,7 @@ fn enumerate_shortest_paths(
     }
 
     let adjacency = adjacency(edges, direction);
-    let include_all = selection == TrailSelection::AllShortest;
+    let include_all = mode == ShortestMode::All;
     let mut rows = Vec::new();
     for start in nodes {
         let seed = TrailState {
@@ -451,7 +474,7 @@ mod tests {
             &edges,
             TrailDirection::Right,
             (1, None),
-            TrailSelection::OneShortest,
+            ShortestMode::One,
             9,
             &mut budget,
         )

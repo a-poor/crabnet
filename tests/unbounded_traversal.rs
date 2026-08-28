@@ -620,8 +620,12 @@ fn union_shapes_hybrid_path_identities_before_shared_hydration() {
     let physical = explain_physical(distinct_query).unwrap();
     assert_eq!(physical.matches("trail-expand").count(), 1);
     assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
-    assert_stage_precedes(&physical, "trail-expand", "union: semantic-distinct");
-    assert_stage_precedes(&physical, "union: semantic-distinct", "batch-hydrate-paths");
+    assert_stage_precedes(&physical, "trail-expand", "union mode=semantic-distinct");
+    assert_stage_precedes(
+        &physical,
+        "union mode=semantic-distinct",
+        "batch-hydrate-paths",
+    );
 }
 
 #[test]
@@ -648,7 +652,7 @@ fn logical_and_physical_explain_show_the_sql_rust_strategy_boundary() {
     assert!(!bounded_physical.contains("trail-expand"));
 
     let deep_physical = explain_physical(deep).unwrap();
-    assert!(deep_physical.contains("rust-stage: trail-expand"));
+    assert!(deep_physical.contains("trail-expand"));
     assert!(!deep_physical.contains("_crabnet_walk_"));
 
     let unbounded_physical = explain_physical(unbounded).unwrap();

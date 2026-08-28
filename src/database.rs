@@ -12,8 +12,9 @@ use crate::{
     CypherValue, NodeValue, Parameters, PathValue, QueryResult, QuerySummary, RelationshipValue,
     Result,
     planner::{
-        self, EntityKind, OutputShape, Plan, ReadPlan, ResolvedExpr, ResolvedMutation,
-        ResolvedMutationPlan, SlotId, SqlQuery, UnionKind,
+        self, EntityKind, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
+        PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedExpr, ResolvedMutation,
+        ResolvedMutationPlan, SlotId, UnionKind,
     },
 };
 
@@ -274,35 +275,22 @@ fn execute_read_plan(
     parameters: &Parameters,
     trail_budget: &mut traversal::TrailBudget,
 ) -> Result<QueryResult> {
-    for branch in &plan.branches {
-        branch.preflight(parameters)?;
-    }
-    let first = plan
-        .branches
-        .first()
-        .expect("read plans always contain at least one branch");
-    let columns = first.columns.clone();
-    let mut branches = plan.branches.iter();
-    let mut rows = execute_sql_query(
-        connection,
-        branches
-            .next()
-            .expect("read plans always contain at least one branch"),
-        parameters,
-        trail_budget,
-    )?;
-    for (kind, branch) in plan.unions.iter().zip(branches) {
-        rows.extend(execute_sql_query(
-            connection,
-            branch,
-            parameters,
-            trail_budget,
-        )?);
-        if *kind == UnionKind::Distinct {
-            rows = distinct_pending_rows(rows);
+    // Preparation walks the complete operator tree before execution. A bad
+    // parameter in a later UNION branch therefore cannot spend traversal work
+    // or issue a SQLite read in an earlier branch.
+    let plan = plan.prepare(parameters)?;
+    let columns = plan.columns;
+    let rows = match plan.root {
+        PreparedPhysicalOperator::BatchHydrate { input } => {
+            let pending = execute_physical_operator(connection, *input, trail_budget)?;
+            hydrate_pending_rows(connection, pending)?
         }
-    }
-    let rows = hydrate_pending_rows(connection, rows)?;
+        operator => finish_materialized_rows(execute_physical_operator(
+            connection,
+            operator,
+            trail_budget,
+        )?)?,
+    };
     Ok(QueryResult {
         columns,
         rows,
@@ -310,20 +298,91 @@ fn execute_read_plan(
     })
 }
 
-fn execute_sql_query(
+fn execute_physical_operator(
     connection: &Connection,
-    plan: &SqlQuery,
-    parameters: &Parameters,
+    operator: PreparedPhysicalOperator,
     trail_budget: &mut traversal::TrailBudget,
 ) -> Result<Vec<PendingRow>> {
-    let post_pagination = plan.resolve_post_pagination(parameters)?;
-    let bindings = plan.resolve_bindings(parameters, |spec| {
-        traversal::materialize(connection, spec, trail_budget)
-    })?;
+    match operator {
+        PreparedPhysicalOperator::Sqlite(fragment) => {
+            execute_sql_fragment(connection, fragment, trail_budget)
+        }
+        PreparedPhysicalOperator::SemanticDistinct { input } => {
+            execute_physical_operator(connection, *input, trail_budget).map(distinct_pending_rows)
+        }
+        PreparedPhysicalOperator::Paginate {
+            input,
+            offset,
+            limit,
+        } => Ok(execute_physical_operator(connection, *input, trail_budget)?
+            .into_iter()
+            .skip(offset)
+            .take(limit.unwrap_or(usize::MAX))
+            .collect()),
+        PreparedPhysicalOperator::Union { left, right, kind } => {
+            let mut rows = execute_physical_operator(connection, *left, trail_budget)?;
+            rows.extend(execute_physical_operator(connection, *right, trail_budget)?);
+            if kind == UnionKind::Distinct {
+                rows = distinct_pending_rows(rows);
+            }
+            Ok(rows)
+        }
+        PreparedPhysicalOperator::BatchHydrate { .. } => Err(crate::Error::Data(
+            "batch hydration must be the root physical operator".into(),
+        )),
+    }
+}
+
+fn execute_sql_fragment(
+    connection: &Connection,
+    plan: PreparedSqlFragment,
+    trail_budget: &mut traversal::TrailBudget,
+) -> Result<Vec<PendingRow>> {
+    let mut runtime_values = HashMap::with_capacity(plan.inputs.len());
+    for input in plan.inputs {
+        let (output, value) = match input {
+            PreparedValueOperator::TrailExpand { output, spec } => (
+                output,
+                traversal::materialize_trails(connection, &spec, trail_budget)?,
+            ),
+            PreparedValueOperator::ShortestExpand { output, mode, spec } => (
+                output,
+                traversal::materialize_shortest(connection, &spec, mode, trail_budget)?,
+            ),
+        };
+        if runtime_values.insert(output, value).is_some() {
+            return Err(crate::Error::Data(format!(
+                "runtime slot %r{} was materialized more than once",
+                output.0
+            )));
+        }
+    }
+
+    let bindings = plan
+        .arguments
+        .into_iter()
+        .map(|argument| match argument {
+            PreparedFragmentArgument::Value(value) => Ok(value),
+            PreparedFragmentArgument::Runtime(slot) => {
+                runtime_values.remove(&slot).ok_or_else(|| {
+                    crate::Error::Data(format!(
+                        "SQLite fragment is missing runtime slot %r{}",
+                        slot.0
+                    ))
+                })
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if let Some(slot) = runtime_values.keys().next() {
+        return Err(crate::Error::Data(format!(
+            "runtime slot %r{} was not consumed",
+            slot.0
+        )));
+    }
     debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
 
-    // Completely drain and drop the SQLite cursor before a later Rust stage
-    // issues either branch SQL or the shared path-hydration queries.
+    // Completely drain and drop the SQLite cursor before a later Rust operator
+    // issues another fragment, traversal query, or hydration query.
     let encoded_rows = {
         let mut statement = connection.prepare(&plan.sql)?;
         debug_assert!(statement.readonly());
@@ -335,7 +394,7 @@ fn execute_sql_query(
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?
     };
-    let mut rows = encoded_rows
+    encoded_rows
         .into_iter()
         .map(|values| {
             values
@@ -344,17 +403,24 @@ fn execute_sql_query(
                 .map(|(value, shape)| decode_pending_output(&value, shape))
                 .collect::<Result<PendingRow>>()
         })
-        .collect::<Result<Vec<_>>>()?;
-    if plan.distinct() {
-        rows = distinct_pending_rows(rows);
-        let (offset, limit) = post_pagination;
-        rows = rows
-            .into_iter()
-            .skip(offset)
-            .take(limit.unwrap_or(usize::MAX))
-            .collect();
-    }
-    Ok(rows)
+        .collect()
+}
+
+fn finish_materialized_rows(rows: Vec<PendingRow>) -> Result<Vec<Vec<CypherValue>>> {
+    rows.into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|value| match value {
+                    PendingValue::Materialized(value) => Ok(value),
+                    PendingValue::Path(_)
+                    | PendingValue::PathNodes(_)
+                    | PendingValue::PathRelationships(_) => Err(crate::Error::Data(
+                        "physical read plan omitted required batch hydration".into(),
+                    )),
+                })
+                .collect()
+        })
+        .collect()
 }
 
 fn delete_entities(
@@ -1349,19 +1415,10 @@ mod tests {
         .unwrap() else {
             panic!("expected a read plan");
         };
-        let branch = plan
-            .branches
-            .first()
-            .expect("read plans always contain a branch");
         let mut budget = traversal::TrailBudget::new(0);
 
-        let error = execute_sql_query(
-            &database.connection,
-            branch,
-            &Parameters::new(),
-            &mut budget,
-        )
-        .unwrap_err();
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
+            .unwrap_err();
 
         assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
     }
@@ -1407,6 +1464,29 @@ mod tests {
             error,
             crate::Error::ResourceLimit(message)
                 if message.contains("trail expansion") && message.contains("0-state budget")
+        ));
+    }
+
+    #[test]
+    fn union_branches_share_one_trail_budget() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:BudgetStart)-[:LINK]->(:BudgetEnd)")
+            .unwrap();
+        let branch = "MATCH (:BudgetStart)-[:LINK*]->(end) RETURN end AS value";
+        let Plan::Read(plan) = planner::compile(&format!("{branch} UNION ALL {branch}")).unwrap()
+        else {
+            panic!("expected a read plan");
+        };
+        let mut budget = traversal::TrailBudget::new(1);
+
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::Error::ResourceLimit(message)
+                if message.contains("trail expansion") && message.contains("1-state budget")
         ));
     }
 

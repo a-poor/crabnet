@@ -1,16 +1,19 @@
 mod explain;
 mod logical;
 mod lower;
+mod physical;
 mod sqlite;
 
 use crate::{Error, Parameters, Result};
 
 pub(crate) use logical::{EntityKind, ResolvedExpr, SlotId};
 use logical::{Input, Mutation, Projection, Query, require_object, validate_storable_value};
-pub(crate) use sqlite::{
-    OutputShape, ResolvedRowSource, ResolvedTrailExpansion, SqlQuery, TrailDirection,
-    TrailSelection,
+pub(crate) use physical::{
+    OutputShape, PhysicalOperator, PreparedFragmentArgument, PreparedPhysicalOperator,
+    PreparedSqlFragment, PreparedValueOperator, ResolvedTrailExpansion, ShortestMode,
+    TrailDirection,
 };
+pub(crate) use sqlite::ResolvedRowSource;
 
 pub(crate) enum Plan {
     Read(ReadPlan),
@@ -24,43 +27,37 @@ pub(crate) enum UnionKind {
 }
 
 pub(crate) struct ReadPlan {
-    pub(crate) branches: Vec<SqlQuery>,
-    pub(crate) unions: Vec<UnionKind>,
+    pub(crate) columns: Vec<String>,
+    pub(crate) root: PhysicalOperator,
+}
+
+pub(crate) struct PreparedReadPlan {
+    pub(crate) columns: Vec<String>,
+    pub(crate) root: PreparedPhysicalOperator,
 }
 
 impl ReadPlan {
-    fn single(query: SqlQuery) -> Self {
-        Self {
-            branches: vec![query],
-            unions: Vec::new(),
+    fn single(query: sqlite::CompiledRead) -> Self {
+        let columns = query.columns.clone();
+        let hydrate = query.has_path_identity_output();
+        let mut root = query.into_operator();
+        if hydrate {
+            root = PhysicalOperator::BatchHydrate {
+                input: Box::new(root),
+            };
         }
+        Self { columns, root }
+    }
+
+    pub(crate) fn prepare(self, parameters: &Parameters) -> Result<PreparedReadPlan> {
+        Ok(PreparedReadPlan {
+            columns: self.columns,
+            root: self.root.prepare(parameters)?,
+        })
     }
 
     fn render_physical(&self) -> String {
-        if let [query] = self.branches.as_slice() {
-            return query.render_physical(query.has_path_identity_output());
-        }
-
-        let mut output = String::from("physical-union\n");
-        for (index, branch) in self.branches.iter().enumerate() {
-            if index > 0 {
-                let kind = match self.unions[index - 1] {
-                    UnionKind::All => "all",
-                    UnionKind::Distinct => "semantic-distinct",
-                };
-                output.push_str(&format!("  union: {kind}\n"));
-            }
-            output.push_str(&format!("  branch {index}:\n"));
-            for line in branch.render_physical(false).lines() {
-                output.push_str("    ");
-                output.push_str(line);
-                output.push('\n');
-            }
-        }
-        if self.branches.iter().any(SqlQuery::has_path_identity_output) {
-            output.push_str("  rust-stage: batch-hydrate-paths\n");
-        }
-        output
+        self.root.render()
     }
 }
 
@@ -179,10 +176,31 @@ fn compile_union(union: lower::UnionSource) -> Result<Plan> {
         }
     }
 
-    Ok(Plan::Read(ReadPlan { branches, unions }))
+    let columns = expected_columns.clone();
+    let hydrate = branches
+        .iter()
+        .any(sqlite::CompiledRead::has_path_identity_output);
+    let mut branches = branches.into_iter();
+    let mut root = branches
+        .next()
+        .expect("UNION always has a head branch")
+        .into_operator();
+    for (kind, branch) in unions.into_iter().zip(branches) {
+        root = PhysicalOperator::Union {
+            left: Box::new(root),
+            right: Box::new(branch.into_operator()),
+            kind,
+        };
+    }
+    if hydrate {
+        root = PhysicalOperator::BatchHydrate {
+            input: Box::new(root),
+        };
+    }
+    Ok(Plan::Read(ReadPlan { columns, root }))
 }
 
-fn compile_read_query(query: Query) -> Result<SqlQuery> {
+fn compile_read_query(query: Query) -> Result<sqlite::CompiledRead> {
     let projection = query
         .projection
         .as_ref()

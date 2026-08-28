@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use rusqlite::types::Value as SqlValue;
+#[cfg(test)]
 use serde_json::Value;
 
 use crate::{Error, Parameters, Result};
@@ -9,330 +10,119 @@ use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
     PathFunctionKind, PathId, PathSegment, Projection, ReadStage, RelationshipUse, ScalarSlotId,
     SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
-    validate_storable_value,
 };
+use super::physical::{
+    FragmentArgument, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode, SqlFragment,
+    SqlParameter, TrailExpansionSpec, ValueOperator,
+};
+#[cfg(test)]
+use super::physical::{PreparedValueOperator, TrailDirection};
 
 #[derive(Clone, Debug)]
-enum SqlBinding {
-    Text(String),
-    Scalar(ValueExpr),
-    Json(ValueExpr),
-    Page(ValueExpr),
-    TrailExpansion(TrailExpansionSpec),
-}
-
-impl SqlBinding {
-    fn kind_name(&self) -> &'static str {
-        match self {
-            Self::Text(_) => "text",
-            Self::Scalar(_) => "scalar",
-            Self::Json(_) => "json",
-            Self::Page(_) => "page",
-            Self::TrailExpansion(_) => "trail-input",
-        }
-    }
-
-    fn resolve(&self, parameters: &Parameters) -> Result<SqlValue> {
-        match self {
-            Self::Text(value) => Ok(SqlValue::Text(value.clone())),
-            Self::Scalar(value) => json_to_sql(value.resolve(parameters)?),
-            Self::Json(value) => {
-                let value = value.resolve(parameters)?;
-                validate_storable_value(&value)?;
-                Ok(SqlValue::Text(value.to_string()))
-            }
-            Self::Page(value) => {
-                let value = value.resolve(parameters)?;
-                let Value::Number(number) = value else {
-                    return Err(Error::Semantic(
-                        "SKIP and LIMIT require nonnegative integers".into(),
-                    ));
-                };
-                if let Some(integer) = number.as_i64()
-                    && integer >= 0
-                {
-                    return Ok(SqlValue::Integer(integer));
-                }
-                if let Some(unsigned) = number.as_u64()
-                    && let Ok(integer) = i64::try_from(unsigned)
-                {
-                    return Ok(SqlValue::Integer(integer));
-                }
-                Err(Error::Semantic(
-                    "SKIP and LIMIT require nonnegative integers".into(),
-                ))
-            }
-            Self::TrailExpansion(_) => Err(Error::Data(
-                "runtime trail input reached the static binding resolver".into(),
-            )),
-        }
-    }
-
-    fn prepare(&self, parameters: &Parameters) -> Result<PreparedSqlBinding> {
-        match self {
-            Self::TrailExpansion(spec) => spec
-                .resolve(parameters)
-                .map(PreparedSqlBinding::TrailExpansion),
-            _ => self.resolve(parameters).map(PreparedSqlBinding::Value),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TrailDirection {
-    Right,
-    Left,
-    Undirected,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TrailSelection {
-    AllTrails,
-    OneShortest,
-    AllShortest,
-}
-
-impl From<Direction> for TrailDirection {
-    fn from(direction: Direction) -> Self {
-        match direction {
-            Direction::Right => Self::Right,
-            Direction::Left => Self::Left,
-            Direction::Undirected => Self::Undirected,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-struct TrailExpansionSpec {
-    traversal: TraversalId,
-    direction: TrailDirection,
-    minimum: usize,
-    maximum: Option<usize>,
-    selection: TrailSelection,
-    edge_sql: String,
-    edge_bindings: Vec<SqlBinding>,
-}
-
-enum PreparedSqlBinding {
-    Value(SqlValue),
-    TrailExpansion(ResolvedTrailExpansion),
-}
-
-#[derive(Debug)]
-pub(crate) struct ResolvedTrailExpansion {
-    pub(crate) traversal: usize,
-    pub(crate) direction: TrailDirection,
-    pub(crate) minimum: usize,
-    pub(crate) maximum: Option<usize>,
-    pub(crate) selection: TrailSelection,
-    pub(crate) edge_sql: String,
-    pub(crate) edge_bindings: Vec<SqlValue>,
-}
-
-impl TrailDirection {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Right => "right",
-            Self::Left => "left",
-            Self::Undirected => "undirected",
-        }
-    }
-}
-
-impl TrailExpansionSpec {
-    fn resolve(&self, parameters: &Parameters) -> Result<ResolvedTrailExpansion> {
-        Ok(ResolvedTrailExpansion {
-            traversal: self.traversal.0,
-            direction: self.direction,
-            minimum: self.minimum,
-            maximum: self.maximum,
-            selection: self.selection,
-            edge_sql: self.edge_sql.clone(),
-            edge_bindings: resolve_bindings(&self.edge_bindings, parameters)?,
-        })
-    }
-}
-
-fn json_to_sql(value: Value) -> Result<SqlValue> {
-    match value {
-        Value::Null => Ok(SqlValue::Null),
-        Value::Bool(value) => Ok(SqlValue::Integer(i64::from(value))),
-        Value::Number(number) => {
-            if let Some(value) = number.as_i64() {
-                Ok(SqlValue::Integer(value))
-            } else if let Some(value) = number.as_u64() {
-                i64::try_from(value).map(SqlValue::Integer).map_err(|_| {
-                    Error::Semantic("integer parameter is outside the i64 range".into())
-                })
-            } else {
-                number
-                    .as_f64()
-                    .map(SqlValue::Real)
-                    .ok_or_else(|| Error::Semantic("non-finite floats are not supported".into()))
-            }
-        }
-        Value::String(value) => Ok(SqlValue::Text(value)),
-        Value::Array(_) | Value::Object(_) => Ok(SqlValue::Text(value.to_string())),
-    }
-}
-
-pub(crate) struct SqlQuery {
-    pub(crate) sql: String,
-    pub(crate) columns: Vec<String>,
-    pub(crate) output_shapes: Vec<OutputShape>,
-    bindings: Vec<SqlBinding>,
+pub(crate) struct CompiledRead {
+    pub(crate) fragment: SqlFragment,
     distinct: bool,
     post_offset: Option<ValueExpr>,
     post_limit: Option<ValueExpr>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum OutputShape {
-    Json,
-    Entity(EntityKind),
-    PathIdentity,
-    PathNodes,
-    PathRelationships,
+impl std::ops::Deref for CompiledRead {
+    type Target = SqlFragment;
+
+    fn deref(&self) -> &Self::Target {
+        &self.fragment
+    }
 }
 
-impl SqlQuery {
-    pub(crate) fn preflight(&self, parameters: &Parameters) -> Result<()> {
-        self.resolve_post_pagination(parameters)?;
-        for binding in &self.bindings {
-            binding.prepare(parameters)?;
-        }
-        Ok(())
-    }
-
-    pub(crate) fn resolve_bindings(
-        &self,
-        parameters: &Parameters,
-        mut materialize: impl FnMut(&ResolvedTrailExpansion) -> Result<SqlValue>,
-    ) -> Result<Vec<SqlValue>> {
-        let prepared = self
-            .bindings
-            .iter()
-            .map(|binding| binding.prepare(parameters))
-            .collect::<Result<Vec<_>>>()?;
-        prepared
-            .into_iter()
-            .map(|binding| match binding {
-                PreparedSqlBinding::Value(value) => Ok(value),
-                PreparedSqlBinding::TrailExpansion(spec) => materialize(&spec),
-            })
-            .collect()
-    }
-
+impl CompiledRead {
+    #[cfg(test)]
     pub(crate) fn distinct(&self) -> bool {
         self.distinct
     }
 
     pub(crate) fn has_path_identity_output(&self) -> bool {
-        self.output_shapes.iter().any(|shape| {
-            matches!(
-                shape,
-                OutputShape::PathIdentity | OutputShape::PathNodes | OutputShape::PathRelationships
-            )
-        })
+        self.fragment.has_path_identity_output()
     }
 
+    #[cfg(test)]
     pub(crate) fn render_physical(&self, batch_hydrate_paths: bool) -> String {
-        let mut output = String::from("physical-query\n");
-        for (index, binding) in self.bindings.iter().enumerate() {
-            if let SqlBinding::TrailExpansion(spec) = binding {
-                let maximum = spec
-                    .maximum
-                    .map_or_else(|| "unbounded".to_owned(), |value| value.to_string());
-                if spec.selection != TrailSelection::AllTrails {
-                    let mode = match spec.selection {
-                        TrailSelection::OneShortest => "one",
-                        TrailSelection::AllShortest => "all",
-                        TrailSelection::AllTrails => unreachable!(),
-                    };
-                    output.push_str(&format!(
-                        "  rust-stage: shortest-expand mode={mode} traversal=~{} direction={} bounds={}..{} bind=?{}\n",
-                        spec.traversal.0,
-                        spec.direction.name(),
-                        spec.minimum,
-                        maximum,
-                        index + 1,
-                    ));
-                    continue;
-                }
-                output.push_str(&format!(
-                    "  rust-stage: trail-expand traversal=~{} direction={} \
-                     bounds={}..{} bind=?{}\n",
-                    spec.traversal.0,
-                    spec.direction.name(),
-                    spec.minimum,
-                    maximum,
-                    index + 1,
-                ));
-            }
+        let hydrate = batch_hydrate_paths && self.has_path_identity_output();
+        let mut operator = self.clone().into_operator();
+        if hydrate {
+            operator = PhysicalOperator::BatchHydrate {
+                input: Box::new(operator),
+            };
         }
-        output.push_str("  sqlite-fragment:\n    sql: ");
-        output.push_str(&self.sql);
-        output.push_str("\n    bindings:\n");
-        if self.bindings.is_empty() {
-            output.push_str("      none\n");
-        } else {
-            for (index, binding) in self.bindings.iter().enumerate() {
-                output.push_str(&format!("      ?{} {}\n", index + 1, binding.kind_name()));
-            }
-        }
-
-        let mut rust_stages = Vec::new();
-        if self.distinct {
-            rust_stages.push("semantic-distinct");
-            if self.post_offset.is_some() || self.post_limit.is_some() {
-                rust_stages.push("pagination");
-            }
-        }
-        if batch_hydrate_paths && self.has_path_identity_output() {
-            rust_stages.push("batch-hydrate-paths");
-        }
-
-        output.push_str("  rust-stage: ");
-        if rust_stages.is_empty() {
-            output.push_str("none");
-        } else {
-            output.push_str(&rust_stages.join(" then "));
-        }
-        output.push('\n');
-        output
+        operator.render()
     }
 
-    pub(crate) fn resolve_post_pagination(
+    #[cfg(test)]
+    fn resolve_bindings(
         &self,
         parameters: &Parameters,
-    ) -> Result<(usize, Option<usize>)> {
-        let offset = self
-            .post_offset
-            .as_ref()
-            .map(|value| resolve_page(value, parameters))
-            .transpose()?
-            .unwrap_or(0);
-        let limit = self
-            .post_limit
-            .as_ref()
-            .map(|value| resolve_page(value, parameters))
-            .transpose()?;
-        Ok((offset, limit))
-    }
-}
+        mut materialize: impl FnMut(&PreparedValueOperator) -> Result<SqlValue>,
+    ) -> Result<Vec<SqlValue>> {
+        fn sqlite_fragment(
+            operator: super::physical::PreparedPhysicalOperator,
+        ) -> Result<super::physical::PreparedSqlFragment> {
+            match operator {
+                super::physical::PreparedPhysicalOperator::Sqlite(fragment) => Ok(fragment),
+                super::physical::PreparedPhysicalOperator::SemanticDistinct { input }
+                | super::physical::PreparedPhysicalOperator::Paginate { input, .. } => {
+                    sqlite_fragment(*input)
+                }
+                super::physical::PreparedPhysicalOperator::Union { .. }
+                | super::physical::PreparedPhysicalOperator::BatchHydrate { .. } => Err(
+                    Error::Data("compiled read test helper expected one SQL fragment".into()),
+                ),
+            }
+        }
 
-fn resolve_page(value: &ValueExpr, parameters: &Parameters) -> Result<usize> {
-    let SqlValue::Integer(value) = SqlBinding::Page(value.clone()).resolve(parameters)? else {
-        unreachable!("page bindings always resolve to SQLite integers")
-    };
-    usize::try_from(value)
-        .map_err(|_| Error::Semantic("SKIP and LIMIT are too large for this platform".into()))
+        let fragment = sqlite_fragment(self.clone().into_operator().prepare(parameters)?)?;
+        let mut runtime_values = HashMap::new();
+        for input in fragment.inputs {
+            let output = input.output();
+            runtime_values.insert(output, materialize(&input)?);
+        }
+        fragment
+            .arguments
+            .into_iter()
+            .map(|argument| match argument {
+                super::physical::PreparedFragmentArgument::Value(value) => Ok(value),
+                super::physical::PreparedFragmentArgument::Runtime(slot) => {
+                    runtime_values.remove(&slot).ok_or_else(|| {
+                        Error::Data(format!(
+                            "compiled read test helper is missing runtime slot %r{}",
+                            slot.0
+                        ))
+                    })
+                }
+            })
+            .collect()
+    }
+
+    pub(crate) fn into_operator(self) -> PhysicalOperator {
+        let mut operator = PhysicalOperator::Sqlite(self.fragment);
+        if self.distinct {
+            operator = PhysicalOperator::SemanticDistinct {
+                input: Box::new(operator),
+            };
+            if self.post_offset.is_some() || self.post_limit.is_some() {
+                operator = PhysicalOperator::Paginate {
+                    input: Box::new(operator),
+                    offset: self.post_offset,
+                    limit: self.post_limit,
+                };
+            }
+        }
+        operator
+    }
 }
 
 pub(crate) struct RowSource {
     pub(crate) sql: String,
     pub(crate) slots: Vec<(SlotId, EntityKind)>,
-    bindings: Vec<SqlBinding>,
+    bindings: Vec<SqlParameter>,
 }
 
 pub(crate) struct ResolvedRowSource {
@@ -351,14 +141,14 @@ impl RowSource {
     }
 }
 
-fn resolve_bindings(bindings: &[SqlBinding], parameters: &Parameters) -> Result<Vec<SqlValue>> {
+fn resolve_bindings(bindings: &[SqlParameter], parameters: &Parameters) -> Result<Vec<SqlValue>> {
     bindings
         .iter()
         .map(|binding| binding.resolve(parameters))
         .collect()
 }
 
-pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<SqlQuery> {
+pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<CompiledRead> {
     let mut compiler = Compiler::new();
     match input {
         Input::Unit => {}
@@ -424,7 +214,7 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
     if !projection.distinct && (projection.limit.is_some() || projection.offset.is_some()) {
         sql.push_str(" LIMIT ");
         match &projection.limit {
-            Some(limit) => sql.push_str(&compiler.push_binding(SqlBinding::Page(limit.clone()))),
+            Some(limit) => sql.push_str(&compiler.push_binding(SqlParameter::Page(limit.clone()))),
             None => sql.push_str("-1"),
         }
     }
@@ -432,17 +222,20 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Sql
         && let Some(offset) = &projection.offset
     {
         sql.push_str(" OFFSET ");
-        sql.push_str(&compiler.push_binding(SqlBinding::Page(offset.clone())));
+        sql.push_str(&compiler.push_binding(SqlParameter::Page(offset.clone())));
     }
 
     sql = compiler.with_ctes(sql);
 
     debug_assert_eq!(projection.columns.len(), output_shapes.len());
-    Ok(SqlQuery {
-        sql,
-        columns: projection.columns.clone(),
-        output_shapes,
-        bindings: compiler.bindings,
+    Ok(CompiledRead {
+        fragment: SqlFragment {
+            sql,
+            columns: projection.columns.clone(),
+            output_shapes,
+            arguments: compiler.bindings,
+            inputs: compiler.inputs,
+        },
         distinct: projection.distinct,
         post_offset: projection
             .distinct
@@ -472,10 +265,20 @@ pub(crate) fn compile_row_source(plan: &MatchPlan) -> Result<RowSource> {
         .collect::<Result<Vec<_>>>()?;
     let sql = compiler.select_sql(&select);
 
+    let bindings = compiler
+        .bindings
+        .into_iter()
+        .map(|argument| match argument {
+            FragmentArgument::Static(parameter) => Ok(parameter),
+            FragmentArgument::Runtime(_) => Err(Error::Data(
+                "mutation row source contains a runtime input".into(),
+            )),
+        })
+        .collect::<Result<Vec<_>>>()?;
     Ok(RowSource {
         sql,
         slots: compiler.scanned,
-        bindings: compiler.bindings,
+        bindings,
     })
 }
 
@@ -511,9 +314,15 @@ struct HybridVariableLengthSpec<'a> {
     direction: Direction,
     minimum: usize,
     maximum: Option<usize>,
-    selection: TrailSelection,
+    kind: HybridExpansionKind,
     relationship_type: Option<&'a str>,
     properties: &'a [(String, ValueExpr)],
+}
+
+#[derive(Clone, Copy, Debug)]
+enum HybridExpansionKind {
+    Trails,
+    Shortest(ShortestMode),
 }
 
 #[derive(Clone, Debug)]
@@ -531,7 +340,8 @@ struct Compiler {
     from: Vec<String>,
     filters: Vec<String>,
     ordering: Option<String>,
-    bindings: Vec<SqlBinding>,
+    bindings: Vec<FragmentArgument>,
+    inputs: Vec<ValueOperator>,
     ctes: Vec<(String, String)>,
     has_recursive_cte: bool,
 }
@@ -546,6 +356,7 @@ impl Compiler {
             scanned: Vec::new(),
             from: Vec::new(),
             filters: Vec::new(),
+            inputs: Vec::new(),
             ordering: None,
             bindings: Vec::new(),
             ctes: Vec::new(),
@@ -568,7 +379,7 @@ impl Compiler {
                 }
                 MatchOperator::HasLabel { slot, label } => {
                     let label_sql = self.entity_field(*slot, "label")?;
-                    let value = self.push_binding(SqlBinding::Text(label.clone()));
+                    let value = self.push_binding(SqlParameter::Text(label.clone()));
                     self.filters.push(format!("{label_sql} = {value}"));
                 }
                 MatchOperator::HasRelationshipType {
@@ -576,7 +387,7 @@ impl Compiler {
                     relationship_type,
                 } => {
                     let type_sql = self.entity_field(*slot, "type")?;
-                    let value = self.push_binding(SqlBinding::Text(relationship_type.clone()));
+                    let value = self.push_binding(SqlParameter::Text(relationship_type.clone()));
                     self.filters.push(format!("{type_sql} = {value}"));
                 }
                 MatchOperator::PropertyEquals { slot, key, value } => {
@@ -647,7 +458,7 @@ impl Compiler {
                         direction: *direction,
                         minimum: *minimum,
                         maximum: *maximum,
-                        selection: TrailSelection::AllTrails,
+                        kind: HybridExpansionKind::Trails,
                         relationship_type: relationship_type.as_deref(),
                         properties,
                     })?;
@@ -670,11 +481,11 @@ impl Compiler {
                         direction: *direction,
                         minimum: *minimum,
                         maximum: *maximum,
-                        selection: if *all {
-                            TrailSelection::AllShortest
+                        kind: HybridExpansionKind::Shortest(if *all {
+                            ShortestMode::All
                         } else {
-                            TrailSelection::OneShortest
-                        },
+                            ShortestMode::One
+                        }),
                         relationship_type: relationship_type.as_deref(),
                         properties,
                     })?;
@@ -800,7 +611,7 @@ impl Compiler {
             ),
         ];
         if let Some(relationship_type) = relationship_type {
-            let expected = self.push_binding(SqlBinding::Text(relationship_type.to_owned()));
+            let expected = self.push_binding(SqlParameter::Text(relationship_type.to_owned()));
             recursive_filters.push(format!("{edge}.edge_type = {expected}"));
         }
         for (key, expected) in properties {
@@ -864,7 +675,7 @@ impl Compiler {
             direction,
             minimum,
             maximum,
-            selection,
+            kind,
             relationship_type,
             properties,
         } = spec;
@@ -877,15 +688,24 @@ impl Compiler {
 
         let (edge_sql, edge_bindings) =
             Self::compile_eligible_edge_query(relationship_type, properties);
-        let input = self.push_binding(SqlBinding::TrailExpansion(TrailExpansionSpec {
+        let output = RuntimeSlot(self.inputs.len());
+        let spec = TrailExpansionSpec {
             traversal,
             direction: direction.into(),
             minimum,
             maximum,
-            selection,
             edge_sql,
             edge_bindings,
-        }));
+        };
+        let operator = match kind {
+            HybridExpansionKind::Trails => ValueOperator::TrailExpand { output, spec },
+            HybridExpansionKind::Shortest(mode) => {
+                ValueOperator::ShortestExpand { output, mode, spec }
+            }
+        };
+        self.inputs.push(operator);
+        self.bindings.push(FragmentArgument::Runtime(output));
+        let input = format!("?{}", self.bindings.len());
         let relation = format!("trail_result{}", traversal.0);
         let row = format!("{relation}.value");
         self.from.push(format!("json_each({input}) AS {relation}"));
@@ -916,12 +736,12 @@ impl Compiler {
     fn compile_eligible_edge_query(
         relationship_type: Option<&str>,
         properties: &[(String, ValueExpr)],
-    ) -> (String, Vec<SqlBinding>) {
+    ) -> (String, Vec<SqlParameter>) {
         let mut compiler = Self::new();
         let edge = "trail_edge";
         let mut filters = Vec::new();
         if let Some(relationship_type) = relationship_type {
-            let expected = compiler.push_binding(SqlBinding::Text(relationship_type.to_owned()));
+            let expected = compiler.push_binding(SqlParameter::Text(relationship_type.to_owned()));
             filters.push(format!("{edge}.edge_type = {expected}"));
         }
         for (key, expected) in properties {
@@ -941,7 +761,15 @@ impl Compiler {
             sql.push_str(&filters.join(" AND "));
         }
         sql.push_str(&format!(" ORDER BY {edge}.id"));
-        (sql, compiler.bindings)
+        let bindings = compiler
+            .bindings
+            .into_iter()
+            .map(|argument| match argument {
+                FragmentArgument::Static(parameter) => parameter,
+                FragmentArgument::Runtime(_) => unreachable!("edge filters are SQL-only"),
+            })
+            .collect();
+        (sql, bindings)
     }
 
     fn compile_relationship_uniqueness(&mut self, relationships: &[RelationshipUse]) -> Result<()> {
@@ -1214,13 +1042,13 @@ impl Compiler {
         if stage.limit.is_some() || stage.offset.is_some() {
             sql.push_str(" LIMIT ");
             match &stage.limit {
-                Some(limit) => sql.push_str(&self.push_binding(SqlBinding::Page(limit.clone()))),
+                Some(limit) => sql.push_str(&self.push_binding(SqlParameter::Page(limit.clone()))),
                 None => sql.push_str("-1"),
             }
         }
         if let Some(offset) = &stage.offset {
             sql.push_str(" OFFSET ");
-            sql.push_str(&self.push_binding(SqlBinding::Page(offset.clone())));
+            sql.push_str(&self.push_binding(SqlParameter::Page(offset.clone())));
         }
 
         let stage_index = self.ctes.len();
@@ -1577,7 +1405,7 @@ impl Compiler {
                 ))
             }
             Expr::Value(value) => {
-                let json = self.push_binding(SqlBinding::Json(value.clone()));
+                let json = self.push_binding(SqlParameter::Json(value.clone()));
                 let json = format!("json({json})");
                 Ok((
                     format!("json_extract({json}, '$')"),
@@ -1880,7 +1708,7 @@ impl Compiler {
     }
 
     fn json_property_parts(&mut self, props: String, key: &str) -> (String, String) {
-        let path = self.push_binding(SqlBinding::Text(key.to_owned()));
+        let path = self.push_binding(SqlParameter::Text(key.to_owned()));
         let json_path = format!("'$.' || json_quote({path})");
         (
             format!("json_extract({props}, {json_path})"),
@@ -1895,8 +1723,8 @@ impl Compiler {
         expected: ValueExpr,
         operator: BinaryOp,
     ) -> String {
-        let expected_scalar = self.push_binding(SqlBinding::Scalar(expected.clone()));
-        let expected_json = self.push_binding(SqlBinding::Json(expected));
+        let expected_scalar = self.push_binding(SqlParameter::Scalar(expected.clone()));
+        let expected_json = self.push_binding(SqlParameter::Json(expected));
         let expected_type = format!("json_type(json({expected_json}))");
         typed_sql_comparison(
             &property,
@@ -1907,8 +1735,8 @@ impl Compiler {
         )
     }
 
-    fn push_binding(&mut self, binding: SqlBinding) -> String {
-        self.bindings.push(binding);
+    fn push_binding(&mut self, binding: SqlParameter) -> String {
+        self.bindings.push(FragmentArgument::Static(binding));
         format!("?{}", self.bindings.len())
     }
 }
@@ -2149,14 +1977,14 @@ mod tests {
         );
         assert!(plan.has_path_identity_output());
         let branch = plan.render_physical(false);
-        assert!(branch.contains("rust-stage: semantic-distinct then pagination\n"));
+        assert!(branch.contains("operator 1: semantic-distinct"));
+        assert!(branch.contains("operator 2: pagination"));
         assert!(!branch.contains("batch-hydrate-paths"));
         let root = plan.render_physical(true);
-        assert!(
-            root.contains(
-                "rust-stage: semantic-distinct then pagination then batch-hydrate-paths\n"
-            )
-        );
+        let distinct = root.find(": semantic-distinct").unwrap();
+        let pagination = root.find(": pagination").unwrap();
+        let hydration = root.find(": batch-hydrate-paths").unwrap();
+        assert!(distinct < pagination && pagination < hydration);
     }
 
     #[test]
@@ -2196,15 +2024,17 @@ mod tests {
         assert!(!plan.sql.contains("_crabnet_walk_"));
         let physical = plan.render_physical(true);
         assert!(physical.contains(
-            "rust-stage: trail-expand traversal=~0 direction=right bounds=2..unbounded bind=?1"
+            "operator 0: trail-expand output=%r0 traversal=~0 direction=right bounds=2..unbounded"
         ));
 
         let parameters = Parameters::from([("open".to_owned(), Value::Bool(true))]);
         let bindings = plan
-            .resolve_bindings(&parameters, |spec| {
+            .resolve_bindings(&parameters, |input| {
+                let PreparedValueOperator::TrailExpand { spec, .. } = input else {
+                    panic!("expected a trail expansion")
+                };
                 assert_eq!(spec.traversal, 0);
                 assert_eq!(spec.direction, TrailDirection::Right);
-                assert_eq!(spec.selection, TrailSelection::AllTrails);
                 assert_eq!((spec.minimum, spec.maximum), (2, None));
                 assert!(spec.edge_sql.contains("FROM edges AS trail_edge"));
                 assert!(spec.edge_sql.contains("trail_edge.edge_type = ?1"));
@@ -2226,9 +2056,9 @@ mod tests {
 
     #[test]
     fn shortest_path_selection_is_exposed_to_the_runtime_and_physical_plan() {
-        for (all, expected_selection, expected_mode) in [
-            (false, TrailSelection::OneShortest, "one"),
-            (true, TrailSelection::AllShortest, "all"),
+        for (all, expected_mode, expected_name) in [
+            (false, ShortestMode::One, "one"),
+            (true, ShortestMode::All, "all"),
         ] {
             let input = Input::Match(MatchPlan {
                 operators: vec![
@@ -2270,13 +2100,16 @@ mod tests {
             assert!(plan.sql.contains("'$.used_edges'"));
             assert!(!plan.sql.contains("_crabnet_walk_"));
             assert!(plan.render_physical(true).contains(&format!(
-                "rust-stage: shortest-expand mode={expected_mode} traversal=~0 direction=right bounds=1..4 bind=?1"
+                "operator 0: shortest-expand mode={expected_name} output=%r0 traversal=~0 direction=right bounds=1..4"
             )));
 
             let parameters = Parameters::from([("open".to_owned(), Value::Bool(true))]);
             let bindings = plan
-                .resolve_bindings(&parameters, |spec| {
-                    assert_eq!(spec.selection, expected_selection);
+                .resolve_bindings(&parameters, |input| {
+                    let PreparedValueOperator::ShortestExpand { mode, spec, .. } = input else {
+                        panic!("expected a shortest expansion")
+                    };
+                    assert_eq!(*mode, expected_mode);
                     assert_eq!(spec.direction, TrailDirection::Right);
                     assert_eq!((spec.minimum, spec.maximum), (1, Some(4)));
                     assert!(spec.edge_sql.contains("FROM edges AS trail_edge"));
@@ -2362,13 +2195,13 @@ mod tests {
         let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
 
         assert!(plan.sql.contains("_crabnet_with_1 AS MATERIALIZED"));
-        for index in 1..=plan.bindings.len() {
+        for index in 1..=plan.arguments.len() {
             assert!(
                 plan.sql.contains(&format!("?{index}")),
                 "missing bind position ?{index} in {}",
                 plan.sql
             );
         }
-        assert!(!plan.sql.contains(&format!("?{}", plan.bindings.len() + 1)));
+        assert!(!plan.sql.contains(&format!("?{}", plan.arguments.len() + 1)));
     }
 }

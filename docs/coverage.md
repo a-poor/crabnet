@@ -95,10 +95,11 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Writes in a `WITH` pipeline | Rejected | The composable clause pipeline is read-only; a mutation clause anywhere in it fails during planning |
 | Writes fed by traversal or named paths | Rejected | A mutation whose matched input contains variable-length or shortest-path traversal, a relationship-list binding, or any named path fails before execution and cannot leave side effects; see the write-rejection cases in `bounded_traversal.rs`, `unbounded_traversal.rs`, `path_values.rs`, `relationship_list_values.rs`, and `shortest_paths.rs` |
 | Computed projections and projection modifiers after mutations | Rejected | Computed expressions, `DISTINCT`, ordering, skip/offset, and limit after a mutation are not yet executed |
-| Query-wide graph-value hydration | Covered | After branch-local semantic distinctness/pagination and left-to-right unions, IDs surviving in paths, path-function lists, and relationship-list bindings are deduplicated query-wide. Directly projected entities seed the cache; remaining values use at most one node query and one edge query. Hybrid trail-input reads, branches, and hydration share one deferred read snapshot; concurrent external writers remain outside the project goal |
-| Hybrid traversal work guard | Partial | Deep/open-ended enumeration and shortest-path BFS share a fixed 100,000 explored-trail-state budget across the top-level query and fail with `Error::ResourceLimit` instead of truncating. Both Rust strategies fully materialize graph inputs and JSON relations; public exhaustion, cross-branch sharing, payload accounting, and selective seeding remain backlog work |
+| Query-wide graph-value hydration | Covered | After branch-local semantic distinctness/pagination and left-to-right unions, IDs surviving in paths, path-function lists, and relationship-list bindings are deduplicated query-wide. Directly projected entities seed the cache; remaining values use at most one node query and one edge query. Runtime producers, SQL fragments, unions, and hydration share one deferred read snapshot; concurrent external writers remain outside the project goal |
+| Hybrid traversal work guard | Partial | Deep/open-ended enumeration and shortest-path BFS share a fixed 100,000 explored-trail-state budget across every producer and `UNION` branch in the top-level query and fail with `Error::ResourceLimit` instead of truncating. Focused executor tests inject exhaustion and prove cross-branch sharing. Public default-budget exhaustion, payload accounting, and selective seeding remain backlog work |
 | Normalized logical-plan explanation | Covered | `crabnet::explain` renders clause stages, named-path bindings, bounded/hybrid ranges and `expand-shortest` mode/bounds, aggregate expressions, union branches, scopes, graph operators, and projections without depending on incidental backend aliases |
-| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders recursive CTEs or Rust `trail-expand`/`shortest-expand` stages before consuming SQLite fragments, plus bind positions, optional joins, union and row-shaping stages, and final query-wide hydration; traversal and shortest-path suites cover strategy and stage order |
+| Hybrid physical operator boundary | Covered | For the supported shape of one SQL fragment per branch, read plans are explicit trees of SQLite fragments, Rust value producers, semantic distinct/pagination, left-associated unions, and one root hydration operator. Runtime slots replace traversal-specific SQL bindings. Whole-tree preparation resolves every branch before execution; one snapshot and one traversal budget flow through the executor |
+| SQLite physical-plan explanation | Covered | `crabnet::explain_physical` renders numbered `trail-expand`/`shortest-expand`, `sqlite-fragment`, semantic-distinct, pagination, union, and batch-hydration operators. SQL remains visible beneath its fragment with ordered static/runtime bind descriptors; `tests/physical_plan.rs` covers pure SQL, runtime slots, shaping, union, and hydration order |
 
 ## Prioritized next-test backlog
 
@@ -109,8 +110,9 @@ move the row into the matrix when green.
 1. The parser gap for a labeled node immediately following a relationship-local
    `WHERE` predicate; promote the existing partial coverage after the parser accepts it.
 2. Relationship-property matching across boolean/numeric and nested structured values.
-3. Public-API exhaustion and cross-branch sharing of the hybrid traversal work budget.
-4. A general physical split for arbitrary non-pushable operators, plus selective
+3. Public-API exhaustion at the default traversal budget, plus selective
    traversal seeding and payload-byte accounting.
-5. Curated openCypher TCK and differential tests after the selected scenarios' setup
-   clauses and any required path values can be represented faithfully.
+4. Exercise the general physical boundary with the next non-pushable read
+   construct, likely exact pre-bound relationship-list matching.
+5. Curated openCypher TCK and differential tests after the selected scenarios'
+   setup clauses and any required path values can be represented faithfully.

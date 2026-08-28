@@ -770,10 +770,10 @@ fn logical_and_physical_explain_show_the_rust_bfs_boundary() {
     assert!(all_logical.contains("bounds=1..4"));
 
     let physical = explain_physical(one).unwrap();
-    assert!(physical.contains("rust-stage: shortest-expand mode=one"));
+    assert!(physical.contains("shortest-expand mode=one"));
     assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
-    assert_stage_precedes(&physical, "rust-stage: shortest-expand", "sqlite-fragment:");
-    assert_stage_precedes(&physical, "sqlite-fragment:", "batch-hydrate-paths");
+    assert_stage_precedes(&physical, "shortest-expand", "sqlite-fragment");
+    assert_stage_precedes(&physical, "sqlite-fragment", "batch-hydrate-paths");
 }
 
 #[test]

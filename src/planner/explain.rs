@@ -863,7 +863,7 @@ mod tests {
         let physical = explain_physical(query).unwrap();
         assert!(physical.contains("_crabnet_unwind_1 AS MATERIALIZED"));
         assert!(physical.contains("json_each(CASE WHEN"));
-        assert!(physical.contains("  rust-stage: none"));
+        assert!(physical.contains("operator 0: sqlite-fragment"));
     }
 
     #[test]
@@ -879,10 +879,10 @@ mod tests {
         assert!(logical.contains("  union: semantic-distinct\n  branch 2:\n"));
 
         let physical = explain_physical(query).unwrap();
-        assert!(physical.starts_with("physical-union\n  branch 0:\n"));
-        assert_eq!(physical.matches("    physical-query\n").count(), 3);
-        assert!(physical.contains("  union: all\n  branch 1:\n"));
-        assert!(physical.contains("  union: semantic-distinct\n  branch 2:\n"));
+        assert!(physical.starts_with("physical-plan\n  branch 0:\n"));
+        assert_eq!(physical.matches(": sqlite-fragment").count(), 3);
+        assert!(physical.contains("operator 2: union mode=all"));
+        assert!(physical.contains("operator 4: union mode=semantic-distinct"));
         assert!(!physical.contains("batch-hydrate-paths"));
     }
 
@@ -955,7 +955,7 @@ mod tests {
         assert_eq!(logical.matches("\"journey\" = path(%p0)").count(), 2);
 
         let physical = explain_physical(query).unwrap();
-        assert!(physical.contains("rust-stage: batch-hydrate-paths"));
+        assert!(physical.contains(": batch-hydrate-paths"));
         assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
     }
 
@@ -1038,10 +1038,10 @@ mod tests {
                      ORDER BY name SKIP 1 LIMIT 2";
 
         let physical = explain_physical(query).unwrap();
-        assert!(
-            physical
-                .contains("rust-stage: semantic-distinct then pagination then batch-hydrate-paths")
-        );
+        let distinct = physical.find(": semantic-distinct").unwrap();
+        let pagination = physical.find(": pagination").unwrap();
+        let hydration = physical.find(": batch-hydrate-paths").unwrap();
+        assert!(distinct < pagination && pagination < hydration);
     }
 
     #[test]
@@ -1050,16 +1050,16 @@ mod tests {
         let query = format!("{branch} UNION {branch} UNION ALL {branch}");
 
         let physical = explain_physical(&query).unwrap();
-        assert_eq!(physical.matches("    rust-stage: none\n").count(), 3);
-        assert!(physical.contains("  union: semantic-distinct\n  branch 1:\n"));
-        assert!(physical.contains("  union: all\n  branch 2:\n"));
+        assert_eq!(physical.matches(": sqlite-fragment").count(), 3);
+        assert!(physical.contains("operator 2: union mode=semantic-distinct"));
+        assert!(physical.contains("operator 4: union mode=all"));
         assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
 
         let last_union = physical
-            .rfind("  union: all")
+            .rfind("operator 4: union mode=all")
             .expect("physical plan should contain the final union");
         let hydration = physical
-            .rfind("  rust-stage: batch-hydrate-paths")
+            .rfind(": batch-hydrate-paths")
             .expect("physical plan should contain shared path hydration");
         assert!(
             last_union < hydration,
@@ -1076,10 +1076,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(explanation.starts_with("physical-query\n  sqlite-fragment:\n"));
+        assert!(explanation.starts_with("physical-plan\n  branch 0:\n"));
         assert!(explanation.contains("WITH _crabnet_with_0 AS MATERIALIZED"));
         assert!(explanation.contains("_crabnet_with_1 AS MATERIALIZED"));
         assert!(explanation.contains("      ?1 json"));
-        assert!(explanation.contains("  rust-stage: none"));
+        assert_eq!(explanation.matches("sqlite-fragment").count(), 1);
     }
 }

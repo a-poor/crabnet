@@ -211,14 +211,17 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-Milestone 8 is in progress: named paths, path functions, legacy
-relationship-list bindings, query-wide batch hydration, deep/open-ended trail
-expansion, and legacy shortest-path BFS are green. `tests/path_values.rs`,
-`tests/relationship_list_values.rs`, `tests/unbounded_traversal.rs`,
-`tests/shortest_paths.rs`, and focused planner/database unit tests lock down
-pending-row shaping, ordered typed lists, semantic distinct/union equality,
-clause-wide trail uniqueness, parameter preflight, aliases, BFS selection, the
-shared work guard, and hydration. The next active TDD slice is a general
-physical boundary for arbitrary non-pushable operators; payload accounting and
-selective traversal seeding remain explicit hardening work.
-Concurrent external-writer behavior remains outside the test goal.
+Milestone 8 is complete for the supported read subset. Named paths, path
+functions, relationship-list bindings, query-wide batch hydration,
+deep/open-ended trail expansion, shortest-path BFS, and the explicit physical
+operator boundary are green. `tests/physical_plan.rs` locks down pure SQL,
+multiple runtime slots, shortest modes, branch-local shaping, unions, and one
+root hydration operator. Planner/database unit tests additionally prove
+whole-tree parameter preparation and one work budget across `UNION` branches;
+the path and traversal integration suites remain the semantic oracle.
+
+The next active TDD slices belong to milestone 9: broader planner invariants,
+the remaining parser/property gaps, and the next non-pushable read operator.
+Payload accounting, public default-budget exhaustion, and selective traversal
+seeding remain explicit hardening work. Concurrent external-writer behavior
+remains outside the test goal.
