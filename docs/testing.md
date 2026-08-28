@@ -71,6 +71,11 @@ end-to-end result test for user-visible semantics.
   `WITH` aliases; and the current rejection boundary. It also verifies that
   branch-local distinctness/pagination and left-to-right unions shape pending
   path identities before one query-wide batch hydration stage.
+- `tests/relationship_list_values.rs` covers fresh bounded legacy
+  relationship-list bindings, zero-hop empty lists, traversal order versus
+  stored endpoint direction, named-path coexistence, direct and `WITH` aliases,
+  semantic distinctness/pagination, unions, query-wide hydration, scope, and
+  the explicit unsupported contexts.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.
@@ -126,6 +131,7 @@ cargo test --test matched_mutations set_equals_replaces_the_complete_property_ma
 cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
 cargo test --test bounded_traversal cycles_may_revisit_nodes_but_may_not_reuse_an_edge -- --exact
 cargo test --test path_values fixed_multi_hop_match_returns_a_public_typed_path -- --exact
+cargo test --test relationship_list_values exact_relationship_list_coexists_with_its_named_path -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
 ```
 
@@ -190,10 +196,11 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-Milestone 8 is in progress: named paths, path functions, and query-wide batch
-hydration are green. `tests/path_values.rs` and the focused planner/database
-unit tests lock down pending-row shaping, ordered typed lists, selective ID
-collection, semantic distinct/union equality, aliases, and direct-entity
-seeding. The next active TDD slice is the separate relationship-list pattern
-binding/result contract; deep and unbounded traversal follow later. Concurrent
-external-writer behavior remains outside the test goal.
+Milestone 8 is in progress: named paths, path functions, fresh bounded legacy
+relationship-list bindings, and query-wide batch hydration are green.
+`tests/path_values.rs`, `tests/relationship_list_values.rs`, and the focused
+planner/database unit tests lock down pending-row shaping, ordered typed lists,
+selective ID collection, semantic distinct/union equality, aliases, and
+direct-entity seeding. The next active TDD slice is deep and unbounded traversal
+through the hybrid executor. Concurrent external-writer behavior remains
+outside the test goal.

@@ -649,14 +649,6 @@ fn optional_and_write_fed_path_bindings_remain_explicitly_unsupported() {
         Err(Error::Unsupported(_))
     ));
     assert!(matches!(
-        database.execute("MATCH path = (a:PathNode)-[edges:NEXT*1..1]->(b:PathNode) RETURN path"),
-        Err(Error::Unsupported(_))
-    ));
-    assert!(matches!(
-        database.execute("MATCH (a:PathNode)-[edges:NEXT*1..2]->(b:PathNode) RETURN edges"),
-        Err(Error::Unsupported(_))
-    ));
-    assert!(matches!(
         database.execute(
             "MATCH path = (a:PathNode)-[:NEXT]->(b:PathNode) \
              CREATE (:PathWriteSideEffect) RETURN path"

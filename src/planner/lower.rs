@@ -548,12 +548,6 @@ impl<'source> Lowerer<'source> {
                     ));
                 }
                 (Some(quantifier), None) => {
-                    if relationship_pattern.variable.is_some() {
-                        return Err(unsupported(
-                            relationship.span,
-                            "variable-length relationship bindings",
-                        ));
-                    }
                     if relationship_pattern.where_clause.is_some() {
                         return Err(unsupported(
                             relationship.span,
@@ -569,6 +563,11 @@ impl<'source> Lowerer<'source> {
                         .transpose()?;
                     let properties =
                         self.match_property_values(relationship_pattern.properties.as_deref())?;
+                    let relationship_list = relationship_pattern
+                        .variable
+                        .as_ref()
+                        .map(|variable| self.bind_relationship_list(variable))
+                        .transpose()?;
                     let right = self.match_node(plan, node_pattern, node.span)?;
                     plan.operators.push(MatchOperator::ExpandVariableLength {
                         traversal,
@@ -580,6 +579,17 @@ impl<'source> Lowerer<'source> {
                         relationship_type,
                         properties,
                     });
+                    if let Some(path) = relationship_list {
+                        plan.operators.push(MatchOperator::BindPath {
+                            path,
+                            start: left,
+                            segments: vec![PathSegment {
+                                left,
+                                relationship: RelationshipUse::Traversal(traversal),
+                                right,
+                            }],
+                        });
+                    }
                     (right, RelationshipUse::Traversal(traversal))
                 }
             };
@@ -603,6 +613,43 @@ impl<'source> Lowerer<'source> {
                 .push(MatchOperator::DistinctRelationships(relationships));
         }
         Ok(MatchedPath { start, segments })
+    }
+
+    fn bind_relationship_list(&mut self, variable: &open_cypher::ast::Name) -> Result<PathId> {
+        let name = &variable.kind.text;
+        if let Some(symbol) = self.symbols.get(name).copied() {
+            return match symbol {
+                Symbol::PathCollection {
+                    kind: PathCollectionKind::Relationships,
+                    ..
+                } => Err(unsupported(
+                    variable.span,
+                    format!(
+                        "matching pre-bound relationship list `{name}` in a variable-length pattern"
+                    ),
+                )),
+                Symbol::Entity(_)
+                | Symbol::Scalar(_)
+                | Symbol::Path(_)
+                | Symbol::PathCollection {
+                    kind: PathCollectionKind::Nodes,
+                    ..
+                } => Err(semantic(
+                    variable.span,
+                    format!("variable `{name}` is already bound as a non-relationship-list value"),
+                )),
+            };
+        }
+
+        let path = self.allocate_path();
+        self.symbols.insert(
+            name.clone(),
+            Symbol::PathCollection {
+                path,
+                kind: PathCollectionKind::Relationships,
+            },
+        );
+        Ok(path)
     }
 
     fn match_node(
@@ -677,7 +724,7 @@ impl<'source> Lowerer<'source> {
             let Symbol::Entity(slot) = symbol else {
                 return Err(semantic(
                     span,
-                    format!("scalar variable `{variable}` cannot be used in a graph pattern"),
+                    format!("non-entity variable `{variable}` cannot be used in a graph pattern"),
                 ));
             };
             if self.kind(slot) != kind {

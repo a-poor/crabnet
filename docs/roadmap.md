@@ -40,6 +40,9 @@ Crabnet already has more than a greenfield skeleton:
   paths, including zero-hop values; SQLite carries ordered IDs into pending
   cells, which Rust shapes before one query-wide batch hydration pass on a
   shared deferred snapshot;
+- fresh bounded legacy relationship variables bind traversal-ordered typed
+  relationship lists, including zero-hop `[]`, through the same query-wide
+  identity shaping and hydration;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically;
 - matched node and relationship properties support direct `SET`/`REMOVE` plus
@@ -236,10 +239,10 @@ propagation, and structured rejection boundaries.
 - Endpoint rows retain one result per relationship sequence across cycles,
   self-loops, diamonds, parallel edges, and dead ends, and compose with the
   existing read pipeline and aggregation.
-- Unbounded traversal, postfix graph quantifiers, named relationship lists,
-  path selectors, quantified `OPTIONAL MATCH`, and traversal-fed writes remain
-  structured rejections. Named path values were deferred at this gate and now
-  have their first supported subset in milestone 8.
+- Unbounded traversal, postfix graph quantifiers, path selectors, quantified
+  `OPTIONAL MATCH`, and traversal-fed writes remain structured rejections.
+  Named path values and named relationship lists were deferred at this gate and
+  now have their first supported subsets in milestone 8.
 
 Gate complete: `tests/bounded_traversal.rs` covers bounds, directions,
 properties, identity paths, adversarial graph shapes, edge-trail uniqueness,
@@ -266,11 +269,17 @@ composition, explicit resource limits, and rejection boundaries.
   uses at most one node query and one edge query.
 - Every branch SQL fragment and hydration query shares one deferred read
   snapshot. Concurrent external-writer semantics beyond it remain a non-goal.
-- Next, define the distinct relationship-list pattern binding/result contract;
-  it is not the same value as a stored edge or a first-class path.
+- The relationship-list slice is green. A fresh bounded legacy binding such as
+  `[rels:TYPE*min..max]` yields traversal-ordered hydrated relationships, with
+  zero hops represented by `[]` and stored endpoint direction preserved. It
+  survives direct returns, `WITH` aliases, semantic distinctness/pagination,
+  and unions, and may coexist with a named path through the same query-wide
+  identity shaping and hydration.
 - Add deep/unbounded traversal, `shortestPath`, and `allShortestPaths` where
-  Rust graph algorithms are clearer than SQL. Optional-bound paths, selectors,
-  and writes fed by a named path remain explicit rejections meanwhile.
+  Rust graph algorithms are clearer than SQL. Exact matching against a
+  pre-bound relationship sequence, optional-bound paths or relationship lists,
+  selectors, and writes fed by a named path or relationship list remain
+  explicit rejections meanwhile.
 - Implement `MERGE` last as transactional whole-pattern match/create behavior,
   not as a misleading single-row SQLite upsert.
 - Render SQL/Rust boundaries in the physical plan.
@@ -295,9 +304,9 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 ## Near-term working order
 
 With the gates from milestones 2–7 complete, milestone 8 hybrid execution is
-now active. Named path values, path functions, and query-wide shared batch
-hydration are green; the relationship-list pattern binding/result contract and
-deep or unbounded traversal remain. Small contract gaps may still be tightened
+now active. Named path values, path functions, fresh bounded legacy
+relationship-list bindings, and query-wide shared batch hydration are green;
+deep or unbounded traversal remains. Small contract gaps may still be tightened
 when a focused test exposes them. The day-to-day loop is documented in
 [testing.md](testing.md); planned-but-inactive cases stay in the coverage
 backlog instead of accumulating as ignored tests.

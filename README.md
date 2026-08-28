@@ -66,6 +66,8 @@ Within those shapes, the first iteration supports:
 - `MATCH` for nodes and fixed-length outgoing, incoming, or undirected patterns
 - anonymous legacy bounded traversal in mandatory `MATCH`: `*n`,
   `*min..max`, and `*..max`, with outgoing, incoming, and undirected direction
+- fresh legacy relationship-list bindings in mandatory read-only `MATCH`, such
+  as `[rels:TYPE*min..max]`, returned as traversal-ordered typed relationships
 - named paths in mandatory read-only `MATCH`, across fixed, bounded, and mixed
   patterns, returned as `CypherValue::Path(PathValue)`
 - `length(path)` as an integer scalar in filters, comparisons, arithmetic,
@@ -165,7 +167,16 @@ empty list. These graph lists may be returned directly or carried through a
 computed `WITH` alias, but they are not yet accepted as predicates, arithmetic
 operands, ordering/grouping keys, aggregate inputs, or `UNWIND` inputs.
 
-Rust keeps path and path-derived graph-list cells pending while branch-local
+A fresh variable on a bounded legacy relationship pattern, for example
+`[rels:NEXT*0..3]`, binds the same public relationship-list value shape. Its
+members follow traversal order while each relationship keeps its stored
+start/end direction, and zero hops bind `[]`. The list may be returned directly,
+carried through a `WITH` alias, shaped by `RETURN DISTINCT` and pagination, and
+combined through `UNION` or `UNION ALL`; it can also coexist with a named path
+for the same pattern. Exact matching against a pre-bound relationship sequence
+and the other graph-list expression contexts above remain unsupported.
+
+Rust keeps path and graph-list cells pending while branch-local
 `RETURN DISTINCT` and deferred pagination, followed by left-to-right
 `UNION`/`UNION ALL`, shape complete typed rows. It then collects only
 surviving IDs query-wide, seeds hydration from directly projected node and
@@ -181,10 +192,11 @@ materialization, every mutation, and post-write result evaluation then share
 one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
-unbounded traversal, postfix graph quantifiers, named variable-length
-relationship lists, path selectors and path property access, named
-paths in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`, traversal-fed writes,
-writes fed by any named path, match modes and hints, parameter-map matching,
+unbounded traversal, postfix graph quantifiers, exact matching against a
+pre-bound relationship sequence, path selectors and path property access,
+named paths or relationship-list bindings in `OPTIONAL MATCH`, quantified
+`OPTIONAL MATCH`, traversal-fed writes (including writes fed by a relationship
+list), writes fed by any named path, match modes and hints, parameter-map matching,
 `RETURN *`, `MERGE`, exponentiation (`^`), concatenation (`||`), computed
 right-hand sides for property updates, and computed projections or
 `DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. Paths also cannot

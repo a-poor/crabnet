@@ -123,7 +123,7 @@ fn compile_logical(query: Query) -> Result<Plan> {
 
     if query.path_slots > 0 {
         return Err(Error::Unsupported(
-            "writes fed by named path bindings".into(),
+            "writes fed by named paths or relationship-list bindings".into(),
         ));
     }
 

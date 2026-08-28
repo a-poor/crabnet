@@ -14,9 +14,9 @@ Cartesian product unless a read query explicitly uses `RETURN DISTINCT`.
 Read-only `RETURN DISTINCT` deduplicates the complete projected pending row
 after SQL cursor materialization and before graph-value hydration. Scalar,
 ordinary collection, and directly projected entity cells already have typed
-`CypherValue` representations. Whole paths and the entity lists produced by
-`nodes(path)` and `relationships(path)` remain compact ordered identities. This
-is a Rust execution stage, not SQLite text or JSON equality. Its semantic
+`CypherValue` representations. Whole paths, path-function entity lists, and
+bounded relationship-list pattern bindings remain compact ordered identities.
+This is a Rust execution stage, not SQLite text or JSON equality. Its semantic
 equivalence rules are:
 
 - all null cells are one equivalence class, including missing and explicit-null
@@ -360,17 +360,27 @@ variables, and wrong variable kinds fail during planning. Property access and
 selectors on a path, plus raw path use as a scalar, aggregate, grouping, or
 ordering expression, remain planning-time rejections. The typed lists from
 `nodes` and `relationships` retain the expression-context restrictions above.
-A legacy relationship variable in `[r*...]` is a different relationship-list
-binding and is also rejected. Named paths in `OPTIONAL MATCH`, unbounded or
+A fresh legacy relationship variable in `[rels:TYPE*min..max]` is a
+relationship-list binding, not a stored relationship or a first-class path. It
+returns a public `CypherValue::List` of typed relationships in traversal order;
+zero hops return `[]`, and each member retains its stored endpoint direction.
+The list can be returned directly, carried through `WITH`, shaped by semantic
+distinctness and pagination, combined through unions, and bound alongside the
+named path for the same pattern.
+
+Exact matching against a pre-bound relationship sequence and use in the scalar,
+aggregate, grouping, ordering, or `UNWIND` contexts above remain unsupported.
+Named paths or relationship-list bindings in `OPTIONAL MATCH`, unbounded or
 deeper traversal, postfix graph quantifiers, shortest-path forms, and writes
-fed by either bounded traversal or any named path remain unsupported.
+fed by bounded traversal, a named path, or a relationship list also remain
+unsupported.
 
 SQLite carries a compact encoding of the ordered node and relationship IDs.
 Rust drains each branch cursor into pending typed rows before another branch or
 hydration query runs. Branch-local semantic `RETURN DISTINCT` and deferred
 pagination run on those pending cells, followed by left-to-right
 `UNION`/`UNION ALL` operations. Only IDs required by surviving whole paths or
-path-derived graph lists are collected and deduplicated query-wide. A
+graph lists are collected and deduplicated query-wide. A
 nodes-only result does not load relationships, and a relationships-only result
 does not load nodes. Directly projected graph entities seed the hydration maps
 from their already-materialized snapshots; Rust then loads every remaining ID
@@ -461,8 +471,9 @@ execution, so an unsupported write statement cannot partially modify the
 graph.
 
 Semantics for unsupported constructs—including path selectors and other path
-expressions beyond the three path functions above, relationship-list pattern
-bindings, optional-bound paths, unbounded or postfix-graph traversal,
+expressions beyond the three path functions above, exact matching against
+pre-bound relationship-list values, optional-bound paths or relationship lists,
+unbounded or postfix-graph traversal,
 quantified optional matching, `MERGE`, label mutation, and computed mutation
 right-hand sides—remain unresolved until those constructs are designed and
 implemented.

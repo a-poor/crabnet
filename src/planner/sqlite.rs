@@ -703,7 +703,9 @@ impl Compiler {
 
     fn compile_optional_match(&mut self, plan: &MatchPlan) -> Result<()> {
         if plan.has_path_binding() {
-            return Err(Error::Unsupported("named paths in OPTIONAL MATCH".into()));
+            return Err(Error::Unsupported(
+                "named paths or relationship-list bindings in OPTIONAL MATCH".into(),
+            ));
         }
         if plan.has_variable_length() {
             return Err(Error::Unsupported(
