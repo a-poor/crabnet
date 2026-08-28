@@ -64,12 +64,13 @@ Within those shapes, the first iteration supports:
 - matched node and relationship `DELETE`, plus `DETACH DELETE` for nodes with
   incident relationships
 - `MATCH` for nodes and fixed-length outgoing, incoming, or undirected patterns
-- anonymous legacy bounded traversal in mandatory `MATCH`: `*n`,
-  `*min..max`, and `*..max`, with outgoing, incoming, and undirected direction
+- anonymous legacy variable-length traversal in mandatory `MATCH`: `*`, `*n`,
+  `*min..max`, `*min..`, `*..max`, and `*..`, with outgoing, incoming, and
+  undirected direction
 - fresh legacy relationship-list bindings in mandatory read-only `MATCH`, such
-  as `[rels:TYPE*min..max]`, returned as traversal-ordered typed relationships
-- named paths in mandatory read-only `MATCH`, across fixed, bounded, and mixed
-  patterns, returned as `CypherValue::Path(PathValue)`
+  as `[rels:TYPE*min..]`, returned as traversal-ordered typed relationships
+- named paths in mandatory read-only `MATCH`, across fixed, bounded,
+  open-ended, and mixed patterns, returned as `CypherValue::Path(PathValue)`
 - `length(path)` as an integer scalar in filters, comparisons, arithmetic,
   ordering, grouping, aggregate arguments, and direct or aliased projections
 - `nodes(path)` and `relationships(path)` as traversal-ordered typed entity
@@ -144,15 +145,27 @@ post-delete `RETURN` reads the materialized pre-delete entity snapshots and
 retains the input bag's row multiplicity. In the current bounded grammar,
 `DELETE` must be the final mutation clause before an optional `RETURN`.
 
-Bounded traversal returns endpoint rows and can contribute to a named path. Its
-upper bound may be at most 32. An omitted lower bound in `*..max` means one,
-while an explicit zero permits the identity path and still applies the endpoint
-node constraints. A reversed range is valid but produces no rows. An optional
-relationship type and inline property map filter every traversed edge. SQLite
-evaluates the traversal as a recursive CTE that carries the ordered node and
-edge IDs used by each candidate: nodes may be revisited, but a stored edge may
-appear only once in one path. Distinct edge sequences retain their normal bag
-multiplicity even when they reach the same endpoint.
+Legacy variable-length traversal returns endpoint rows and can contribute to a
+named path. A bare `*` or `*..` has minimum depth one, while `*0..` explicitly
+includes the zero-hop identity and still applies the endpoint node constraints.
+A reversed bounded range is valid but produces no rows. An optional
+relationship type and inline property map filter every traversed edge. Explicit
+upper bounds through 32 use a recursive SQLite CTE. A bound above 32 or an
+omitted upper bound instead uses Rust to enumerate relationship-unique trails,
+materializes their ordered identities as JSON, and feeds that relation back to
+SQLite for the surrounding joins and row pipeline. In either route, nodes may
+be revisited, but a stored edge may appear only once across all constituent
+patterns in one `MATCH` result; a later `MATCH` starts a new uniqueness scope.
+Distinct edge sequences retain their normal bag multiplicity even when they
+reach the same endpoint.
+
+Deep and open-ended enumeration share a 100,000-trail-state budget across the
+top-level query, including `UNION` branches and multiple hybrid expansions. If
+the query exhausts that budget, execution fails with `Error::ResourceLimit`;
+Crabnet never silently truncates the result. This is a fixed explored-work
+guard, not a memory bound: the current naive stage materializes eligible graph
+inputs and its JSON result relation before SQLite applies selective endpoint
+constraints.
 
 `PathValue` exposes nodes and relationships in traversal order, always with one
 more node than relationship. A zero-hop path therefore has one node and no
@@ -167,8 +180,8 @@ empty list. These graph lists may be returned directly or carried through a
 computed `WITH` alias, but they are not yet accepted as predicates, arithmetic
 operands, ordering/grouping keys, aggregate inputs, or `UNWIND` inputs.
 
-A fresh variable on a bounded legacy relationship pattern, for example
-`[rels:NEXT*0..3]`, binds the same public relationship-list value shape. Its
+A fresh variable on a legacy relationship pattern, for example
+`[rels:NEXT*0..]`, binds the same public relationship-list value shape. Its
 members follow traversal order while each relationship keeps its stored
 start/end direction, and zero hops bind `[]`. The list may be returned directly,
 carried through a `WITH` alias, shaped by `RETURN DISTINCT` and pagination, and
@@ -192,8 +205,8 @@ materialization, every mutation, and post-write result evaluation then share
 one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
-unbounded traversal, postfix graph quantifiers, exact matching against a
-pre-bound relationship sequence, path selectors and path property access,
+postfix graph quantifiers, exact matching against a pre-bound relationship
+sequence, path selectors and path property access,
 named paths or relationship-list bindings in `OPTIONAL MATCH`, quantified
 `OPTIONAL MATCH`, traversal-fed writes (including writes fed by a relationship
 list), writes fed by any named path, match modes and hints, parameter-map matching,
@@ -216,9 +229,11 @@ The planner is deliberately small and layered:
   slot-based row plan in `planner/logical.rs`.
 - `planner/sqlite.rs` compiles reads and mutation row sources to parameterized
   SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
-  projected entity, path, and scalar slots, while bounded traversal becomes a
-  recursive CTE carrying depth plus ordered per-path node/edge identity.
+  projected entity, path, and scalar slots. Explicit traversal bounds through
+  32 become recursive CTEs carrying ordered per-path identity; deep and
+  open-ended traversals reserve a JSON relation supplied by Rust.
 - `database.rs` executes SQL read fragments into pending typed cells, applies
+  relationship-unique Rust trail expansion where requested, applies
   branch-local semantic distinctness and deferred pagination plus left-to-right
   unions, and then batch-hydrates surviving path and path-derived graph-list
   identities into public rows.
@@ -226,10 +241,11 @@ The planner is deliberately small and layered:
   mutations, it materializes all input rows before the first change and applies
   ordered mutation operators to that stable row bag.
 
-Pending-row shaping and path hydration are deliberate hybrid boundaries.
-SQLite produces compact rows; Rust applies semantic row operations before one
-query-wide hydration pass. Directly projected entities can satisfy path
-references without another lookup, and the remaining IDs use at most one node
+Trail expansion, pending-row shaping, and path hydration are deliberate hybrid
+boundaries. Rust materializes deep/open-ended trail identities for SQLite to
+consume, then applies semantic row operations before one query-wide hydration
+pass. Directly projected entities can satisfy path references without another
+lookup, and the remaining IDs use at most one node
 query and one edge query. With `RETURN DISTINCT`, `ORDER BY` is restricted to
 projected expressions or their aliases.
 
@@ -237,8 +253,9 @@ projected expressions or their aliases.
 slots, graph operators, clause stages, and `WITH` scopes without turning
 incidental SQLite aliases into the debug contract.
 `crabnet::explain_physical(cypher)` exposes the generated read SQL/CTEs, bind
-positions, Rust distinct/pagination and union stages, and the final shared
-batch-hydration boundary when backend details matter.
+positions, a Rust `trail-expand` stage before its consuming SQLite fragment,
+Rust distinct/pagination and union stages, and the final shared batch-hydration
+boundary when backend details matter.
 
 Materializing mutation input is intentionally naive, but gives this iteration
 clear snapshot, multiplicity, and rollback behavior. A streaming or more
@@ -299,5 +316,8 @@ contracts are covered in `tests/with_pipeline.rs`. Milestone 5 property and
 deletion contracts are covered in `tests/matched_mutations.rs` and
 `tests/delete_mutations.rs`. Milestone 6 query-composition contracts are
 covered in `tests/aggregation.rs`, `tests/aggregation_edges.rs`,
-`tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs`. Milestone 7
-bounded traversal is covered in `tests/bounded_traversal.rs`.
+`tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs`. Milestone 7's
+SQLite-bounded traversal is covered in `tests/bounded_traversal.rs`. Milestone
+8's path/list transport and hybrid deep/open-ended traversal slices are covered
+in `tests/path_values.rs`, `tests/relationship_list_values.rs`, and
+`tests/unbounded_traversal.rs`.

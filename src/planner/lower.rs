@@ -25,7 +25,7 @@ use super::logical::{
     TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
-pub(super) const MAX_BOUNDED_TRAVERSAL_DEPTH: usize = 32;
+pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
 
 pub(super) struct UnionSource {
     pub(super) head: String,
@@ -443,11 +443,13 @@ impl<'source> Lowerer<'source> {
             ));
         }
         let mut plan = MatchPlan::default();
+        let mut relationships = Vec::new();
         for part in &match_clause.pattern.parts {
             if part.kind.selector.is_some() {
                 return Err(unsupported(part.span, "path selectors"));
             }
             let matched = self.match_path(&mut plan, &part.kind.path.kind.factors, part.span)?;
+            relationships.extend(matched.segments.iter().map(|segment| segment.relationship));
             if let Some(binding) = &part.kind.binding {
                 let name = &binding.kind.text;
                 if self.symbols.contains_key(name) {
@@ -464,6 +466,10 @@ impl<'source> Lowerer<'source> {
                     segments: matched.segments,
                 });
             }
+        }
+        if relationships.len() > 1 {
+            plan.operators
+                .push(MatchOperator::DistinctRelationships(relationships));
         }
         if let Some(predicate) = &match_clause.where_clause {
             plan.operators
@@ -554,7 +560,7 @@ impl<'source> Lowerer<'source> {
                             "predicates on variable-length relationships",
                         ));
                     }
-                    let (minimum, maximum) = bounded_legacy_quantifier(quantifier)?;
+                    let (minimum, maximum) = legacy_quantifier_bounds(quantifier)?;
                     let traversal = self.allocate_traversal();
                     let relationship_type = relationship_pattern
                         .labels
@@ -569,16 +575,31 @@ impl<'source> Lowerer<'source> {
                         .map(|variable| self.bind_relationship_list(variable))
                         .transpose()?;
                     let right = self.match_node(plan, node_pattern, node.span)?;
-                    plan.operators.push(MatchOperator::ExpandVariableLength {
-                        traversal,
-                        left,
-                        right,
-                        direction,
-                        minimum,
-                        maximum,
-                        relationship_type,
-                        properties,
-                    });
+                    let expansion = match maximum {
+                        Some(maximum) if maximum <= MAX_SQLITE_VARIABLE_LENGTH_DEPTH => {
+                            MatchOperator::ExpandVariableLength {
+                                traversal,
+                                left,
+                                right,
+                                direction,
+                                minimum,
+                                maximum,
+                                relationship_type,
+                                properties,
+                            }
+                        }
+                        maximum => MatchOperator::ExpandHybridVariableLength {
+                            traversal,
+                            left,
+                            right,
+                            direction,
+                            minimum,
+                            maximum,
+                            relationship_type,
+                            properties,
+                        },
+                    };
+                    plan.operators.push(expansion);
                     if let Some(path) = relationship_list {
                         plan.operators.push(MatchOperator::BindPath {
                             path,
@@ -607,10 +628,6 @@ impl<'source> Lowerer<'source> {
             });
             left = right;
             remaining = rest;
-        }
-        if relationships.len() > 1 {
-            plan.operators
-                .push(MatchOperator::DistinctRelationships(relationships));
         }
         Ok(MatchedPath { start, segments })
     }
@@ -2028,7 +2045,7 @@ fn integer_parts(integer: &open_cypher::ast::IntegerLiteral) -> Result<(String, 
     }
 }
 
-fn bounded_legacy_quantifier(quantifier: &Quantifier) -> Result<(usize, usize)> {
+fn legacy_quantifier_bounds(quantifier: &Quantifier) -> Result<(usize, Option<usize>)> {
     let parse_bound = |text: &str| {
         text.replace('_', "").parse::<usize>().map_err(|_| {
             semantic(
@@ -2041,26 +2058,21 @@ fn bounded_legacy_quantifier(quantifier: &Quantifier) -> Result<(usize, usize)> 
     let (minimum, maximum) = match &quantifier.kind {
         QuantifierKind::Fixed(value) => {
             let value = parse_bound(value)?;
-            (value, value)
+            (value, Some(value))
         }
         QuantifierKind::Range { lower, upper } => {
-            let Some(upper) = upper else {
-                return Err(unsupported(
-                    quantifier.span,
-                    "unbounded variable-length traversal",
-                ));
-            };
             // Legacy openCypher ranges default the omitted lower bound to one.
             // Zero-hop traversal must be requested explicitly with `*0...`.
             (
                 lower.as_deref().map(parse_bound).transpose()?.unwrap_or(1),
-                parse_bound(upper)?,
+                upper.as_deref().map(parse_bound).transpose()?,
             )
         }
-        QuantifierKind::ZeroOrMore | QuantifierKind::OneOrMore => {
+        QuantifierKind::ZeroOrMore => (1, None),
+        QuantifierKind::OneOrMore => {
             return Err(unsupported(
                 quantifier.span,
-                "unbounded variable-length traversal",
+                "legacy variable-length quantifier",
             ));
         }
         QuantifierKind::Optional => {
@@ -2074,15 +2086,6 @@ fn bounded_legacy_quantifier(quantifier: &Quantifier) -> Result<(usize, usize)> 
         }
     };
 
-    if maximum > MAX_BOUNDED_TRAVERSAL_DEPTH {
-        return Err(unsupported(
-            quantifier.span,
-            format!(
-                "variable-length upper bound {maximum} exceeds the traversal limit of \
-                 {MAX_BOUNDED_TRAVERSAL_DEPTH}"
-            ),
-        ));
-    }
     Ok((minimum, maximum))
 }
 

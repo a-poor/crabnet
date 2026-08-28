@@ -508,10 +508,10 @@ fn relationship_property_parameters_keep_bind_positions_across_with() {
 }
 
 #[test]
-fn documented_depth_cap_is_inclusive_and_cap_plus_one_is_rejected() {
+fn sqlite_depth_threshold_is_inclusive_and_deeper_bounds_are_supported() {
     let mut database = Database::in_memory().unwrap();
     let mut create = String::from("CREATE ");
-    for depth in 0..=32 {
+    for depth in 0..=33 {
         if depth > 0 {
             create.push_str("-[:NEXT]->");
         }
@@ -527,23 +527,20 @@ fn documented_depth_cap_is_inclusive_and_cap_plus_one_is_rejected() {
         .unwrap();
     assert_eq!(at_cap.rows, [vec![CypherValue::Integer(32)]]);
 
-    assert!(matches!(
-        database.execute(
+    let beyond_sql_threshold = database
+        .execute(
             "MATCH (:DepthCapNode {depth: 0})-[:NEXT*33]->(end:DepthCapNode) \
-             RETURN end"
-        ),
-        Err(Error::Unsupported(_))
-    ));
+             RETURN end.depth AS depth",
+        )
+        .unwrap();
+    assert_eq!(beyond_sql_threshold.rows, [vec![CypherValue::Integer(33)]]);
 }
 
 #[test]
-fn unbounded_and_broader_quantified_forms_are_structured_rejections() {
+fn optional_and_postfix_quantified_forms_are_structured_rejections() {
     let mut database = Database::in_memory().unwrap();
 
     for query in [
-        "MATCH (a)-[*]->(b) RETURN b",
-        "MATCH (a)-[*1..]->(b) RETURN b",
-        "MATCH (a)-[*..]->(b) RETURN b",
         "OPTIONAL MATCH (a)-[:LINK*1..2]->(b) RETURN b",
         "MATCH (a)-[:LINK]->{1, 2}(b) RETURN b",
     ] {

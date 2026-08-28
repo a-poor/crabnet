@@ -17,6 +17,8 @@ use crate::{
     },
 };
 
+mod traversal;
+
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
 const SCHEMA_VERSION: i64 = 1;
 
@@ -103,7 +105,8 @@ impl Database {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Deferred)?;
-        let result = execute_read_plan(&transaction, plan, parameters)?;
+        let mut trail_budget = traversal::TrailBudget::default();
+        let result = execute_read_plan(&transaction, plan, parameters, &mut trail_budget)?;
         transaction.commit()?;
         Ok(result)
     }
@@ -269,7 +272,11 @@ fn execute_read_plan(
     connection: &Connection,
     plan: ReadPlan,
     parameters: &Parameters,
+    trail_budget: &mut traversal::TrailBudget,
 ) -> Result<QueryResult> {
+    for branch in &plan.branches {
+        branch.preflight(parameters)?;
+    }
     let first = plan
         .branches
         .first()
@@ -282,9 +289,15 @@ fn execute_read_plan(
             .next()
             .expect("read plans always contain at least one branch"),
         parameters,
+        trail_budget,
     )?;
     for (kind, branch) in plan.unions.iter().zip(branches) {
-        rows.extend(execute_sql_query(connection, branch, parameters)?);
+        rows.extend(execute_sql_query(
+            connection,
+            branch,
+            parameters,
+            trail_budget,
+        )?);
         if *kind == UnionKind::Distinct {
             rows = distinct_pending_rows(rows);
         }
@@ -301,9 +314,12 @@ fn execute_sql_query(
     connection: &Connection,
     plan: &SqlQuery,
     parameters: &Parameters,
+    trail_budget: &mut traversal::TrailBudget,
 ) -> Result<Vec<PendingRow>> {
-    let bindings = plan.resolve_bindings(parameters)?;
     let post_pagination = plan.resolve_post_pagination(parameters)?;
+    let bindings = plan.resolve_bindings(parameters, |spec| {
+        traversal::materialize(connection, spec, trail_budget)
+    })?;
     debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
 
     // Completely drain and drop the SQLite cursor before a later Rust stage
@@ -1320,6 +1336,79 @@ fn validate_schema(connection: &Connection) -> Result<()> {
 mod tests {
     use super::*;
     use rusqlite::OptionalExtension;
+
+    #[test]
+    fn distinct_pagination_parameters_preflight_before_trail_materialization() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:Preflight)-[:LINK]->(:Preflight)")
+            .unwrap();
+        let Plan::Read(plan) = planner::compile(
+            "MATCH (:Preflight)-[:LINK*]->(end) RETURN DISTINCT end LIMIT $missing",
+        )
+        .unwrap() else {
+            panic!("expected a read plan");
+        };
+        let branch = plan
+            .branches
+            .first()
+            .expect("read plans always contain a branch");
+        let mut budget = traversal::TrailBudget::new(0);
+
+        let error = execute_sql_query(
+            &database.connection,
+            branch,
+            &Parameters::new(),
+            &mut budget,
+        )
+        .unwrap_err();
+
+        assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
+    }
+
+    #[test]
+    fn all_union_parameters_preflight_before_branch_materialization() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:Preflight)-[:LINK]->(:Preflight)")
+            .unwrap();
+        let Plan::Read(plan) = planner::compile(
+            "MATCH (:Preflight)-[:LINK*]->(end) RETURN end AS value UNION ALL MATCH (node) RETURN $missing AS value",
+        )
+        .unwrap()
+        else {
+            panic!("expected a read plan");
+        };
+        let mut budget = traversal::TrailBudget::new(0);
+
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
+            .unwrap_err();
+
+        assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
+    }
+
+    #[test]
+    fn trail_resource_limit_propagates_through_the_executor() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:BudgetStart)-[:LINK]->(:BudgetEnd)")
+            .unwrap();
+        let Plan::Read(plan) =
+            planner::compile("MATCH (:BudgetStart)-[:LINK*]->(end) RETURN end").unwrap()
+        else {
+            panic!("expected a read plan");
+        };
+        let mut budget = traversal::TrailBudget::new(0);
+
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::Error::ResourceLimit(message)
+                if message.contains("trail expansion") && message.contains("0-state budget")
+        ));
+    }
 
     #[test]
     fn distinct_numeric_equivalence_does_not_round_large_integers_through_f64() {

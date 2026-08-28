@@ -7,7 +7,9 @@ use crate::{Error, Parameters, Result};
 
 pub(crate) use logical::{EntityKind, ResolvedExpr, SlotId};
 use logical::{Input, Mutation, Projection, Query, require_object, validate_storable_value};
-pub(crate) use sqlite::{OutputShape, ResolvedRowSource, SqlQuery};
+pub(crate) use sqlite::{
+    OutputShape, ResolvedRowSource, ResolvedTrailExpansion, SqlQuery, TrailDirection,
+};
 
 pub(crate) enum Plan {
     Read(ReadPlan),

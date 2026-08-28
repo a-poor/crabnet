@@ -295,7 +295,7 @@ pattern may omit its type or specify one type. A created relationship must
 specify exactly one type. Multiple and boolean relationship-type expressions
 are unsupported. `type(relationship)` returns the relationship's single type.
 
-## Paths, direction, and bounded traversal
+## Paths, direction, and variable-length traversal
 
 Every stored edge is directed from `from_node` to `to_node`. A right-arrow
 pattern matches that direction, a left-arrow pattern matches the reverse
@@ -303,40 +303,54 @@ spelling, and an undirected `MATCH` pattern accepts either orientation. An
 undirected `CREATE` is unsupported; left- and right-arrow creates are stored in
 the direction indicated by the arrow.
 
-Within one fixed-length path pattern, one stored relationship cannot occupy two
-relationship positions. Nodes may repeat, so cycles and self-relationships are
-allowed as long as each relationship position uses a distinct relationship.
-Relationship uniqueness is per path pattern, not global across disconnected
-comma-separated pattern parts.
+Within one `MATCH` clause, one stored relationship cannot occupy two
+relationship positions across any of its constituent path patterns, including
+comma-separated parts. Nodes may repeat, so cycles and self-relationships are
+allowed as long as every relationship position uses a distinct relationship.
+A later `MATCH` clause starts an independent relationship-uniqueness scope.
 
-Mandatory read-only `MATCH` also supports anonymous legacy bounded relationship
-forms. `*n` selects exactly `n` hops, `*min..max` selects every inclusive depth
-in that range, and `*..max` defaults its omitted lower bound to one. Bounds are
-non-negative integer literals, and the maximum may not exceed 32. Zero-hop
-identity is available only through an explicit zero such as `*0` or `*0..2`;
-the endpoint is then the starting node and must still satisfy its node label,
-property, and binding constraints. A range whose lower bound exceeds its upper
-bound is valid and emits no rows.
+Mandatory read-only `MATCH` supports anonymous legacy variable-length
+forms. A bare `*` or `*..` means one or more hops. `*n` selects exactly `n`
+hops, `*min..max` selects every inclusive depth in that range, `*min..` omits
+the upper bound, and `*..max` defaults its omitted lower bound to one. Bounds
+are non-negative integer literals. Zero-hop identity is available only through
+an explicit zero such as `*0`, `*0..2`, or `*0..`; the endpoint is then the
+starting node and must still satisfy its node label, property, and binding
+constraints. A finite range whose lower bound exceeds its upper bound is valid
+and emits no rows.
 
-Bounded traversal supports right-arrow, left-arrow, and undirected spelling. It
-may omit the relationship type or specify one type, and an inline property map
-must match every traversed relationship. The zero-hop candidate traverses no
-relationship, so relationship type and property conditions are vacuously
-satisfied at depth zero.
+Variable-length traversal supports right-arrow, left-arrow, and undirected
+spelling. It may omit the relationship type or specify one type, and an inline
+property map must match every traversed relationship. The zero-hop candidate
+traverses no relationship, so relationship type and property conditions are
+vacuously satisfied at depth zero.
 
-SQLite evaluates each bounded segment with a recursive CTE carrying the start
-node, current endpoint, depth, and edge IDs used by that candidate. A node may
-be revisited, including through cycles and self-loops, but a stored edge cannot
-be reused within one complete path. The uniqueness rule also spans fixed and
-bounded segments in the same path. Each distinct valid edge sequence remains a
-separate result row, so diamonds and parallel edges can produce duplicate
-endpoint projections. The current naive physical plan seeds every stored node
-before applying selective endpoint constraints; the depth-32 ceiling bounds
-recursion depth, not total path count or memory. Start-domain pushdown remains
-future optimization work.
+An explicit upper bound through 32 uses a recursive SQLite CTE carrying the
+start node, current endpoint, depth, and ordered node and edge IDs for each
+candidate. An explicit upper bound above 32 or any omitted upper bound uses
+Rust to enumerate the same relationship-unique trails, materializes their
+ordered identities as a JSON relation, and feeds that relation back to SQLite
+for the surrounding joins and row pipeline. In both routes, a node may be
+revisited through cycles and self-loops, but a stored edge cannot be reused
+within one complete path. The uniqueness rule also spans fixed and
+variable-length segments in the same path. Each distinct valid edge sequence
+remains a separate result row, so diamonds and parallel edges can produce
+duplicate endpoint projections. The current naive physical plan seeds every
+stored node before applying selective endpoint constraints; start-domain
+pushdown remains future optimization work.
 
-Mandatory read-only `MATCH` may bind a fixed, bounded, or mixed pattern with
-`p = (...)`. Its public `PathValue` contains nodes and relationships in
+An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
+one trail to at most the number of eligible stored edges, although the number of
+distinct trails can still grow rapidly. Deep and open-ended expansions share a
+100,000-trail-state budget across one top-level query, including `UNION`
+branches and multiple hybrid expansions. Exhausting it fails the query with
+`Error::ResourceLimit` rather than returning a truncated or partial result.
+The counter is a fixed explored-work guard, not a memory bound. The current
+stage fully materializes eligible graph inputs and its JSON trail relation;
+selective seeding and payload accounting remain future hardening.
+
+Mandatory read-only `MATCH` may bind a fixed, variable-length, or mixed pattern
+with `p = (...)`. Its public `PathValue` contains nodes and relationships in
 traversal order and always has exactly one more node than relationship. A
 zero-hop value contains its one endpoint node and no relationships. Each
 `RelationshipValue` still reports the stored start and end IDs when an incoming
@@ -360,7 +374,7 @@ variables, and wrong variable kinds fail during planning. Property access and
 selectors on a path, plus raw path use as a scalar, aggregate, grouping, or
 ordering expression, remain planning-time rejections. The typed lists from
 `nodes` and `relationships` retain the expression-context restrictions above.
-A fresh legacy relationship variable in `[rels:TYPE*min..max]` is a
+A fresh legacy relationship variable in `[rels:TYPE*min..]` is a
 relationship-list binding, not a stored relationship or a first-class path. It
 returns a public `CypherValue::List` of typed relationships in traversal order;
 zero hops return `[]`, and each member retains its stored endpoint direction.
@@ -370,10 +384,9 @@ named path for the same pattern.
 
 Exact matching against a pre-bound relationship sequence and use in the scalar,
 aggregate, grouping, ordering, or `UNWIND` contexts above remain unsupported.
-Named paths or relationship-list bindings in `OPTIONAL MATCH`, unbounded or
-deeper traversal, postfix graph quantifiers, shortest-path forms, and writes
-fed by bounded traversal, a named path, or a relationship list also remain
-unsupported.
+Named paths or relationship-list bindings in `OPTIONAL MATCH`, postfix graph
+quantifiers, shortest-path forms, and writes fed by variable-length traversal,
+a named path, or a relationship list also remain unsupported.
 
 SQLite carries a compact encoding of the ordered node and relationship IDs.
 Rust drains each branch cursor into pending typed rows before another branch or
@@ -387,9 +400,9 @@ from their already-materialized snapshots; Rust then loads every remaining ID
 in batches, using at most one node query and one edge query before constructing
 public paths and typed lists in traversal order.
 
-The complete read—every branch SQL fragment and both possible hydration
-queries—shares one deferred SQLite read snapshot. Concurrent external-writer
-semantics beyond that snapshot remain a non-goal.
+The complete read—hybrid trail-input queries, every branch SQL fragment, and
+both possible hydration queries—shares one deferred SQLite read snapshot.
+Concurrent external-writer semantics beyond that snapshot remain a non-goal.
 
 ## Entity identifiers
 
@@ -470,10 +483,14 @@ entity kinds uses `Error::Semantic`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
+Supported deep or open-ended traversal can instead fail during execution with
+`Error::ResourceLimit` when the query-wide 100,000-trail-state budget is
+exhausted. This is an explicit resource failure; Crabnet does not return a
+truncated result.
+
 Semantics for unsupported constructs—including path selectors and other path
 expressions beyond the three path functions above, exact matching against
 pre-bound relationship-list values, optional-bound paths or relationship lists,
-unbounded or postfix-graph traversal,
-quantified optional matching, `MERGE`, label mutation, and computed mutation
-right-hand sides—remain unresolved until those constructs are designed and
-implemented.
+postfix graph quantifiers, shortest-path forms, quantified optional matching,
+`MERGE`, label mutation, and computed mutation right-hand sides—remain
+unresolved until those constructs are designed and implemented.

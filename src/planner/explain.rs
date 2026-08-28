@@ -280,6 +280,28 @@ fn render_match_operator(operator: &MatchOperator) -> String {
                 .map_or_else(|| "any".to_owned(), |value| quote(value)),
             render_property_values(properties)
         ),
+        MatchOperator::ExpandHybridVariableLength {
+            traversal,
+            left,
+            right,
+            direction,
+            minimum,
+            maximum,
+            relationship_type,
+            properties,
+        } => format!(
+            "expand-hybrid-variable executor=rust traversal=~{} left={} right={} direction={} bounds={}..{} type={} properties={}",
+            traversal.0,
+            slot_name(*left),
+            slot_name(*right),
+            direction_name(*direction),
+            minimum,
+            maximum.map_or_else(|| "unbounded".to_owned(), |value| value.to_string()),
+            relationship_type
+                .as_ref()
+                .map_or_else(|| "any".to_owned(), |value| quote(value)),
+            render_property_values(properties)
+        ),
         MatchOperator::DistinctRelationships(relationships) => format!(
             "distinct-relationships [{}]",
             relationships

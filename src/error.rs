@@ -14,6 +14,8 @@ pub enum Error {
     Semantic(String),
     /// A referenced named parameter was not supplied.
     MissingParameter(String),
+    /// Execution stopped because a built-in query work budget was exhausted.
+    ResourceLimit(String),
     /// SQLite rejected a schema or query operation.
     Sqlite(rusqlite::Error),
     /// Stored data or an internally generated result had an invalid shape.
@@ -30,6 +32,7 @@ impl fmt::Display for Error {
             Self::Unsupported(message) => write!(formatter, "unsupported Cypher: {message}"),
             Self::Semantic(message) => write!(formatter, "invalid Cypher semantics: {message}"),
             Self::MissingParameter(name) => write!(formatter, "missing Cypher parameter `${name}`"),
+            Self::ResourceLimit(message) => write!(formatter, "query resource limit: {message}"),
             Self::Sqlite(error) => write!(formatter, "SQLite error: {error}"),
             Self::Data(message) => write!(formatter, "invalid graph data: {message}"),
         }

@@ -270,6 +270,16 @@ pub(crate) enum MatchOperator {
         relationship_type: Option<String>,
         properties: Vec<(String, ValueExpr)>,
     },
+    ExpandHybridVariableLength {
+        traversal: TraversalId,
+        left: SlotId,
+        right: SlotId,
+        direction: Direction,
+        minimum: usize,
+        maximum: Option<usize>,
+        relationship_type: Option<String>,
+        properties: Vec<(String, ValueExpr)>,
+    },
     DistinctRelationships(Vec<RelationshipUse>),
     BindPath {
         path: PathId,
@@ -299,9 +309,13 @@ pub(crate) struct MatchPlan {
 
 impl MatchPlan {
     pub(crate) fn has_variable_length(&self) -> bool {
-        self.operators
-            .iter()
-            .any(|operator| matches!(operator, MatchOperator::ExpandVariableLength { .. }))
+        self.operators.iter().any(|operator| {
+            matches!(
+                operator,
+                MatchOperator::ExpandVariableLength { .. }
+                    | MatchOperator::ExpandHybridVariableLength { .. }
+            )
+        })
     }
 
     pub(crate) fn has_path_binding(&self) -> bool {

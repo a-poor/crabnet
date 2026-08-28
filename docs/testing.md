@@ -64,7 +64,12 @@ end-to-end result test for user-visible semantics.
 - `tests/bounded_traversal.rs` covers exact/ranged/zero bounds, outgoing,
   incoming, and undirected traversal, per-hop type/property filters, cycles,
   self-loops, diamonds, parallel edges, dead ends, edge-trail uniqueness,
-  composition, the depth limit, and structured rejection boundaries.
+  composition, the depth-32 SQLite strategy threshold, and structured rejection
+  boundaries.
+- `tests/unbounded_traversal.rs` covers explicit bounds above that threshold,
+  open-ended lower-bound forms, Rust trail enumeration, paths and relationship
+  lists, mixed SQL/Rust composition, clause-wide relationship uniqueness,
+  unions, explain-stage order, and retained rejection boundaries.
 - `tests/path_values.rs` covers public named-path results for fixed, bounded,
   mixed, and zero-hop patterns; traversal order and stored relationship
   direction; identity across cycles, diamonds, and parallel edges; direct
@@ -130,6 +135,7 @@ cargo test --test write_semantics create_duplicate_property_keys_fail_before_any
 cargo test --test matched_mutations set_equals_replaces_the_complete_property_map -- --exact
 cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
 cargo test --test bounded_traversal cycles_may_revisit_nodes_but_may_not_reuse_an_edge -- --exact
+cargo test --test unbounded_traversal unbounded_cycle_revisits_nodes_but_never_reuses_an_edge -- --exact
 cargo test --test path_values fixed_multi_hop_match_returns_a_public_typed_path -- --exact
 cargo test --test relationship_list_values exact_relationship_list_coexists_with_its_named_path -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
@@ -144,6 +150,7 @@ cargo test --test membership_and_string_predicates
 cargo test --test matched_mutations
 cargo test --test delete_mutations
 cargo test --test bounded_traversal
+cargo test --test unbounded_traversal
 cargo test --test path_values
 cargo test --lib planner::sqlite
 ```
@@ -196,11 +203,13 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-Milestone 8 is in progress: named paths, path functions, fresh bounded legacy
-relationship-list bindings, and query-wide batch hydration are green.
-`tests/path_values.rs`, `tests/relationship_list_values.rs`, and the focused
-planner/database unit tests lock down pending-row shaping, ordered typed lists,
-selective ID collection, semantic distinct/union equality, aliases, and
-direct-entity seeding. The next active TDD slice is deep and unbounded traversal
-through the hybrid executor. Concurrent external-writer behavior remains
-outside the test goal.
+Milestone 8 is in progress: named paths, path functions, legacy
+relationship-list bindings, query-wide batch hydration, and deep/open-ended
+trail expansion are green. `tests/path_values.rs`,
+`tests/relationship_list_values.rs`, `tests/unbounded_traversal.rs`, and the
+focused planner/database unit tests lock down pending-row shaping, ordered typed
+lists, semantic distinct/union equality, clause-wide trail uniqueness,
+parameter preflight, aliases, and hydration. The next active TDD slice is
+shortest-path execution or a more general non-pushable physical boundary;
+payload accounting and selective trail seeding remain explicit hardening work.
+Concurrent external-writer behavior remains outside the test goal.

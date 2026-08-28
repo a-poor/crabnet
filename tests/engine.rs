@@ -330,7 +330,7 @@ fn parse_semantic_and_unsupported_errors_are_distinct() {
         Err(Error::Semantic(_))
     ));
     assert!(matches!(
-        database.execute("MATCH (a)-[*]->(b) RETURN a"),
+        database.execute("OPTIONAL MATCH (a)-[:LINK*1..2]->(b) RETURN a"),
         Err(Error::Unsupported(_))
     ));
     assert!(matches!(database.execute("  ;"), Err(Error::EmptyQuery)));

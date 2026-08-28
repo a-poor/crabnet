@@ -18,6 +18,7 @@ enum SqlBinding {
     Scalar(ValueExpr),
     Json(ValueExpr),
     Page(ValueExpr),
+    TrailExpansion(TrailExpansionSpec),
 }
 
 impl SqlBinding {
@@ -27,6 +28,7 @@ impl SqlBinding {
             Self::Scalar(_) => "scalar",
             Self::Json(_) => "json",
             Self::Page(_) => "page",
+            Self::TrailExpansion(_) => "trail-input",
         }
     }
 
@@ -60,7 +62,84 @@ impl SqlBinding {
                     "SKIP and LIMIT require nonnegative integers".into(),
                 ))
             }
+            Self::TrailExpansion(_) => Err(Error::Data(
+                "runtime trail input reached the static binding resolver".into(),
+            )),
         }
+    }
+
+    fn prepare(&self, parameters: &Parameters) -> Result<PreparedSqlBinding> {
+        match self {
+            Self::TrailExpansion(spec) => spec
+                .resolve(parameters)
+                .map(PreparedSqlBinding::TrailExpansion),
+            _ => self.resolve(parameters).map(PreparedSqlBinding::Value),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrailDirection {
+    Right,
+    Left,
+    Undirected,
+}
+
+impl From<Direction> for TrailDirection {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::Right => Self::Right,
+            Direction::Left => Self::Left,
+            Direction::Undirected => Self::Undirected,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct TrailExpansionSpec {
+    traversal: TraversalId,
+    direction: TrailDirection,
+    minimum: usize,
+    maximum: Option<usize>,
+    edge_sql: String,
+    edge_bindings: Vec<SqlBinding>,
+}
+
+enum PreparedSqlBinding {
+    Value(SqlValue),
+    TrailExpansion(ResolvedTrailExpansion),
+}
+
+#[derive(Debug)]
+pub(crate) struct ResolvedTrailExpansion {
+    pub(crate) traversal: usize,
+    pub(crate) direction: TrailDirection,
+    pub(crate) minimum: usize,
+    pub(crate) maximum: Option<usize>,
+    pub(crate) edge_sql: String,
+    pub(crate) edge_bindings: Vec<SqlValue>,
+}
+
+impl TrailDirection {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Left => "left",
+            Self::Undirected => "undirected",
+        }
+    }
+}
+
+impl TrailExpansionSpec {
+    fn resolve(&self, parameters: &Parameters) -> Result<ResolvedTrailExpansion> {
+        Ok(ResolvedTrailExpansion {
+            traversal: self.traversal.0,
+            direction: self.direction,
+            minimum: self.minimum,
+            maximum: self.maximum,
+            edge_sql: self.edge_sql.clone(),
+            edge_bindings: resolve_bindings(&self.edge_bindings, parameters)?,
+        })
     }
 }
 
@@ -107,8 +186,31 @@ pub(crate) enum OutputShape {
 }
 
 impl SqlQuery {
-    pub(crate) fn resolve_bindings(&self, parameters: &Parameters) -> Result<Vec<SqlValue>> {
-        resolve_bindings(&self.bindings, parameters)
+    pub(crate) fn preflight(&self, parameters: &Parameters) -> Result<()> {
+        self.resolve_post_pagination(parameters)?;
+        for binding in &self.bindings {
+            binding.prepare(parameters)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resolve_bindings(
+        &self,
+        parameters: &Parameters,
+        mut materialize: impl FnMut(&ResolvedTrailExpansion) -> Result<SqlValue>,
+    ) -> Result<Vec<SqlValue>> {
+        let prepared = self
+            .bindings
+            .iter()
+            .map(|binding| binding.prepare(parameters))
+            .collect::<Result<Vec<_>>>()?;
+        prepared
+            .into_iter()
+            .map(|binding| match binding {
+                PreparedSqlBinding::Value(value) => Ok(value),
+                PreparedSqlBinding::TrailExpansion(spec) => materialize(&spec),
+            })
+            .collect()
     }
 
     pub(crate) fn distinct(&self) -> bool {
@@ -125,7 +227,24 @@ impl SqlQuery {
     }
 
     pub(crate) fn render_physical(&self, batch_hydrate_paths: bool) -> String {
-        let mut output = String::from("physical-query\n  sqlite-fragment:\n    sql: ");
+        let mut output = String::from("physical-query\n");
+        for (index, binding) in self.bindings.iter().enumerate() {
+            if let SqlBinding::TrailExpansion(spec) = binding {
+                let maximum = spec
+                    .maximum
+                    .map_or_else(|| "unbounded".to_owned(), |value| value.to_string());
+                output.push_str(&format!(
+                    "  rust-stage: trail-expand traversal=~{} direction={} \
+                     bounds={}..{} bind=?{}\n",
+                    spec.traversal.0,
+                    spec.direction.name(),
+                    spec.minimum,
+                    maximum,
+                    index + 1,
+                ));
+            }
+        }
+        output.push_str("  sqlite-fragment:\n    sql: ");
         output.push_str(&self.sql);
         output.push_str("\n    bindings:\n");
         if self.bindings.is_empty() {
@@ -359,6 +478,17 @@ struct VariableLengthSpec<'a> {
     properties: &'a [(String, ValueExpr)],
 }
 
+struct HybridVariableLengthSpec<'a> {
+    traversal: TraversalId,
+    left: SlotId,
+    right: SlotId,
+    direction: Direction,
+    minimum: usize,
+    maximum: Option<usize>,
+    relationship_type: Option<&'a str>,
+    properties: &'a [(String, ValueExpr)],
+}
+
 #[derive(Clone, Debug)]
 struct TraversalSource {
     edge_ids: String,
@@ -463,6 +593,27 @@ impl Compiler {
                     properties,
                 } => {
                     self.compile_variable_length(VariableLengthSpec {
+                        traversal: *traversal,
+                        left: *left,
+                        right: *right,
+                        direction: *direction,
+                        minimum: *minimum,
+                        maximum: *maximum,
+                        relationship_type: relationship_type.as_deref(),
+                        properties,
+                    })?;
+                }
+                MatchOperator::ExpandHybridVariableLength {
+                    traversal,
+                    left,
+                    right,
+                    direction,
+                    minimum,
+                    maximum,
+                    relationship_type,
+                    properties,
+                } => {
+                    self.compile_hybrid_variable_length(HybridVariableLengthSpec {
                         traversal: *traversal,
                         left: *left,
                         right: *right,
@@ -648,6 +799,92 @@ impl Compiler {
             },
         );
         Ok(())
+    }
+
+    fn compile_hybrid_variable_length(&mut self, spec: HybridVariableLengthSpec<'_>) -> Result<()> {
+        let HybridVariableLengthSpec {
+            traversal,
+            left,
+            right,
+            direction,
+            minimum,
+            maximum,
+            relationship_type,
+            properties,
+        } = spec;
+        if self.traversals.contains_key(&traversal) {
+            return Err(Error::Data(format!(
+                "logical traversal {} is expanded twice",
+                traversal.0
+            )));
+        }
+
+        let (edge_sql, edge_bindings) =
+            Self::compile_eligible_edge_query(relationship_type, properties);
+        let input = self.push_binding(SqlBinding::TrailExpansion(TrailExpansionSpec {
+            traversal,
+            direction: direction.into(),
+            minimum,
+            maximum,
+            edge_sql,
+            edge_bindings,
+        }));
+        let relation = format!("trail_result{}", traversal.0);
+        let row = format!("{relation}.value");
+        self.from.push(format!("json_each({input}) AS {relation}"));
+        self.filters
+            .push(format!("json_extract({row}, '$.depth') >= {minimum}"));
+        if let Some(maximum) = maximum {
+            self.filters
+                .push(format!("json_extract({row}, '$.depth') <= {maximum}"));
+        }
+        self.filters.push(format!(
+            "json_extract({row}, '$.start_id') = {}",
+            self.entity_field(left, "id")?
+        ));
+        self.filters.push(format!(
+            "json_extract({row}, '$.end_id') = {}",
+            self.entity_field(right, "id")?
+        ));
+        self.traversals.insert(
+            traversal,
+            TraversalSource {
+                edge_ids: format!("json_extract({row}, '$.used_edges')"),
+                node_ids: format!("json_extract({row}, '$.node_ids')"),
+            },
+        );
+        Ok(())
+    }
+
+    fn compile_eligible_edge_query(
+        relationship_type: Option<&str>,
+        properties: &[(String, ValueExpr)],
+    ) -> (String, Vec<SqlBinding>) {
+        let mut compiler = Self::new();
+        let edge = "trail_edge";
+        let mut filters = Vec::new();
+        if let Some(relationship_type) = relationship_type {
+            let expected = compiler.push_binding(SqlBinding::Text(relationship_type.to_owned()));
+            filters.push(format!("{edge}.edge_type = {expected}"));
+        }
+        for (key, expected) in properties {
+            let (property, property_type) =
+                compiler.json_property_parts(format!("{edge}.props"), key);
+            filters.push(compiler.typed_value_comparison(
+                property,
+                property_type,
+                expected.clone(),
+                BinaryOp::Equal,
+            ));
+        }
+        let mut sql =
+            format!("SELECT {edge}.id, {edge}.from_node, {edge}.to_node FROM edges AS {edge}");
+        if !filters.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&filters.join(" AND "));
+        }
+        sql.push_str(&format!(" ORDER BY {edge}.id"));
+        (sql, compiler.bindings)
     }
 
     fn compile_relationship_uniqueness(&mut self, relationships: &[RelationshipUse]) -> Result<()> {
@@ -1887,6 +2124,68 @@ mod tests {
         assert!(plan.sql.contains("'$.relationships'"));
         assert!(plan.sql.contains("json_type("));
         assert!(plan.has_path_identity_output());
+    }
+
+    #[test]
+    fn hybrid_traversal_is_a_resolved_runtime_input_with_filtered_edges() {
+        let query =
+            lower::lower("MATCH path = (start)-[:NEXT*2.. {open: $open}]->(end) RETURN path")
+                .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.sql.contains("json_each(?1) AS trail_result0"));
+        assert!(plan.sql.contains("'$.start_id'"));
+        assert!(plan.sql.contains("'$.used_edges'"));
+        assert!(!plan.sql.contains("_crabnet_walk_"));
+        let physical = plan.render_physical(true);
+        assert!(physical.contains(
+            "rust-stage: trail-expand traversal=~0 direction=right bounds=2..unbounded bind=?1"
+        ));
+
+        let parameters = Parameters::from([("open".to_owned(), Value::Bool(true))]);
+        let bindings = plan
+            .resolve_bindings(&parameters, |spec| {
+                assert_eq!(spec.traversal, 0);
+                assert_eq!(spec.direction, TrailDirection::Right);
+                assert_eq!((spec.minimum, spec.maximum), (2, None));
+                assert!(spec.edge_sql.contains("FROM edges AS trail_edge"));
+                assert!(spec.edge_sql.contains("trail_edge.edge_type = ?1"));
+                assert!(spec.edge_sql.contains("json_type(trail_edge.props"));
+                assert_eq!(
+                    spec.edge_bindings.as_slice(),
+                    &[
+                        SqlValue::Text("NEXT".into()),
+                        SqlValue::Text("open".into()),
+                        SqlValue::Integer(1),
+                        SqlValue::Text("true".into()),
+                    ]
+                );
+                Ok(SqlValue::Text("[]".into()))
+            })
+            .unwrap();
+        assert_eq!(bindings, [SqlValue::Text("[]".into())]);
+    }
+
+    #[test]
+    fn all_parameters_resolve_before_a_runtime_input_is_materialized() {
+        let query = lower::lower(
+            "MATCH (start)-[:NEXT* {open: $open}]->(end) \
+             RETURN $missing AS value",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+        let parameters = Parameters::from([("open".to_owned(), Value::Bool(true))]);
+        let mut materialized = false;
+
+        let error = plan
+            .resolve_bindings(&parameters, |_| {
+                materialized = true;
+                Ok(SqlValue::Text("[]".into()))
+            })
+            .unwrap_err();
+
+        assert!(matches!(error, Error::MissingParameter(name) if name == "missing"));
+        assert!(!materialized);
     }
 
     #[test]
