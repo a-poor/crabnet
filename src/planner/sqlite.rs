@@ -85,6 +85,13 @@ pub(crate) enum TrailDirection {
     Undirected,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TrailSelection {
+    AllTrails,
+    OneShortest,
+    AllShortest,
+}
+
 impl From<Direction> for TrailDirection {
     fn from(direction: Direction) -> Self {
         match direction {
@@ -101,6 +108,7 @@ struct TrailExpansionSpec {
     direction: TrailDirection,
     minimum: usize,
     maximum: Option<usize>,
+    selection: TrailSelection,
     edge_sql: String,
     edge_bindings: Vec<SqlBinding>,
 }
@@ -116,6 +124,7 @@ pub(crate) struct ResolvedTrailExpansion {
     pub(crate) direction: TrailDirection,
     pub(crate) minimum: usize,
     pub(crate) maximum: Option<usize>,
+    pub(crate) selection: TrailSelection,
     pub(crate) edge_sql: String,
     pub(crate) edge_bindings: Vec<SqlValue>,
 }
@@ -137,6 +146,7 @@ impl TrailExpansionSpec {
             direction: self.direction,
             minimum: self.minimum,
             maximum: self.maximum,
+            selection: self.selection,
             edge_sql: self.edge_sql.clone(),
             edge_bindings: resolve_bindings(&self.edge_bindings, parameters)?,
         })
@@ -233,6 +243,22 @@ impl SqlQuery {
                 let maximum = spec
                     .maximum
                     .map_or_else(|| "unbounded".to_owned(), |value| value.to_string());
+                if spec.selection != TrailSelection::AllTrails {
+                    let mode = match spec.selection {
+                        TrailSelection::OneShortest => "one",
+                        TrailSelection::AllShortest => "all",
+                        TrailSelection::AllTrails => unreachable!(),
+                    };
+                    output.push_str(&format!(
+                        "  rust-stage: shortest-expand mode={mode} traversal=~{} direction={} bounds={}..{} bind=?{}\n",
+                        spec.traversal.0,
+                        spec.direction.name(),
+                        spec.minimum,
+                        maximum,
+                        index + 1,
+                    ));
+                    continue;
+                }
                 output.push_str(&format!(
                     "  rust-stage: trail-expand traversal=~{} direction={} \
                      bounds={}..{} bind=?{}\n",
@@ -485,6 +511,7 @@ struct HybridVariableLengthSpec<'a> {
     direction: Direction,
     minimum: usize,
     maximum: Option<usize>,
+    selection: TrailSelection,
     relationship_type: Option<&'a str>,
     properties: &'a [(String, ValueExpr)],
 }
@@ -620,6 +647,34 @@ impl Compiler {
                         direction: *direction,
                         minimum: *minimum,
                         maximum: *maximum,
+                        selection: TrailSelection::AllTrails,
+                        relationship_type: relationship_type.as_deref(),
+                        properties,
+                    })?;
+                }
+                MatchOperator::ExpandShortestPath {
+                    traversal,
+                    left,
+                    right,
+                    direction,
+                    minimum,
+                    maximum,
+                    all,
+                    relationship_type,
+                    properties,
+                } => {
+                    self.compile_hybrid_variable_length(HybridVariableLengthSpec {
+                        traversal: *traversal,
+                        left: *left,
+                        right: *right,
+                        direction: *direction,
+                        minimum: *minimum,
+                        maximum: *maximum,
+                        selection: if *all {
+                            TrailSelection::AllShortest
+                        } else {
+                            TrailSelection::OneShortest
+                        },
                         relationship_type: relationship_type.as_deref(),
                         properties,
                     })?;
@@ -809,6 +864,7 @@ impl Compiler {
             direction,
             minimum,
             maximum,
+            selection,
             relationship_type,
             properties,
         } = spec;
@@ -826,6 +882,7 @@ impl Compiler {
             direction: direction.into(),
             minimum,
             maximum,
+            selection,
             edge_sql,
             edge_bindings,
         }));
@@ -2147,6 +2204,7 @@ mod tests {
             .resolve_bindings(&parameters, |spec| {
                 assert_eq!(spec.traversal, 0);
                 assert_eq!(spec.direction, TrailDirection::Right);
+                assert_eq!(spec.selection, TrailSelection::AllTrails);
                 assert_eq!((spec.minimum, spec.maximum), (2, None));
                 assert!(spec.edge_sql.contains("FROM edges AS trail_edge"));
                 assert!(spec.edge_sql.contains("trail_edge.edge_type = ?1"));
@@ -2164,6 +2222,71 @@ mod tests {
             })
             .unwrap();
         assert_eq!(bindings, [SqlValue::Text("[]".into())]);
+    }
+
+    #[test]
+    fn shortest_path_selection_is_exposed_to_the_runtime_and_physical_plan() {
+        for (all, expected_selection, expected_mode) in [
+            (false, TrailSelection::OneShortest, "one"),
+            (true, TrailSelection::AllShortest, "all"),
+        ] {
+            let input = Input::Match(MatchPlan {
+                operators: vec![
+                    MatchOperator::ScanNode { slot: SlotId(0) },
+                    MatchOperator::ScanNode { slot: SlotId(1) },
+                    MatchOperator::ExpandShortestPath {
+                        traversal: TraversalId(0),
+                        left: SlotId(0),
+                        right: SlotId(1),
+                        direction: Direction::Right,
+                        minimum: 1,
+                        maximum: Some(4),
+                        all,
+                        relationship_type: Some("NEXT".into()),
+                        properties: vec![("open".into(), ValueExpr::Parameter("open".into()))],
+                    },
+                    MatchOperator::BindPath {
+                        path: PathId(0),
+                        start: SlotId(0),
+                        segments: vec![PathSegment {
+                            left: SlotId(0),
+                            relationship: RelationshipUse::Traversal(TraversalId(0)),
+                            right: SlotId(1),
+                        }],
+                    },
+                ],
+            });
+            let projection = Projection {
+                columns: vec!["route".into()],
+                expressions: vec![Expr::Path(PathId(0))],
+                distinct: false,
+                order_by: Vec::new(),
+                offset: None,
+                limit: None,
+            };
+            let plan = compile_read(&input, &projection).unwrap();
+
+            assert!(plan.sql.contains("json_each(?1) AS trail_result0"));
+            assert!(plan.sql.contains("'$.used_edges'"));
+            assert!(!plan.sql.contains("_crabnet_walk_"));
+            assert!(plan.render_physical(true).contains(&format!(
+                "rust-stage: shortest-expand mode={expected_mode} traversal=~0 direction=right bounds=1..4 bind=?1"
+            )));
+
+            let parameters = Parameters::from([("open".to_owned(), Value::Bool(true))]);
+            let bindings = plan
+                .resolve_bindings(&parameters, |spec| {
+                    assert_eq!(spec.selection, expected_selection);
+                    assert_eq!(spec.direction, TrailDirection::Right);
+                    assert_eq!((spec.minimum, spec.maximum), (1, Some(4)));
+                    assert!(spec.edge_sql.contains("FROM edges AS trail_edge"));
+                    assert!(spec.edge_sql.contains("trail_edge.edge_type = ?1"));
+                    assert!(spec.edge_sql.contains("json_type(trail_edge.props"));
+                    Ok(SqlValue::Text("[]".into()))
+                })
+                .unwrap();
+            assert_eq!(bindings, [SqlValue::Text("[]".into())]);
+        }
     }
 
     #[test]

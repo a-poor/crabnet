@@ -70,6 +70,12 @@ end-to-end result test for user-visible semantics.
   open-ended lower-bound forms, Rust trail enumeration, paths and relationship
   lists, mixed SQL/Rust composition, clause-wide relationship uniqueness,
   unions, explain-stage order, and retained rejection boundaries.
+- `tests/shortest_paths.rs` covers legacy one/all shortest selection per endpoint
+  pair, deterministic ties, diamonds and parallel edges, same-endpoint identity
+  versus positive cycles, directions, bounds, type/property/parameter filters,
+  paths and relationship lists, path functions, prior bags, `WITH`, `UNION`,
+  Rust BFS stage order and structured planning rejections. Traversal unit
+  tests cover shortest-specific use of the shared fail-closed work guard.
 - `tests/path_values.rs` covers public named-path results for fixed, bounded,
   mixed, and zero-hop patterns; traversal order and stored relationship
   direction; identity across cycles, diamonds, and parallel edges; direct
@@ -136,6 +142,7 @@ cargo test --test matched_mutations set_equals_replaces_the_complete_property_ma
 cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
 cargo test --test bounded_traversal cycles_may_revisit_nodes_but_may_not_reuse_an_edge -- --exact
 cargo test --test unbounded_traversal unbounded_cycle_revisits_nodes_but_never_reuses_an_edge -- --exact
+cargo test --test shortest_paths lower_bound_one_finds_shortest_positive_cycles_to_same_endpoint -- --exact
 cargo test --test path_values fixed_multi_hop_match_returns_a_public_typed_path -- --exact
 cargo test --test relationship_list_values exact_relationship_list_coexists_with_its_named_path -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
@@ -151,6 +158,7 @@ cargo test --test matched_mutations
 cargo test --test delete_mutations
 cargo test --test bounded_traversal
 cargo test --test unbounded_traversal
+cargo test --test shortest_paths
 cargo test --test path_values
 cargo test --lib planner::sqlite
 ```
@@ -204,12 +212,13 @@ oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
 Milestone 8 is in progress: named paths, path functions, legacy
-relationship-list bindings, query-wide batch hydration, and deep/open-ended
-trail expansion are green. `tests/path_values.rs`,
-`tests/relationship_list_values.rs`, `tests/unbounded_traversal.rs`, and the
-focused planner/database unit tests lock down pending-row shaping, ordered typed
-lists, semantic distinct/union equality, clause-wide trail uniqueness,
-parameter preflight, aliases, and hydration. The next active TDD slice is
-shortest-path execution or a more general non-pushable physical boundary;
-payload accounting and selective trail seeding remain explicit hardening work.
+relationship-list bindings, query-wide batch hydration, deep/open-ended trail
+expansion, and legacy shortest-path BFS are green. `tests/path_values.rs`,
+`tests/relationship_list_values.rs`, `tests/unbounded_traversal.rs`,
+`tests/shortest_paths.rs`, and focused planner/database unit tests lock down
+pending-row shaping, ordered typed lists, semantic distinct/union equality,
+clause-wide trail uniqueness, parameter preflight, aliases, BFS selection, the
+shared work guard, and hydration. The next active TDD slice is a general
+physical boundary for arbitrary non-pushable operators; payload accounting and
+selective traversal seeding remain explicit hardening work.
 Concurrent external-writer behavior remains outside the test goal.

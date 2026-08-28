@@ -302,6 +302,30 @@ fn render_match_operator(operator: &MatchOperator) -> String {
                 .map_or_else(|| "any".to_owned(), |value| quote(value)),
             render_property_values(properties)
         ),
+        MatchOperator::ExpandShortestPath {
+            traversal,
+            left,
+            right,
+            direction,
+            minimum,
+            maximum,
+            all,
+            relationship_type,
+            properties,
+        } => format!(
+            "expand-shortest executor=rust traversal=~{} mode={} left={} right={} direction={} bounds={}..{} type={} properties={}",
+            traversal.0,
+            if *all { "all" } else { "one" },
+            slot_name(*left),
+            slot_name(*right),
+            direction_name(*direction),
+            minimum,
+            maximum.map_or_else(|| "unbounded".to_owned(), |value| value.to_string()),
+            relationship_type
+                .as_ref()
+                .map_or_else(|| "any".to_owned(), |value| quote(value)),
+            render_property_values(properties)
+        ),
         MatchOperator::DistinctRelationships(relationships) => format!(
             "distinct-relationships [{}]",
             relationships
@@ -951,6 +975,60 @@ mod tests {
         assert!(logical.contains("\"points\" = nodes(path(%p0))"));
         assert!(logical.contains("\"links\" = relationships(path(%p0))"));
         assert!(logical.contains("\"hops\" = scalar(%s0)"));
+    }
+
+    #[test]
+    fn explains_legacy_shortest_modes_bounds_filters_and_path_bindings() {
+        let one = explain_logical(
+            "MATCH route = shortestPath(\
+                 (start:Node {name: $start})-[links:NEXT*0..4 {open: true}]->(end:Node)\
+             ) RETURN route, links",
+        )
+        .unwrap();
+
+        assert!(one.contains(
+            "expand-shortest executor=rust traversal=~0 mode=one left=%0 right=%1 \
+             direction=right bounds=0..4 type=\"NEXT\" \
+             properties={\"open\": literal(true)}"
+        ));
+        assert!(one.contains("has-label %0 \"Node\""));
+        assert!(one.contains("property-equals %0 \"name\" parameter(\"start\")"));
+        assert!(one.contains("has-label %1 \"Node\""));
+        assert!(one.contains(
+            "bind-path path=%p0 start=%0 segments=[\
+             segment(left=%0, relationship=~0, right=%1)]"
+        ));
+        assert!(one.contains(
+            "bind-path path=%p1 start=%0 segments=[\
+             segment(left=%0, relationship=~0, right=%1)]"
+        ));
+        assert!(one.contains("\"route\" = path(%p1)"));
+        assert!(one.contains("\"links\" = relationships(path(%p0))"));
+
+        let all = explain_logical(
+            "MATCH route = allShortestPaths((start)-[:NEXT*..4]->(end)) RETURN route",
+        )
+        .unwrap();
+        assert!(all.contains("expand-shortest executor=rust"));
+        assert!(all.contains("mode=all"));
+        assert!(all.contains("bounds=1..4"));
+    }
+
+    #[test]
+    fn rejects_deferred_legacy_shortest_shapes_during_logical_planning() {
+        for query in [
+            "MATCH route = shortestPath((a)-[:NEXT*]->(b)), (marker) RETURN route",
+            "MATCH route = shortestPath((a)-[:NEXT*2..]->(b)) RETURN route",
+            "OPTIONAL MATCH route = shortestPath((a)-[:NEXT*]->(b)) RETURN route",
+            "MATCH route = shortestPath((a)-[:NEXT*]->(b)) WHERE b.ready RETURN route",
+            "MATCH route = shortestPath((a)-[:NEXT]->(b)) RETURN route",
+            "MATCH route = shortestPath((a)-[:NEXT*]->(b)) CREATE (:SideEffect)",
+        ] {
+            assert!(
+                matches!(explain_logical(query), Err(crate::Error::Unsupported(_))),
+                "expected structured unsupported error for {query}"
+            );
+        }
     }
 
     #[test]

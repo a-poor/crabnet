@@ -44,6 +44,12 @@ Crabnet already has more than a greenfield skeleton:
 - fresh legacy relationship variables, including deep/open-ended forms, bind
   traversal-ordered typed relationship lists with zero-hop `[]` through the same
   query-wide identity shaping and hydration;
+- legacy `shortestPath` and `allShortestPaths` factors use Rust BFS over one
+  variable-length relationship to select one deterministic but unspecified
+  minimum trail or all tied unweighted minimum trails per endpoint pair. Lower
+  bound zero includes identity; lower bound one permits shortest positive
+  same-endpoint cycles. Results reuse the path/list composition and hydration
+  boundary;
 - relationship uniqueness spans every constituent path pattern in one `MATCH`,
   while a later `MATCH` starts an independent scope;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
@@ -56,10 +62,11 @@ Crabnet already has more than a greenfield skeleton:
   distinguished.
 
 The current executor is already a hybrid: SQLite materializes match rows and
-compact path identities, while Rust enumerates deep/open-ended trails and feeds
-their JSON relation back into SQLite, applies semantic row shaping,
-batch-hydrates surviving graph values, and executes mutations. We should grow
-that design instead of restarting from a read-only architecture.
+compact path identities, while Rust enumerates deep/open-ended trails or runs
+shortest-path BFS and feeds fully materialized JSON relations back into SQLite,
+applies semantic row shaping, batch-hydrates surviving graph values, and
+executes mutations. We should grow that design instead of restarting from a
+read-only architecture.
 
 ## Design principles
 
@@ -273,7 +280,7 @@ composition, the SQLite-depth threshold, and rejection boundaries.
 - Only surviving IDs of the required entity kinds are deduplicated query-wide.
   Directly projected graph entities seed the hydration maps, and the remainder
   uses at most one node query and one edge query.
-- Every hybrid trail-input query, branch SQL fragment, and hydration query
+- Every hybrid traversal-input query, branch SQL fragment, and hydration query
   shares one deferred read snapshot. External-writer semantics remain a
   non-goal.
 - The relationship-list slice is green. A fresh legacy binding such as
@@ -286,18 +293,28 @@ composition, the SQLite-depth threshold, and rejection boundaries.
   maxima use Rust trail enumeration; a bare `*` or `*..` starts at one, while
   `*0..` includes identity. Explicit maxima through 32 keep the SQLite CTE fast
   path.
+- The legacy shortest-path slice is green. In mandatory read-only `MATCH`,
+  `shortestPath` and `allShortestPaths` run Rust BFS over one variable-length
+  relationship with lower bound zero or one and select one deterministic but
+  unspecified minimum trail or all tied unweighted minimum trails per endpoint
+  pair. Direction, bounds, edge type and properties, parameters,
+  identity and positive-cycle behavior, path and
+  relationship-list values, path functions, prior bags, `WITH`, and `UNION` are
+  covered. Modern selectors, expression-position calls, optional/same-clause
+  `WHERE`/multi-part forms, lower bounds above one, and writes remain structured
+  rejections.
 - Rust preserves relationship uniqueness across every constituent pattern in
   one `MATCH`, materializes ordered trail identities as JSON, and lets SQLite
   consume them for endpoint joins and later row operators. Physical explanation
-  prints `rust-stage: trail-expand` before the consuming SQLite fragment.
+  prints `trail-expand` or `shortest-expand` before its consuming SQLite fragment.
 - One fixed 100,000 explored-trail-state work guard is shared query-wide and
   fails closed with `Error::ResourceLimit`; it is neither truncation nor a
-  claimed memory bound. The hybrid stage currently fully materializes eligible
+  claimed memory bound. The Rust stages currently fully materialize eligible
   graph inputs and JSON trail relations without start/end-domain pushdown.
   Payload-byte accounting and selective seeding remain hardening work.
-- `shortestPath`, `allShortestPaths`, and a general physical split for arbitrary
-  non-pushable operators remain. Exact matching against a pre-bound relationship
-  sequence, optional-bound paths or relationship lists, selectors, and writes
+- A general physical split for arbitrary non-pushable operators remains. Exact
+  matching against a pre-bound relationship sequence, optional-bound paths or
+  relationship lists, modern selectors and deferred shortest forms, and writes
   fed by a named path or relationship list remain explicit rejections meanwhile.
 - Implement `MERGE` last as transactional whole-pattern match/create behavior,
   not as a misleading single-row SQLite upsert.
@@ -323,10 +340,10 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 With the gates from milestones 2–7 complete, milestone 8 hybrid execution is
 active. Named path values, path functions, legacy relationship-list bindings,
-query-wide batch hydration, and deep/open-ended trail expansion are green. The
-remaining milestone work is `shortestPath`/`allShortestPaths` and a general
-physical split for arbitrary non-pushable operators. Selective traversal seeding
-and payload accounting remain hardening work around the fixed work guard. Small
-contract gaps may still be tightened when focused tests expose them. The
-working loop is documented in [testing.md](testing.md); planned cases stay in
-the coverage backlog instead of becoming ignored tests.
+query-wide batch hydration, deep/open-ended trail expansion, and legacy shortest
+paths are green. The remaining milestone work is a general physical split for
+arbitrary non-pushable operators. Selective traversal seeding and payload
+accounting remain hardening work around the fixed work guard. Small contract
+gaps may still be tightened when focused tests expose them. The working loop is
+documented in [testing.md](testing.md); planned cases stay in the coverage
+backlog instead of becoming ignored tests.

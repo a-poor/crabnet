@@ -143,6 +143,18 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
     }
 
     let clauses = &query.head.kind.clauses;
+    if let Some(shortest) = clauses.iter().find_map(|clause| {
+        let ClauseKind::Match(match_clause) = &clause.kind else {
+            return None;
+        };
+        legacy_shortest_factor(match_clause)
+    }) && clauses.iter().any(|clause| is_write_clause(&clause.kind))
+    {
+        return Err(unsupported(
+            shortest.span,
+            "writes with a legacy shortest-path MATCH",
+        ));
+    }
     let contains_read_pipeline = clauses.iter().any(|clause| {
         matches!(clause.kind, ClauseKind::With(_) | ClauseKind::Unwind(_))
             || matches!(&clause.kind, ClauseKind::Match(match_clause) if match_clause.optional)
@@ -442,13 +454,48 @@ impl<'source> Lowerer<'source> {
                 "path-mode or hinted MATCH",
             ));
         }
+        if let Some(shortest) = legacy_shortest_factor(match_clause) {
+            if match_clause.optional {
+                return Err(unsupported(
+                    shortest.span,
+                    "legacy shortest path in OPTIONAL MATCH",
+                ));
+            }
+            if match_clause.pattern.parts.len() != 1 {
+                return Err(unsupported(
+                    match_clause.pattern.span,
+                    "multiple pattern parts with a legacy shortest path",
+                ));
+            }
+            if match_clause.pattern.parts[0].kind.path.kind.factors.len() != 1 {
+                return Err(unsupported(
+                    match_clause.pattern.parts[0].span,
+                    "legacy shortest path combined with other factors",
+                ));
+            }
+            if let Some(predicate) = &match_clause.where_clause {
+                return Err(unsupported(
+                    predicate.span,
+                    "MATCH WHERE on a legacy shortest path",
+                ));
+            }
+        }
         let mut plan = MatchPlan::default();
         let mut relationships = Vec::new();
         for part in &match_clause.pattern.parts {
             if part.kind.selector.is_some() {
                 return Err(unsupported(part.span, "path selectors"));
             }
-            let matched = self.match_path(&mut plan, &part.kind.path.kind.factors, part.span)?;
+            let matched = if let [factor] = part.kind.path.kind.factors.as_slice() {
+                match &factor.kind {
+                    PathFactorKind::LegacyShortest { all, pattern } => {
+                        self.match_shortest_path(&mut plan, *all, pattern, factor.span)?
+                    }
+                    _ => self.match_path(&mut plan, &part.kind.path.kind.factors, part.span)?,
+                }
+            } else {
+                self.match_path(&mut plan, &part.kind.path.kind.factors, part.span)?
+            };
             relationships.extend(matched.segments.iter().map(|segment| segment.relationship));
             if let Some(binding) = &part.kind.binding {
                 let name = &binding.kind.text;
@@ -630,6 +677,127 @@ impl<'source> Lowerer<'source> {
             remaining = rest;
         }
         Ok(MatchedPath { start, segments })
+    }
+
+    fn match_shortest_path(
+        &mut self,
+        plan: &mut MatchPlan,
+        all: bool,
+        pattern: &open_cypher::ast::PathPattern,
+        span: Span,
+    ) -> Result<MatchedPath> {
+        let [first, relationship, last] = pattern.kind.factors.as_slice() else {
+            return Err(unsupported(
+                span,
+                "legacy shortest path with anything other than one relationship",
+            ));
+        };
+        let PathFactorKind::Node(first_node) = &first.kind else {
+            return Err(unsupported(
+                first.span,
+                "legacy shortest path not beginning with a node",
+            ));
+        };
+        let PathFactorKind::Relationship(relationship_pattern) = &relationship.kind else {
+            return Err(unsupported(
+                relationship.span,
+                "non-relationship legacy shortest-path factor",
+            ));
+        };
+        let PathFactorKind::Node(last_node) = &last.kind else {
+            return Err(unsupported(
+                last.span,
+                "legacy shortest path not ending with a node",
+            ));
+        };
+
+        let direction = match relationship_pattern.direction.kind {
+            RelationshipDirection::Right => Direction::Right,
+            RelationshipDirection::Left => Direction::Left,
+            RelationshipDirection::Undirected => Direction::Undirected,
+            RelationshipDirection::Both => {
+                return Err(unsupported(
+                    relationship_pattern.direction.span,
+                    "bidirectional relationship patterns",
+                ));
+            }
+            _ => {
+                return Err(unsupported(
+                    relationship_pattern.direction.span,
+                    "relationship direction",
+                ));
+            }
+        };
+        if relationship_pattern.graph_quantifier.is_some() {
+            return Err(unsupported(
+                relationship.span,
+                "graph-pattern quantifier in a legacy shortest path",
+            ));
+        }
+        let Some(quantifier) = relationship_pattern.legacy_quantifier.as_ref() else {
+            return Err(unsupported(
+                relationship.span,
+                "legacy shortest path without a variable-length relationship",
+            ));
+        };
+        if relationship_pattern.where_clause.is_some() {
+            return Err(unsupported(
+                relationship.span,
+                "relationship predicate in a legacy shortest path",
+            ));
+        }
+
+        let (minimum, maximum) = legacy_quantifier_bounds(quantifier)?;
+        if minimum > 1 {
+            return Err(unsupported(
+                quantifier.span,
+                "legacy shortest path with a minimum greater than one",
+            ));
+        }
+
+        let left = self.match_node(plan, first_node, first.span)?;
+        let traversal = self.allocate_traversal();
+        let relationship_type = relationship_pattern
+            .labels
+            .as_ref()
+            .map(|label| single_label(label, "multiple or boolean relationship types"))
+            .transpose()?;
+        let properties = self.match_property_values(relationship_pattern.properties.as_deref())?;
+        let relationship_list = relationship_pattern
+            .variable
+            .as_ref()
+            .map(|variable| self.bind_relationship_list(variable))
+            .transpose()?;
+        let right = self.match_node(plan, last_node, last.span)?;
+
+        plan.operators.push(MatchOperator::ExpandShortestPath {
+            traversal,
+            left,
+            right,
+            direction,
+            minimum,
+            maximum,
+            all,
+            relationship_type,
+            properties,
+        });
+        let segment = PathSegment {
+            left,
+            relationship: RelationshipUse::Traversal(traversal),
+            right,
+        };
+        if let Some(path) = relationship_list {
+            plan.operators.push(MatchOperator::BindPath {
+                path,
+                start: left,
+                segments: vec![segment],
+            });
+        }
+
+        Ok(MatchedPath {
+            start: left,
+            segments: vec![segment],
+        })
     }
 
     fn bind_relationship_list(&mut self, variable: &open_cypher::ast::Name) -> Result<PathId> {
@@ -2043,6 +2211,15 @@ fn integer_parts(integer: &open_cypher::ast::IntegerLiteral) -> Result<(String, 
         )),
         _ => Err(Error::Unsupported("integer radix".into())),
     }
+}
+
+fn legacy_shortest_factor(match_clause: &MatchClause) -> Option<&PathFactor> {
+    match_clause
+        .pattern
+        .parts
+        .iter()
+        .flat_map(|part| &part.kind.path.kind.factors)
+        .find(|factor| matches!(factor.kind, PathFactorKind::LegacyShortest { .. }))
 }
 
 fn legacy_quantifier_bounds(quantifier: &Quantifier) -> Result<(usize, Option<usize>)> {

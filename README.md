@@ -67,6 +67,10 @@ Within those shapes, the first iteration supports:
 - anonymous legacy variable-length traversal in mandatory `MATCH`: `*`, `*n`,
   `*min..max`, `*min..`, `*..max`, and `*..`, with outgoing, incoming, and
   undirected direction
+- legacy `shortestPath` and `allShortestPaths` factors in mandatory read-only
+  `MATCH`, over exactly one variable-length relationship whose lower bound is
+  zero or one, with unweighted minimum-trail selection for each matched
+  endpoint pair
 - fresh legacy relationship-list bindings in mandatory read-only `MATCH`, such
   as `[rels:TYPE*min..]`, returned as traversal-ordered typed relationships
 - named paths in mandatory read-only `MATCH`, across fixed, bounded,
@@ -159,13 +163,33 @@ patterns in one `MATCH` result; a later `MATCH` starts a new uniqueness scope.
 Distinct edge sequences retain their normal bag multiplicity even when they
 reach the same endpoint.
 
-Deep and open-ended enumeration share a 100,000-trail-state budget across the
-top-level query, including `UNION` branches and multiple hybrid expansions. If
-the query exhausts that budget, execution fails with `Error::ResourceLimit`;
-Crabnet never silently truncates the result. This is a fixed explored-work
-guard, not a memory bound: the current naive stage materializes eligible graph
-inputs and its JSON result relation before SQLite applies selective endpoint
-constraints.
+Legacy shortest-path factors use Rust breadth-first search over one
+variable-length relationship. Direction, the optional relationship type, its
+inline property map, parameters, and the requested bounds restrict candidates
+before selection. For each matched start/end pair, `shortestPath` returns one
+minimum-hop relationship-unique trail, while `allShortestPaths` returns every
+tied minimum trail, including distinct parallel edges. The one-trail tie choice
+is deterministic for a fixed stored graph but deliberately unspecified.
+`*0..` permits the zero-hop identity; the only supported lower bounds are zero
+and one.
+For the same endpoint, lower bound one instead selects the shortest positive
+relationship-unique cycle (one deterministic tie or all ties).
+
+A shortest result may bind a `PathValue` and a fresh relationship list, feed
+`length`, `nodes`, or `relationships`, cross a `WITH` boundary, preserve prior
+bag rows, and compose through `UNION`. The legacy calls are supported only as a
+single path factor in mandatory read-only `MATCH`. Modern shortest selectors,
+expression-position calls, `OPTIONAL MATCH`, a `WHERE` on that same `MATCH`,
+additional comma-separated parts, lower bounds above one, and writes are
+planning-time rejections.
+
+Deep/open-ended enumeration and shortest-path BFS share a 100,000-trail-state
+budget across the top-level query, including `UNION` branches and multiple
+hybrid expansions. If the query exhausts that budget, execution fails with
+`Error::ResourceLimit`; Crabnet never silently truncates the result. This is a
+fixed explored-work guard, not a memory bound: the current naive Rust stages
+fully materialize eligible graph inputs and their JSON result relations before
+SQLite applies selective endpoint constraints.
 
 `PathValue` exposes nodes and relationships in traversal order, always with one
 more node than relationship. A zero-hop path therefore has one node and no
@@ -206,10 +230,13 @@ one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
 postfix graph quantifiers, exact matching against a pre-bound relationship
-sequence, path selectors and path property access,
-named paths or relationship-list bindings in `OPTIONAL MATCH`, quantified
-`OPTIONAL MATCH`, traversal-fed writes (including writes fed by a relationship
-list), writes fed by any named path, match modes and hints, parameter-map matching,
+sequence, modern path selectors, expression-position shortest-path calls, and
+path property access. Legacy shortest-path factors are also rejected in
+`OPTIONAL MATCH`, with a same-clause `WHERE` or another comma-separated pattern
+part, with a lower bound above one, or in a write query. Named paths or
+relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,
+traversal-fed writes (including writes fed by a relationship list), writes fed
+by any named path, match modes and hints, parameter-map matching,
 `RETURN *`, `MERGE`, exponentiation (`^`), concatenation (`||`), computed
 right-hand sides for property updates, and computed projections or
 `DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. Paths also cannot
@@ -230,32 +257,34 @@ The planner is deliberately small and layered:
 - `planner/sqlite.rs` compiles reads and mutation row sources to parameterized
   SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
   projected entity, path, and scalar slots. Explicit traversal bounds through
-  32 become recursive CTEs carrying ordered per-path identity; deep and
-  open-ended traversals reserve a JSON relation supplied by Rust.
+  32 become recursive CTEs carrying ordered per-path identity; deep,
+  open-ended, and shortest-path traversals reserve JSON relations supplied by
+  Rust.
 - `database.rs` executes SQL read fragments into pending typed cells, applies
-  relationship-unique Rust trail expansion where requested, applies
-  branch-local semantic distinctness and deferred pagination plus left-to-right
-  unions, and then batch-hydrates surviving path and path-derived graph-list
-  identities into public rows.
+  relationship-unique Rust trail expansion or shortest-path BFS where
+  requested, applies branch-local semantic distinctness and deferred pagination
+  plus left-to-right unions, and then batch-hydrates surviving path and
+  path-derived graph-list identities into public rows.
   Every read fragment and hydration query shares one deferred snapshot. For
   mutations, it materializes all input rows before the first change and applies
   ordered mutation operators to that stable row bag.
 
-Trail expansion, pending-row shaping, and path hydration are deliberate hybrid
-boundaries. Rust materializes deep/open-ended trail identities for SQLite to
-consume, then applies semantic row operations before one query-wide hydration
-pass. Directly projected entities can satisfy path references without another
-lookup, and the remaining IDs use at most one node
-query and one edge query. With `RETURN DISTINCT`, `ORDER BY` is restricted to
+Trail and shortest-path expansion, pending-row shaping, and path hydration are
+deliberate hybrid boundaries. Rust fully materializes deep/open-ended trail
+identities or shortest-path BFS results for SQLite to consume, then applies
+semantic row operations before one query-wide hydration pass. Directly
+projected entities can satisfy path references without another lookup, and the
+remaining IDs use at most one node query and one edge query. With
+`RETURN DISTINCT`, `ORDER BY` is restricted to
 projected expressions or their aliases.
 
 `crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
 slots, graph operators, clause stages, and `WITH` scopes without turning
 incidental SQLite aliases into the debug contract.
 `crabnet::explain_physical(cypher)` exposes the generated read SQL/CTEs, bind
-positions, a Rust `trail-expand` stage before its consuming SQLite fragment,
-Rust distinct/pagination and union stages, and the final shared batch-hydration
-boundary when backend details matter.
+positions, Rust `trail-expand` and `shortest-expand` stages before their
+consuming SQLite fragments, Rust distinct/pagination and union stages, and the
+final shared batch-hydration boundary when backend details matter.
 
 Materializing mutation input is intentionally naive, but gives this iteration
 clear snapshot, multiplicity, and rollback behavior. A streaming or more
@@ -320,4 +349,5 @@ covered in `tests/aggregation.rs`, `tests/aggregation_edges.rs`,
 SQLite-bounded traversal is covered in `tests/bounded_traversal.rs`. Milestone
 8's path/list transport and hybrid deep/open-ended traversal slices are covered
 in `tests/path_values.rs`, `tests/relationship_list_values.rs`, and
-`tests/unbounded_traversal.rs`.
+`tests/unbounded_traversal.rs`; its legacy shortest-path slice is covered in
+`tests/shortest_paths.rs`.

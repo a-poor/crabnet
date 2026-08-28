@@ -672,12 +672,6 @@ fn neighboring_unimplemented_traversal_forms_remain_rejected() {
             "expected a structured unsupported error for {query}"
         );
     }
-
-    let shortest = database.execute("MATCH route = shortestPath((a)-[*]->(b)) RETURN route");
-    assert!(
-        matches!(shortest, Err(Error::Unsupported(_)) | Err(Error::Parse(_))),
-        "shortest-path syntax must not execute accidentally"
-    );
 }
 
 #[test]

@@ -341,13 +341,46 @@ pushdown remains future optimization work.
 
 An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
 one trail to at most the number of eligible stored edges, although the number of
-distinct trails can still grow rapidly. Deep and open-ended expansions share a
-100,000-trail-state budget across one top-level query, including `UNION`
-branches and multiple hybrid expansions. Exhausting it fails the query with
-`Error::ResourceLimit` rather than returning a truncated or partial result.
-The counter is a fixed explored-work guard, not a memory bound. The current
-stage fully materializes eligible graph inputs and its JSON trail relation;
-selective seeding and payload accounting remain future hardening.
+distinct trails can still grow rapidly. Deep/open-ended enumeration and
+shortest-path BFS share a 100,000-trail-state budget across one top-level query,
+including `UNION` branches and multiple hybrid expansions. Exhausting it fails
+the query with `Error::ResourceLimit` rather than returning a truncated or
+partial result. The counter is a fixed explored-work guard, not a memory bound.
+The current Rust stages fully materialize eligible graph inputs and their JSON
+trail relations; selective seeding and payload accounting remain future
+hardening.
+
+Legacy pattern-position `shortestPath` and `allShortestPaths` are supported in
+mandatory read-only `MATCH`. The inner pattern must be exactly two nodes joined
+by one legacy variable-length relationship. Its lower bound must be zero or
+one; an omitted lower bound is one. Explicit and omitted upper bounds are
+supported. Selection is unweighted: path length is the number of relationships,
+and the requested bounds are enforced before choosing a minimum.
+
+Selection is independent for each matched start/end node pair after endpoint
+constraints, direction, optional relationship type, inline edge-property map,
+and parameters have restricted the candidates. Rust uses breadth-first search
+over relationship-unique trails. `shortestPath` emits one minimum trail; when
+several tie, the choice is deterministic for a fixed stored graph but
+otherwise unspecified. `allShortestPaths` emits every tied minimum trail, so
+parallel edges remain distinct paths. An unreachable pair emits no row. With
+an explicit zero lower bound, a start node paired with itself selects the
+zero-hop identity.
+With lower bound one, the same endpoint pair instead selects its shortest
+positive relationship-unique cycle; `shortestPath` emits one such tie and
+`allShortestPaths` emits all ties. Crabnet makes this common-endpoint behavior
+unconditionally permissive; unlike Neo4j, it has no configuration gate for
+legacy shortest-path common nodes.
+
+When bound, a shortest result uses the same `PathValue`, fresh relationship-list
+binding, `length`, `nodes`, `relationships`, pending identity, and batch
+hydration contracts as other variable-length paths. It preserves incoming bag
+rows and composes through `WITH` and `UNION`; the BFS relation is fully
+materialized as JSON before SQLite consumes it. Modern path selectors and
+expression-position shortest calls remain rejected. Legacy shortest factors
+are also rejected in `OPTIONAL MATCH`, with a `WHERE` attached to the same
+`MATCH`, alongside another comma-separated pattern part, with a lower bound
+above one, or anywhere in a write query.
 
 Mandatory read-only `MATCH` may bind a fixed, variable-length, or mixed pattern
 with `p = (...)`. Its public `PathValue` contains nodes and relationships in
@@ -385,8 +418,8 @@ named path for the same pattern.
 Exact matching against a pre-bound relationship sequence and use in the scalar,
 aggregate, grouping, ordering, or `UNWIND` contexts above remain unsupported.
 Named paths or relationship-list bindings in `OPTIONAL MATCH`, postfix graph
-quantifiers, shortest-path forms, and writes fed by variable-length traversal,
-a named path, or a relationship list also remain unsupported.
+quantifiers, and writes fed by variable-length traversal, a named path, or a
+relationship list also remain unsupported.
 
 SQLite carries a compact encoding of the ordered node and relationship IDs.
 Rust drains each branch cursor into pending typed rows before another branch or
@@ -400,7 +433,7 @@ from their already-materialized snapshots; Rust then loads every remaining ID
 in batches, using at most one node query and one edge query before constructing
 public paths and typed lists in traversal order.
 
-The complete read—hybrid trail-input queries, every branch SQL fragment, and
+The complete read—hybrid traversal-input queries, every branch SQL fragment, and
 both possible hydration queries—shares one deferred SQLite read snapshot.
 Concurrent external-writer semantics beyond that snapshot remain a non-goal.
 
@@ -483,14 +516,15 @@ entity kinds uses `Error::Semantic`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
-Supported deep or open-ended traversal can instead fail during execution with
-`Error::ResourceLimit` when the query-wide 100,000-trail-state budget is
-exhausted. This is an explicit resource failure; Crabnet does not return a
-truncated result.
+Supported deep/open-ended or shortest-path traversal can instead fail during
+execution with `Error::ResourceLimit` when the shared query-wide
+100,000-trail-state budget is exhausted. This is an explicit resource failure;
+Crabnet does not return a truncated result.
 
-Semantics for unsupported constructs—including path selectors and other path
-expressions beyond the three path functions above, exact matching against
-pre-bound relationship-list values, optional-bound paths or relationship lists,
-postfix graph quantifiers, shortest-path forms, quantified optional matching,
-`MERGE`, label mutation, and computed mutation right-hand sides—remain
-unresolved until those constructs are designed and implemented.
+Semantics for unsupported constructs—including modern path selectors,
+expression-position shortest-path calls, other path expressions beyond the
+three path functions above, exact matching against pre-bound relationship-list
+values, optional-bound paths or relationship lists, postfix graph quantifiers,
+the deferred legacy shortest forms listed above, quantified optional matching,
+`MERGE`, label mutation, and computed mutation right-hand sides—remain unresolved
+until those constructs are designed and implemented.

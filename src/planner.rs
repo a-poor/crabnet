@@ -9,6 +9,7 @@ pub(crate) use logical::{EntityKind, ResolvedExpr, SlotId};
 use logical::{Input, Mutation, Projection, Query, require_object, validate_storable_value};
 pub(crate) use sqlite::{
     OutputShape, ResolvedRowSource, ResolvedTrailExpansion, SqlQuery, TrailDirection,
+    TrailSelection,
 };
 
 pub(crate) enum Plan {

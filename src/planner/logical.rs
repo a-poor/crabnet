@@ -280,6 +280,17 @@ pub(crate) enum MatchOperator {
         relationship_type: Option<String>,
         properties: Vec<(String, ValueExpr)>,
     },
+    ExpandShortestPath {
+        traversal: TraversalId,
+        left: SlotId,
+        right: SlotId,
+        direction: Direction,
+        minimum: usize,
+        maximum: Option<usize>,
+        all: bool,
+        relationship_type: Option<String>,
+        properties: Vec<(String, ValueExpr)>,
+    },
     DistinctRelationships(Vec<RelationshipUse>),
     BindPath {
         path: PathId,
@@ -314,6 +325,7 @@ impl MatchPlan {
                 operator,
                 MatchOperator::ExpandVariableLength { .. }
                     | MatchOperator::ExpandHybridVariableLength { .. }
+                    | MatchOperator::ExpandShortestPath { .. }
             )
         })
     }
