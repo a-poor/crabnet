@@ -11,9 +11,13 @@ input rows produces multiple result rows; Crabnet does not implicitly
 deduplicate them. Comma-separated, disconnected patterns therefore produce a
 Cartesian product unless a read query explicitly uses `RETURN DISTINCT`.
 
-Read-only `RETURN DISTINCT` deduplicates the complete projected row after its
-cells have been decoded to `CypherValue`. This is a Rust execution stage, not
-SQLite text or JSON equality. Its semantic equivalence rules are:
+Read-only `RETURN DISTINCT` deduplicates the complete projected pending row
+after SQL cursor materialization and before graph-value hydration. Scalar,
+ordinary collection, and directly projected entity cells already have typed
+`CypherValue` representations. Whole paths and the entity lists produced by
+`nodes(path)` and `relationships(path)` remain compact ordered identities. This
+is a Rust execution stage, not SQLite text or JSON equality. Its semantic
+equivalence rules are:
 
 - all null cells are one equivalence class, including missing and explicit-null
   properties after evaluation;
@@ -21,12 +25,18 @@ SQLite text or JSON equality. Its semantic equivalence rules are:
   while booleans remain distinct from numeric `0` and `1`;
 - list and map comparison applies these rules recursively;
 - nodes and relationships compare by their respective opaque element IDs; and
-- paths compare by their ordered node-ID and relationship-ID sequences.
+- paths compare by their ordered node-ID and relationship-ID sequences;
+- `nodes(path)` compares by ordered node IDs, independently of relationship
+  IDs, while `relationships(path)` compares by ordered relationship IDs; and
+- pending path-derived lists compare with materialized lists by graph entity
+  identity. A zero-hop `relationships(path)` therefore equals a literal empty
+  list from another union branch.
 
 For a distinct query, `SKIP`/`OFFSET` and `LIMIT` are applied after semantic
-deduplication. `ORDER BY` may refer only to a projected expression or its
-alias; ordering by an unprojected expression is a semantic error. A path value
-cannot itself be an ordering key yet.
+deduplication and before graph-value hydration. `ORDER BY` may refer only to a
+projected expression or its alias; ordering by an unprojected expression is a
+semantic error. A raw path or path-derived typed list cannot itself be an
+ordering key yet; `length(path)` is an ordinary integer ordering expression.
 
 Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
@@ -46,10 +56,14 @@ preserving duplicate and Cartesian-product multiplicity.
 
 A `WITH` projection can carry whole node, relationship, or path bindings and
 typed scalar values. A bare variable keeps its name, while `AS` may give any
-of these values a new name. Paths currently cross a boundary only as direct
-variables or aliases; path functions and scalar operations remain rejected.
-After the boundary, only projected names remain in scope: a binding that was
-not projected cannot be referenced by a later `MATCH`, `WITH`, or `RETURN`.
+of these values a new name. A path may cross directly or feed an aliased
+`length(path)`, `nodes(path)`, or `relationships(path)` projection. Length uses
+a normal scalar slot. The two entity-list results retain ordered path identity
+and element kind across later direct aliases and projections, but cannot yet be
+used as predicates, scalar operands, ordering/grouping keys, aggregate inputs,
+or `UNWIND` inputs. After the boundary, only projected names remain in scope:
+a binding that was not projected cannot be referenced by a later `MATCH`,
+`WITH`, or `RETURN`.
 
 `WHERE` attached to a `WITH` is evaluated at that boundary. It may refer to the
 new projected aliases and to variables from the incoming row, with a projected
@@ -111,7 +125,9 @@ a larger projection expression, aggregate-only ordering/filtering without an
 aggregating projection, and aggregation after a mutation are structured
 planning-time rejections. Aggregates are not allowed in `MATCH` predicates or
 directly in `UNWIND`; a `WITH` boundary must materialize them first.
-Path values are not accepted as aggregate inputs or grouping keys yet.
+Whole path values and path-derived typed lists are not accepted as aggregate
+inputs or grouping keys. `length(path)` is an ordinary integer and may be a
+grouping key or aggregate argument.
 
 ## `UNWIND`
 
@@ -121,17 +137,22 @@ and `UNWIND` stages while carrying the current entity and scalar scope. Empty
 lists, null, and dynamic non-list values produce zero rows; Crabnet does not
 coerce a scalar or map to a singleton list. The new alias must not replace a
 name already in scope. Unless a later clause orders the result, row order after
-`UNWIND` is unspecified.
+`UNWIND` is unspecified. The typed graph lists produced by `nodes(path)` and
+`relationships(path)` are not yet accepted as `UNWIND` inputs.
 
 ## Query unions
 
-`UNION ALL` appends the row bags produced by independently planned read-only
-branches. Bare `UNION` and explicit `UNION DISTINCT` semantically deduplicate
-the accumulated complete rows using the same recursive typed equivalence as
-`RETURN DISTINCT`, including ordered node/relationship identity for paths. In
-a chain mixing duplicate policies, operators apply from left to right.
-Branch-local matching, `WITH`, filters, ordering, and pagination finish before
-that branch enters the union.
+`UNION ALL` appends the pending row bags produced by independently planned
+read-only branches. Bare `UNION` and explicit `UNION DISTINCT` semantically
+deduplicate the accumulated pending rows using the same recursive typed
+equivalence as `RETURN DISTINCT`, including ordered node/relationship identity
+for paths and the relevant ordered entity identity for path-derived lists.
+Mixed duplicate policies apply from left to right. Branch-local
+matching, `WITH`, filters, ordering, semantic distinctness, and deferred
+pagination finish before that branch enters the union. Path identities that
+survive the complete union chain are hydrated afterward. Cross-transport
+comparison handles a path-derived list on one branch and a materialized list on
+another, including zero-hop relationship lists versus literal `[]`.
 
 Every branch must end in `RETURN` and expose the same column names in the same
 positions; value kinds may differ from row to row. Branch scopes and SQL bind
@@ -324,23 +345,41 @@ the traversal orientation.
 
 A named path can be returned directly, carried through a direct `WITH` alias,
 and compared for `RETURN DISTINCT` or distinct `UNION` by its ordered node and
-relationship identities. Path functions such as `length`, `nodes`, and
-`relationships`, property access, selectors, and use as a scalar, aggregate,
-grouping, or ordering expression remain planning-time rejections. A legacy
-relationship variable in `[r*...]` denotes a different relationship-list
+relationship identities. `length(path)` counts relationships and is a
+SQL-backed integer in filters, comparisons, arithmetic, ordering, implicit
+grouping, aggregate arguments, and direct or aliased projections.
+`nodes(path)` returns traversal-ordered nodes; `relationships(path)` returns
+traversal-ordered relationships while each relationship retains its stored
+start/end direction. Both are public `CypherValue::List` values containing
+typed graph entities. They may be returned directly or carried through
+computed `WITH` aliases, and their compact identities participate in semantic
+distinctness, pagination, and unions before hydration.
+
+Each function requires exactly one in-scope path argument; bad arity, unknown
+variables, and wrong variable kinds fail during planning. Property access and
+selectors on a path, plus raw path use as a scalar, aggregate, grouping, or
+ordering expression, remain planning-time rejections. The typed lists from
+`nodes` and `relationships` retain the expression-context restrictions above.
+A legacy relationship variable in `[r*...]` is a different relationship-list
 binding and is also rejected. Named paths in `OPTIONAL MATCH`, unbounded or
 deeper traversal, postfix graph quantifiers, shortest-path forms, and writes
 fed by either bounded traversal or any named path remain unsupported.
 
 SQLite carries a compact encoding of the ordered node and relationship IDs.
-Rust materializes the SQL cursor before hydrating those IDs into graph values.
-Each SQL branch uses per-query node and relationship caches, so each unique
-entity is looked up at most once within that branch. Hydration currently occurs
-before `RETURN DISTINCT` and cross-branch `UNION` deduplication, and union
-branches do not share a hydration cache or deferred read snapshot. Batch
-hydration after identity-level deduplication and one shared deferred read
-snapshot are milestone-8 follow-ups. Concurrent external writers remain a
-non-goal.
+Rust drains each branch cursor into pending typed rows before another branch or
+hydration query runs. Branch-local semantic `RETURN DISTINCT` and deferred
+pagination run on those pending cells, followed by left-to-right
+`UNION`/`UNION ALL` operations. Only IDs required by surviving whole paths or
+path-derived graph lists are collected and deduplicated query-wide. A
+nodes-only result does not load relationships, and a relationships-only result
+does not load nodes. Directly projected graph entities seed the hydration maps
+from their already-materialized snapshots; Rust then loads every remaining ID
+in batches, using at most one node query and one edge query before constructing
+public paths and typed lists in traversal order.
+
+The complete read—every branch SQL fragment and both possible hydration
+queries—shares one deferred SQLite read snapshot. Concurrent external-writer
+semantics beyond that snapshot remain a non-goal.
 
 ## Entity identifiers
 
@@ -421,8 +460,9 @@ entity kinds uses `Error::Semantic`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
-Semantics for unsupported constructs—including path functions/selectors and
-other path expressions, relationship-list bindings, optional-bound paths,
-unbounded or postfix-graph traversal, quantified optional matching, `MERGE`,
-label mutation, and computed mutation right-hand sides—remain unresolved until
-those constructs are designed and implemented.
+Semantics for unsupported constructs—including path selectors and other path
+expressions beyond the three path functions above, relationship-list pattern
+bindings, optional-bound paths, unbounded or postfix-graph traversal,
+quantified optional matching, `MERGE`, label mutation, and computed mutation
+right-hand sides—remain unresolved until those constructs are designed and
+implemented.

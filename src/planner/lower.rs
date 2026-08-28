@@ -20,9 +20,9 @@ use crate::{Error, Result};
 use super::UnionKind;
 use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    Mutation, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage, RelationshipUse,
-    ScalarSlotId, SlotId, SortDirection, SortItem, TraversalId, UnaryOp, UnwindStage, ValueExpr,
-    WithBinding, WithStage,
+    Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
+    ReadPipeline, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, SortItem,
+    TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
 pub(super) const MAX_BOUNDED_TRAVERSAL_DEPTH: usize = 32;
@@ -373,6 +373,10 @@ enum Symbol {
     Entity(SlotId),
     Scalar(ScalarSlotId),
     Path(PathId),
+    PathCollection {
+        path: PathId,
+        kind: PathCollectionKind,
+    },
 }
 
 struct MatchedPath {
@@ -994,6 +998,13 @@ impl<'source> Lowerer<'source> {
                 name.span,
                 format!("path variable `{}` is not a graph entity", name.kind.text),
             )),
+            Symbol::PathCollection { .. } => Err(semantic(
+                name.span,
+                format!(
+                    "path collection variable `{}` is not a graph entity",
+                    name.kind.text
+                ),
+            )),
         }
     }
 
@@ -1086,6 +1097,23 @@ impl<'source> Lowerer<'source> {
                     projected_symbols.insert(name.clone(), Symbol::Path(path));
                     aliases.insert(name, Expr::Path(path));
                 }
+                Expr::PathFunction { kind, path }
+                    if let Some(collection_kind) = path_collection_kind(kind) =>
+                {
+                    bindings.push(WithBinding::PathCollection {
+                        name: name.clone(),
+                        path,
+                        kind: collection_kind,
+                    });
+                    projected_symbols.insert(
+                        name.clone(),
+                        Symbol::PathCollection {
+                            path,
+                            kind: collection_kind,
+                        },
+                    );
+                    aliases.insert(name, Expr::PathFunction { kind, path });
+                }
                 expression => {
                     let slot = self.allocate_scalar();
                     bindings.push(WithBinding::Scalar {
@@ -1111,18 +1139,18 @@ impl<'source> Lowerer<'source> {
             .map(|binding| match binding {
                 WithBinding::Entity { slot, .. } => Expr::Entity(*slot),
                 WithBinding::Path { path, .. } => Expr::Path(*path),
+                WithBinding::PathCollection { path, kind, .. } => Expr::PathFunction {
+                    kind: path_function_kind(*kind),
+                    path: *path,
+                },
                 WithBinding::Scalar { expression, .. } => expression.clone(),
             })
             .collect::<Vec<_>>();
         let aggregating = binding_expressions.iter().any(Expr::contains_aggregate);
-        if aggregating
-            && binding_expressions
-                .iter()
-                .any(|expression| matches!(expression, Expr::Path(_)))
-        {
+        if aggregating && binding_expressions.iter().any(is_deferred_graph_value) {
             return Err(unsupported(
                 projection.span,
-                "path values in aggregating WITH projections",
+                "path values or path collections in aggregating WITH projections",
             ));
         }
         let grouping = implicit_grouping(&binding_expressions);
@@ -1247,14 +1275,10 @@ impl<'source> Lowerer<'source> {
         }
 
         let aggregating = expressions.iter().any(Expr::contains_aggregate);
-        if aggregating
-            && expressions
-                .iter()
-                .any(|expression| matches!(expression, Expr::Path(_)))
-        {
+        if aggregating && expressions.iter().any(is_deferred_graph_value) {
             return Err(unsupported(
                 projection.span,
-                "path values in aggregating RETURN projections",
+                "path values or path collections in aggregating RETURN projections",
             ));
         }
         let grouping = implicit_grouping(&expressions);
@@ -1366,6 +1390,10 @@ impl<'source> Lowerer<'source> {
                     Symbol::Entity(slot) => Ok(Expr::Entity(slot)),
                     Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
                     Symbol::Path(path) => Ok(Expr::Path(path)),
+                    Symbol::PathCollection { path, kind } => Ok(Expr::PathFunction {
+                        kind: path_function_kind(kind),
+                        path,
+                    }),
                 }
             }
             ExprKind::Function(function) => {
@@ -1488,9 +1516,9 @@ impl<'source> Lowerer<'source> {
                 negated: *negated,
             }),
             ExprKind::Is { .. } => Err(unsupported(expression.span, "IS predicate")),
-            ExprKind::Function(function) => {
-                self.function_expression(function, expression.span, aliases)
-            }
+            ExprKind::Function(function) => self
+                .function_expression(function, expression.span, aliases)
+                .and_then(|lowered| require_scalar_context(lowered, expression.span)),
             ExprKind::Parenthesized(inner) => self.scalar_expression_with_aliases(inner, aliases),
             ExprKind::Variable(variable) => {
                 if let Some(expression) = aliases.get(&variable.kind.text) {
@@ -1502,6 +1530,14 @@ impl<'source> Lowerer<'source> {
                                 variable.kind.text
                             ),
                         )),
+                        Expr::PathFunction { kind, .. }
+                            if path_collection_kind(*kind).is_some() =>
+                        {
+                            Err(unsupported(
+                                variable.span,
+                                "path collections in scalar expressions",
+                            ))
+                        }
                         expression => Ok(expression.clone()),
                     };
                 }
@@ -1520,6 +1556,10 @@ impl<'source> Lowerer<'source> {
                             "path variable `{}` is not a scalar expression",
                             variable.kind.text
                         ),
+                    )),
+                    Symbol::PathCollection { .. } => Err(unsupported(
+                        variable.span,
+                        "path collections in scalar expressions",
                     )),
                 }
             }
@@ -1567,8 +1607,46 @@ impl<'source> Lowerer<'source> {
                     EntityKind::Relationship => Err(semantic(span, "labels() requires a node")),
                 }
             }
+            "length" => {
+                self.path_function_expression(function, PathFunctionKind::Length, span, aliases)
+            }
+            "nodes" => {
+                self.path_function_expression(function, PathFunctionKind::Nodes, span, aliases)
+            }
+            "relationships" => self.path_function_expression(
+                function,
+                PathFunctionKind::Relationships,
+                span,
+                aliases,
+            ),
             _ => Err(unsupported(span, format!("function `{name}`"))),
         }
+    }
+
+    fn path_function_expression(
+        &self,
+        function: &FunctionInvocation,
+        kind: PathFunctionKind,
+        span: Span,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
+        let [argument] = function.arguments.as_slice() else {
+            return Err(semantic(
+                span,
+                format!(
+                    "{}() requires exactly one argument",
+                    path_function_name(kind)
+                ),
+            ));
+        };
+        let argument = self.output_expression_with_aliases(argument, aliases)?;
+        let Expr::Path(path) = argument else {
+            return Err(semantic(
+                span,
+                format!("{}() requires a path", path_function_name(kind)),
+            ));
+        };
+        Ok(Expr::PathFunction { kind, path })
     }
 
     fn aggregate_expression(
@@ -1609,8 +1687,11 @@ impl<'source> Lowerer<'source> {
                     "whole entities in aggregates other than count()",
                 ));
             }
-            if matches!(argument, Expr::Path(_)) {
-                return Err(unsupported(span, "path values in aggregate functions"));
+            if is_deferred_graph_value(&argument) {
+                return Err(unsupported(
+                    span,
+                    "path values or path collections in aggregate functions",
+                ));
             }
             if distinct && kind == AggregateKind::Collect {
                 return Err(unsupported(span, "collect(DISTINCT ...)"));
@@ -1679,6 +1760,13 @@ impl<'source> Lowerer<'source> {
                     variable.kind.text
                 ),
             )),
+            Symbol::PathCollection { .. } => Err(semantic(
+                variable.span,
+                format!(
+                    "path collection variable `{}` cannot be used as a graph entity",
+                    variable.kind.text
+                ),
+            )),
         }
     }
 
@@ -1699,6 +1787,13 @@ impl<'source> Lowerer<'source> {
                 variable.span,
                 format!(
                     "path variable `{}` does not have graph properties",
+                    variable.kind.text
+                ),
+            )),
+            Symbol::PathCollection { .. } => Err(semantic(
+                variable.span,
+                format!(
+                    "path collection variable `{}` does not have graph properties",
                     variable.kind.text
                 ),
             )),
@@ -1956,6 +2051,48 @@ fn function_name(function: &FunctionInvocation, span: Span) -> Result<String> {
         return Err(unsupported(span, "qualified function call"));
     }
     Ok(function.name.parts[0].kind.text.to_ascii_lowercase())
+}
+
+fn path_collection_kind(kind: PathFunctionKind) -> Option<PathCollectionKind> {
+    match kind {
+        PathFunctionKind::Length => None,
+        PathFunctionKind::Nodes => Some(PathCollectionKind::Nodes),
+        PathFunctionKind::Relationships => Some(PathCollectionKind::Relationships),
+    }
+}
+
+fn path_function_kind(kind: PathCollectionKind) -> PathFunctionKind {
+    match kind {
+        PathCollectionKind::Nodes => PathFunctionKind::Nodes,
+        PathCollectionKind::Relationships => PathFunctionKind::Relationships,
+    }
+}
+
+fn path_function_name(kind: PathFunctionKind) -> &'static str {
+    match kind {
+        PathFunctionKind::Length => "length",
+        PathFunctionKind::Nodes => "nodes",
+        PathFunctionKind::Relationships => "relationships",
+    }
+}
+
+fn is_deferred_graph_value(expression: &Expr) -> bool {
+    matches!(
+        expression,
+        Expr::Path(_)
+            | Expr::PathFunction {
+                kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+                ..
+            }
+    )
+}
+
+fn require_scalar_context(expression: Expr, span: Span) -> Result<Expr> {
+    if is_deferred_graph_value(&expression) {
+        Err(unsupported(span, "path collections in scalar expressions"))
+    } else {
+        Ok(expression)
+    }
 }
 
 fn implicit_grouping(expressions: &[Expr]) -> Vec<Expr> {

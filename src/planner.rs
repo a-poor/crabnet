@@ -35,7 +35,7 @@ impl ReadPlan {
 
     fn render_physical(&self) -> String {
         if let [query] = self.branches.as_slice() {
-            return query.render_physical();
+            return query.render_physical(query.has_path_identity_output());
         }
 
         let mut output = String::from("physical-union\n");
@@ -48,11 +48,14 @@ impl ReadPlan {
                 output.push_str(&format!("  union: {kind}\n"));
             }
             output.push_str(&format!("  branch {index}:\n"));
-            for line in branch.render_physical().lines() {
+            for line in branch.render_physical(false).lines() {
                 output.push_str("    ");
                 output.push_str(line);
                 output.push('\n');
             }
+        }
+        if self.branches.iter().any(SqlQuery::has_path_identity_output) {
+            output.push_str("  rust-stage: batch-hydrate-paths\n");
         }
         output
     }

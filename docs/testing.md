@@ -68,16 +68,20 @@ end-to-end result test for user-visible semantics.
 - `tests/path_values.rs` covers public named-path results for fixed, bounded,
   mixed, and zero-hop patterns; traversal order and stored relationship
   direction; identity across cycles, diamonds, and parallel edges; direct
-  `WITH` aliases; `RETURN DISTINCT`/`UNION`; and the current rejection boundary.
+  `WITH` aliases; and the current rejection boundary. It also verifies that
+  branch-local distinctness/pagination and left-to-right unions shape pending
+  path identities before one query-wide batch hydration stage.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.
 - Unit tests beside `planner/sqlite.rs` cover SQL lowering, internal aliases,
   bind placement, and graph-to-relational joins. They complement rather than
   replace execution tests.
-- Unit tests in `database.rs` cover schema invariants and failure modes that
-  need direct SQLite access, especially late transaction failures and
-  rollback.
+- Unit tests in `database.rs` cover schema invariants, pending typed-cell
+  equivalence, query-wide path-ID collection, direct-entity cache seeding, and
+  failure modes that need direct SQLite access. Integration tests cover the
+  staged hydration boundary; direct database tests retain late transaction
+  failures and rollback.
 
 For a new query feature, prefer a vertical set of tests: one successful
 end-to-end example, relevant zero-row or `null` behavior, dynamic wrong-kind
@@ -99,6 +103,9 @@ For `RETURN DISTINCT`, assert that semantic deduplication happens before
 scope. This catches accidental SQLite JSON/text distinctness and incorrect
 pre-dedup pagination. Path rows must compare ordered node and relationship
 identities, not display properties or endpoint pairs alone.
+For path-bearing results, also assert that branch-local distinctness and
+pagination plus every union operation precede exactly one query-wide
+`batch-hydrate-paths` stage in the physical explanation.
 
 Use exact row order only when the query has a meaningful `ORDER BY`, or when
 cardinality makes order irrelevant. Generated entity IDs should normally be
@@ -183,9 +190,10 @@ Snapshots, generated tests, TCK scenarios, and differential runs are supporting
 oracles. A feature is complete only when its direct semantic tests are green
 and its behavior is documented as supported.
 
-Milestone 8 is in progress: named paths now cross an explicit SQLite/Rust
-hydration boundary, and `tests/path_values.rs` locks down the first public
-slice. The next tests should drive batch hydration after identity-level
-deduplication and a shared deferred read snapshot across union branches before
-expanding to path functions, relationship-list results, or deep and unbounded
-traversal. Concurrent external-writer behavior remains outside the test goal.
+Milestone 8 is in progress: named paths, path functions, and query-wide batch
+hydration are green. `tests/path_values.rs` and the focused planner/database
+unit tests lock down pending-row shaping, ordered typed lists, selective ID
+collection, semantic distinct/union equality, aliases, and direct-entity
+seeding. The next active TDD slice is the separate relationship-list pattern
+binding/result contract; deep and unbounded traversal follow later. Concurrent
+external-writer behavior remains outside the test goal.

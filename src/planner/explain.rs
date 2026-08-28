@@ -1,9 +1,10 @@
 use serde_json::Value;
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation, PathId,
-    PathSegment, Projection, Query, ReadStage, RelationshipUse, ScalarSlotId, SlotId,
-    SortDirection, UnaryOp, ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation,
+    PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query, ReadStage,
+    RelationshipUse, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr, WithBinding,
+    WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -143,6 +144,15 @@ fn render_with_stage(renderer: &mut Renderer, stage: &WithStage) {
             WithBinding::Path { name, path } => renderer.line(
                 5,
                 format!("{} = path({})", quote(name), path_slot_name(*path)),
+            ),
+            WithBinding::PathCollection { name, path, kind } => renderer.line(
+                5,
+                format!(
+                    "{} = {}(path({}))",
+                    quote(name),
+                    path_collection_kind_name(*kind),
+                    path_slot_name(*path)
+                ),
             ),
         }
     }
@@ -444,6 +454,11 @@ fn render_expr(expression: &Expr) -> String {
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
         Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
         Expr::Path(path) => format!("path({})", path_slot_name(*path)),
+        Expr::PathFunction { kind, path } => format!(
+            "{}(path({}))",
+            path_function_kind_name(*kind),
+            path_slot_name(*path)
+        ),
         Expr::Property(slot, key) => {
             format!("property({}, {})", slot_name(*slot), quote(key))
         }
@@ -563,6 +578,21 @@ fn entity_kind_name(kind: EntityKind) -> &'static str {
     match kind {
         EntityKind::Node => "node",
         EntityKind::Relationship => "relationship",
+    }
+}
+
+fn path_function_kind_name(kind: PathFunctionKind) -> &'static str {
+    match kind {
+        PathFunctionKind::Length => "length",
+        PathFunctionKind::Nodes => "nodes",
+        PathFunctionKind::Relationships => "relationships",
+    }
+}
+
+fn path_collection_kind_name(kind: PathCollectionKind) -> &'static str {
+    match kind {
+        PathCollectionKind::Nodes => "nodes",
+        PathCollectionKind::Relationships => "relationships",
     }
 }
 
@@ -807,6 +837,7 @@ mod tests {
         assert_eq!(physical.matches("    physical-query\n").count(), 3);
         assert!(physical.contains("  union: all\n  branch 1:\n"));
         assert!(physical.contains("  union: semantic-distinct\n  branch 2:\n"));
+        assert!(!physical.contains("batch-hydrate-paths"));
     }
 
     #[test]
@@ -878,7 +909,62 @@ mod tests {
         assert_eq!(logical.matches("\"journey\" = path(%p0)").count(), 2);
 
         let physical = explain_physical(query).unwrap();
-        assert!(physical.contains("rust-stage: hydrate-paths"));
+        assert!(physical.contains("rust-stage: batch-hydrate-paths"));
+        assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
+    }
+
+    #[test]
+    fn explains_path_functions_and_typed_collection_with_bindings() {
+        let logical = explain_logical(
+            "MATCH path = (start)-[:NEXT]->(end) \
+             WITH length(path) AS hops, nodes(path) AS points, \
+                  relationships(path) AS links \
+             RETURN hops, points, links",
+        )
+        .unwrap();
+
+        assert!(logical.contains("scalar-slots:\n    %s0 scalar"));
+        assert!(logical.contains("path-slots:\n    %p0 path"));
+        assert!(logical.contains("\"hops\" = scalar(%s0) <- length(path(%p0))"));
+        assert!(logical.contains("\"points\" = nodes(path(%p0))"));
+        assert!(logical.contains("\"links\" = relationships(path(%p0))"));
+        assert!(logical.contains("\"hops\" = scalar(%s0)"));
+    }
+
+    #[test]
+    fn physical_explain_orders_semantic_distinct_before_path_hydration() {
+        let query = "MATCH path = (start)-[:NEXT]->(end) \
+                     RETURN DISTINCT path, end.name AS name \
+                     ORDER BY name SKIP 1 LIMIT 2";
+
+        let physical = explain_physical(query).unwrap();
+        assert!(
+            physical
+                .contains("rust-stage: semantic-distinct then pagination then batch-hydrate-paths")
+        );
+    }
+
+    #[test]
+    fn physical_union_explain_hydrates_path_identities_once_after_union_operations() {
+        let branch = "MATCH path = (start)-[:NEXT]->(end) RETURN path";
+        let query = format!("{branch} UNION {branch} UNION ALL {branch}");
+
+        let physical = explain_physical(&query).unwrap();
+        assert_eq!(physical.matches("    rust-stage: none\n").count(), 3);
+        assert!(physical.contains("  union: semantic-distinct\n  branch 1:\n"));
+        assert!(physical.contains("  union: all\n  branch 2:\n"));
+        assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
+
+        let last_union = physical
+            .rfind("  union: all")
+            .expect("physical plan should contain the final union");
+        let hydration = physical
+            .rfind("  rust-stage: batch-hydrate-paths")
+            .expect("physical plan should contain shared path hydration");
+        assert!(
+            last_union < hydration,
+            "path hydration must follow every union operation: {physical}"
+        );
     }
 
     #[test]

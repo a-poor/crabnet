@@ -4,8 +4,8 @@ use std::{
 };
 
 use rusqlite::{
-    Connection, OptionalExtension, Transaction, TransactionBehavior, functions::FunctionFlags,
-    params, params_from_iter,
+    Connection, Transaction, TransactionBehavior, functions::FunctionFlags, params,
+    params_from_iter,
 };
 
 use crate::{
@@ -96,76 +96,16 @@ impl Database {
         }
     }
 
-    fn execute_read(&self, plan: ReadPlan, parameters: &Parameters) -> Result<QueryResult> {
-        let columns = plan
-            .branches
-            .first()
-            .expect("read plans always contain at least one branch")
-            .columns
-            .clone();
-        let mut branches = plan.branches.iter();
-        let mut rows = self.execute_sql_query(
-            branches
-                .next()
-                .expect("read plans always contain at least one branch"),
-            parameters,
-        )?;
-        for (kind, branch) in plan.unions.iter().zip(branches) {
-            rows.extend(self.execute_sql_query(branch, parameters)?);
-            if *kind == UnionKind::Distinct {
-                rows = distinct_rows(rows);
-            }
-        }
-        Ok(QueryResult {
-            columns,
-            rows,
-            summary: QuerySummary::default(),
-        })
-    }
-
-    fn execute_sql_query(
-        &self,
-        plan: &SqlQuery,
-        parameters: &Parameters,
-    ) -> Result<Vec<Vec<CypherValue>>> {
-        let bindings = plan.resolve_bindings(parameters)?;
-        let post_pagination = plan.resolve_post_pagination(parameters)?;
-        debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
-        // Finish and drop the result cursor before path hydration issues any
-        // follow-up reads on this connection. This is the first explicit
-        // SQLite-to-Rust operator boundary in the execution pipeline.
-        let encoded_rows = {
-            let mut statement = self.connection.prepare(&plan.sql)?;
-            debug_assert!(statement.readonly());
-            statement
-                .query_map(params_from_iter(bindings.iter()), |row| {
-                    (0..plan.output_shapes.len())
-                        .map(|index| row.get::<_, String>(index))
-                        .collect::<rusqlite::Result<Vec<_>>>()
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        let mut hydrator = PathHydrator::new(&self.connection);
-        let mut rows = encoded_rows
-            .into_iter()
-            .map(|values| {
-                values
-                    .into_iter()
-                    .zip(plan.output_shapes.iter().copied())
-                    .map(|(value, shape)| decode_output(&value, shape, &mut hydrator))
-                    .collect::<Result<Vec<_>>>()
-            })
-            .collect::<Result<Vec<_>>>()?;
-        if plan.distinct() {
-            rows = distinct_rows(rows);
-            let (offset, limit) = post_pagination;
-            rows = rows
-                .into_iter()
-                .skip(offset)
-                .take(limit.unwrap_or(usize::MAX))
-                .collect();
-        }
-        Ok(rows)
+    fn execute_read(&mut self, plan: ReadPlan, parameters: &Parameters) -> Result<QueryResult> {
+        // Path identities are emitted by the primary SQL fragments and
+        // hydrated with follow-up reads. Keep every UNION branch and that
+        // shared hydration pass on one deferred read snapshot.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)?;
+        let result = execute_read_plan(&transaction, plan, parameters)?;
+        transaction.commit()?;
+        Ok(result)
     }
 
     fn execute_mutation(&mut self, plan: ResolvedMutationPlan) -> Result<QueryResult> {
@@ -315,6 +255,92 @@ impl Database {
     }
 }
 
+#[derive(Clone, Debug)]
+enum PendingValue {
+    Materialized(CypherValue),
+    Path(PathIdentity),
+    PathNodes(Vec<String>),
+    PathRelationships(Vec<String>),
+}
+
+type PendingRow = Vec<PendingValue>;
+
+fn execute_read_plan(
+    connection: &Connection,
+    plan: ReadPlan,
+    parameters: &Parameters,
+) -> Result<QueryResult> {
+    let first = plan
+        .branches
+        .first()
+        .expect("read plans always contain at least one branch");
+    let columns = first.columns.clone();
+    let mut branches = plan.branches.iter();
+    let mut rows = execute_sql_query(
+        connection,
+        branches
+            .next()
+            .expect("read plans always contain at least one branch"),
+        parameters,
+    )?;
+    for (kind, branch) in plan.unions.iter().zip(branches) {
+        rows.extend(execute_sql_query(connection, branch, parameters)?);
+        if *kind == UnionKind::Distinct {
+            rows = distinct_pending_rows(rows);
+        }
+    }
+    let rows = hydrate_pending_rows(connection, rows)?;
+    Ok(QueryResult {
+        columns,
+        rows,
+        summary: QuerySummary::default(),
+    })
+}
+
+fn execute_sql_query(
+    connection: &Connection,
+    plan: &SqlQuery,
+    parameters: &Parameters,
+) -> Result<Vec<PendingRow>> {
+    let bindings = plan.resolve_bindings(parameters)?;
+    let post_pagination = plan.resolve_post_pagination(parameters)?;
+    debug_assert_eq!(plan.columns.len(), plan.output_shapes.len());
+
+    // Completely drain and drop the SQLite cursor before a later Rust stage
+    // issues either branch SQL or the shared path-hydration queries.
+    let encoded_rows = {
+        let mut statement = connection.prepare(&plan.sql)?;
+        debug_assert!(statement.readonly());
+        statement
+            .query_map(params_from_iter(bindings.iter()), |row| {
+                (0..plan.output_shapes.len())
+                    .map(|index| row.get::<_, String>(index))
+                    .collect::<rusqlite::Result<Vec<_>>>()
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let mut rows = encoded_rows
+        .into_iter()
+        .map(|values| {
+            values
+                .into_iter()
+                .zip(plan.output_shapes.iter().copied())
+                .map(|(value, shape)| decode_pending_output(&value, shape))
+                .collect::<Result<PendingRow>>()
+        })
+        .collect::<Result<Vec<_>>>()?;
+    if plan.distinct() {
+        rows = distinct_pending_rows(rows);
+        let (offset, limit) = post_pagination;
+        rows = rows
+            .into_iter()
+            .skip(offset)
+            .take(limit.unwrap_or(usize::MAX))
+            .collect();
+    }
+    Ok(rows)
+}
+
 fn delete_entities(
     transaction: &Transaction<'_>,
     rows: &[ExecutionRow],
@@ -444,17 +470,68 @@ fn property_change_count(
             .count()
 }
 
-fn distinct_rows(rows: Vec<Vec<CypherValue>>) -> Vec<Vec<CypherValue>> {
-    let mut distinct: Vec<Vec<CypherValue>> = Vec::with_capacity(rows.len());
+fn distinct_pending_rows(rows: Vec<PendingRow>) -> Vec<PendingRow> {
+    let mut distinct: Vec<PendingRow> = Vec::with_capacity(rows.len());
     for row in rows {
         if !distinct
             .iter()
-            .any(|existing| cypher_rows_equivalent(existing, &row))
+            .any(|existing| pending_rows_equivalent(existing, &row))
         {
             distinct.push(row);
         }
     }
     distinct
+}
+
+fn pending_rows_equivalent(left: &[PendingValue], right: &[PendingValue]) -> bool {
+    left.len() == right.len()
+        && left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| pending_values_equivalent(left, right))
+}
+
+fn pending_values_equivalent(left: &PendingValue, right: &PendingValue) -> bool {
+    match (left, right) {
+        (PendingValue::Materialized(left), PendingValue::Materialized(right)) => {
+            cypher_values_equivalent(left, right)
+        }
+        (PendingValue::Path(left), PendingValue::Path(right)) => left == right,
+        (PendingValue::PathNodes(left), PendingValue::PathNodes(right)) => left == right,
+        (PendingValue::PathRelationships(left), PendingValue::PathRelationships(right)) => {
+            left == right
+        }
+        (PendingValue::PathNodes(left), PendingValue::PathRelationships(right))
+        | (PendingValue::PathRelationships(right), PendingValue::PathNodes(left)) => {
+            left.is_empty() && right.is_empty()
+        }
+        (PendingValue::PathNodes(ids), PendingValue::Materialized(value))
+        | (PendingValue::Materialized(value), PendingValue::PathNodes(ids)) => {
+            entity_id_list_matches_value(EntityKind::Node, ids, value)
+        }
+        (PendingValue::PathRelationships(ids), PendingValue::Materialized(value))
+        | (PendingValue::Materialized(value), PendingValue::PathRelationships(ids)) => {
+            entity_id_list_matches_value(EntityKind::Relationship, ids, value)
+        }
+        _ => false,
+    }
+}
+
+fn entity_id_list_matches_value(kind: EntityKind, ids: &[String], value: &CypherValue) -> bool {
+    let CypherValue::List(values) = value else {
+        return false;
+    };
+    ids.len() == values.len()
+        && ids
+            .iter()
+            .zip(values)
+            .all(|(id, value)| match (kind, value) {
+                (EntityKind::Node, CypherValue::Node(node)) => id == &node.element_id,
+                (EntityKind::Relationship, CypherValue::Relationship(relationship)) => {
+                    id == &relationship.element_id
+                }
+                _ => false,
+            })
 }
 
 fn cypher_rows_equivalent(left: &[CypherValue], right: &[CypherValue]) -> bool {
@@ -739,22 +816,128 @@ struct PathIdentity {
     relationship_ids: Vec<String>,
 }
 
-struct PathHydrator<'connection> {
-    connection: &'connection Connection,
+#[derive(Default)]
+struct PathHydrator {
     nodes: HashMap<String, NodeValue>,
     relationships: HashMap<String, RelationshipValue>,
 }
 
-impl<'connection> PathHydrator<'connection> {
-    fn new(connection: &'connection Connection) -> Self {
-        Self {
-            connection,
-            nodes: HashMap::new(),
-            relationships: HashMap::new(),
+impl PathHydrator {
+    fn load(connection: &Connection, rows: &[PendingRow]) -> Result<Self> {
+        let (mut node_ids, mut relationship_ids) = collect_path_ids(rows);
+        if node_ids.is_empty() && relationship_ids.is_empty() {
+            return Ok(Self::default());
         }
+        let mut hydrator = Self::default();
+
+        // Whole entities already decoded from the primary SQL fragments are
+        // snapshots from the same read transaction and can seed the cache.
+        for value in rows.iter().flatten() {
+            match value {
+                PendingValue::Materialized(CypherValue::Node(node))
+                    if node_ids.remove(&node.element_id) =>
+                {
+                    hydrator
+                        .nodes
+                        .entry(node.element_id.clone())
+                        .or_insert_with(|| node.clone());
+                }
+                PendingValue::Materialized(CypherValue::Relationship(relationship))
+                    if relationship_ids.remove(&relationship.element_id) =>
+                {
+                    hydrator
+                        .relationships
+                        .entry(relationship.element_id.clone())
+                        .or_insert_with(|| relationship.clone());
+                }
+                PendingValue::Materialized(_)
+                | PendingValue::Path(_)
+                | PendingValue::PathNodes(_)
+                | PendingValue::PathRelationships(_) => {}
+            }
+        }
+
+        hydrator.load_nodes(connection, &node_ids)?;
+        hydrator.load_relationships(connection, &relationship_ids)?;
+        Ok(hydrator)
     }
 
-    fn hydrate(&mut self, identity: PathIdentity) -> Result<PathValue> {
+    fn load_nodes(&mut self, connection: &Connection, ids: &BTreeSet<String>) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let encoded_ids = encode_id_set(ids);
+        let encoded_nodes = {
+            let mut statement = connection.prepare(
+                "SELECT json_object(
+                    'id', n.id, 'label', n.label, 'props', json(n.props)
+                 )
+                 FROM json_each(?1) AS wanted
+                 JOIN nodes AS n ON n.id = wanted.value
+                 WHERE wanted.type = 'text'",
+            )?;
+            statement
+                .query_map(params![encoded_ids], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for encoded in encoded_nodes {
+            let EntityValue::Node(node) = decode_entity(&encoded, EntityKind::Node)? else {
+                unreachable!("node decoder always returns a node")
+            };
+            self.nodes.insert(node.element_id.clone(), node);
+        }
+        if let Some(id) = ids.iter().find(|id| !self.nodes.contains_key(id.as_str())) {
+            return Err(crate::Error::Data(format!(
+                "path references missing node `{id}`"
+            )));
+        }
+        Ok(())
+    }
+
+    fn load_relationships(
+        &mut self,
+        connection: &Connection,
+        ids: &BTreeSet<String>,
+    ) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let encoded_ids = encode_id_set(ids);
+        let encoded_relationships = {
+            let mut statement = connection.prepare(
+                "SELECT json_object(
+                    'id', e.id, 'type', e.edge_type, 'from', e.from_node,
+                    'to', e.to_node, 'props', json(e.props)
+                 )
+                 FROM json_each(?1) AS wanted
+                 JOIN edges AS e ON e.id = wanted.value
+                 WHERE wanted.type = 'text'",
+            )?;
+            statement
+                .query_map(params![encoded_ids], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?
+        };
+        for encoded in encoded_relationships {
+            let EntityValue::Relationship(relationship) =
+                decode_entity(&encoded, EntityKind::Relationship)?
+            else {
+                unreachable!("relationship decoder always returns a relationship")
+            };
+            self.relationships
+                .insert(relationship.element_id.clone(), relationship);
+        }
+        if let Some(id) = ids
+            .iter()
+            .find(|id| !self.relationships.contains_key(id.as_str()))
+        {
+            return Err(crate::Error::Data(format!(
+                "path references missing relationship `{id}`"
+            )));
+        }
+        Ok(())
+    }
+
+    fn hydrate(&self, identity: PathIdentity) -> Result<PathValue> {
         let mut nodes = Vec::with_capacity(identity.node_ids.len());
         for id in identity.node_ids {
             nodes.push(self.node(&id)?);
@@ -788,55 +971,56 @@ impl<'connection> PathHydrator<'connection> {
         })
     }
 
-    fn node(&mut self, id: &str) -> Result<NodeValue> {
-        if let Some(node) = self.nodes.get(id) {
-            return Ok(node.clone());
-        }
-        let encoded = self
-            .connection
-            .query_row(
-                "SELECT json_object(
-                    'id', id, 'label', label, 'props', json(props)
-                 ) FROM nodes WHERE id = ?1",
-                params![id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .ok_or_else(|| crate::Error::Data(format!("path references missing node `{id}`")))?;
-        let EntityValue::Node(node) = decode_entity(&encoded, EntityKind::Node)? else {
-            unreachable!("node decoder always returns a node")
-        };
-        self.nodes.insert(id.to_owned(), node.clone());
-        Ok(node)
+    fn node(&self, id: &str) -> Result<NodeValue> {
+        self.nodes
+            .get(id)
+            .cloned()
+            .ok_or_else(|| crate::Error::Data(format!("path references missing node `{id}`")))
     }
 
-    fn relationship(&mut self, id: &str) -> Result<RelationshipValue> {
-        if let Some(relationship) = self.relationships.get(id) {
-            return Ok(relationship.clone());
-        }
-        let encoded = self
-            .connection
-            .query_row(
-                "SELECT json_object(
-                    'id', id, 'type', edge_type, 'from', from_node,
-                    'to', to_node, 'props', json(props)
-                 ) FROM edges WHERE id = ?1",
-                params![id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()?
-            .ok_or_else(|| {
-                crate::Error::Data(format!("path references missing relationship `{id}`"))
-            })?;
-        let EntityValue::Relationship(relationship) =
-            decode_entity(&encoded, EntityKind::Relationship)?
-        else {
-            unreachable!("relationship decoder always returns a relationship")
-        };
-        self.relationships
-            .insert(id.to_owned(), relationship.clone());
-        Ok(relationship)
+    fn relationship(&self, id: &str) -> Result<RelationshipValue> {
+        self.relationships.get(id).cloned().ok_or_else(|| {
+            crate::Error::Data(format!("path references missing relationship `{id}`"))
+        })
     }
+
+    fn hydrate_node_list(&self, ids: Vec<String>) -> Result<CypherValue> {
+        ids.into_iter()
+            .map(|id| self.node(&id).map(CypherValue::Node))
+            .collect::<Result<Vec<_>>>()
+            .map(CypherValue::List)
+    }
+
+    fn hydrate_relationship_list(&self, ids: Vec<String>) -> Result<CypherValue> {
+        ids.into_iter()
+            .map(|id| self.relationship(&id).map(CypherValue::Relationship))
+            .collect::<Result<Vec<_>>>()
+            .map(CypherValue::List)
+    }
+}
+
+fn collect_path_ids(rows: &[PendingRow]) -> (BTreeSet<String>, BTreeSet<String>) {
+    let mut nodes = BTreeSet::new();
+    let mut relationships = BTreeSet::new();
+    for value in rows.iter().flatten() {
+        match value {
+            PendingValue::Path(path) => {
+                nodes.extend(path.node_ids.iter().cloned());
+                relationships.extend(path.relationship_ids.iter().cloned());
+            }
+            PendingValue::PathNodes(ids) => nodes.extend(ids.iter().cloned()),
+            PendingValue::PathRelationships(ids) => {
+                relationships.extend(ids.iter().cloned());
+            }
+            PendingValue::Materialized(_) => {}
+        }
+    }
+    (nodes, relationships)
+}
+
+fn encode_id_set(ids: &BTreeSet<String>) -> String {
+    serde_json::Value::Array(ids.iter().cloned().map(serde_json::Value::String).collect())
+        .to_string()
 }
 
 fn decode_path_identity(encoded: &str) -> Result<PathIdentity> {
@@ -921,11 +1105,28 @@ fn take_string_array(
         .collect()
 }
 
-fn decode_output(
-    encoded: &str,
-    shape: OutputShape,
-    hydrator: &mut PathHydrator<'_>,
-) -> Result<CypherValue> {
+fn hydrate_pending_rows(
+    connection: &Connection,
+    rows: Vec<PendingRow>,
+) -> Result<Vec<Vec<CypherValue>>> {
+    let hydrator = PathHydrator::load(connection, &rows)?;
+    rows.into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|value| match value {
+                    PendingValue::Materialized(value) => Ok(value),
+                    PendingValue::Path(identity) => {
+                        hydrator.hydrate(identity).map(CypherValue::Path)
+                    }
+                    PendingValue::PathNodes(ids) => hydrator.hydrate_node_list(ids),
+                    PendingValue::PathRelationships(ids) => hydrator.hydrate_relationship_list(ids),
+                })
+                .collect::<Result<Vec<_>>>()
+        })
+        .collect()
+}
+
+fn decode_pending_output(encoded: &str, shape: OutputShape) -> Result<PendingValue> {
     match shape {
         OutputShape::Json => {
             let value = serde_json::from_str::<serde_json::Value>(encoded).map_err(|error| {
@@ -933,15 +1134,19 @@ fn decode_output(
                     "query returned malformed JSON `{encoded}`: {error}"
                 ))
             })?;
-            CypherValue::try_from(value)
+            CypherValue::try_from(value).map(PendingValue::Materialized)
         }
-        OutputShape::Entity(_) if encoded == "null" => Ok(CypherValue::Null),
-        OutputShape::Entity(kind) => {
-            decode_entity(encoded, kind).map(|value| value.to_cypher_value())
+        OutputShape::Entity(_) if encoded == "null" => {
+            Ok(PendingValue::Materialized(CypherValue::Null))
         }
-        OutputShape::Path => decode_path_identity(encoded)
-            .and_then(|identity| hydrator.hydrate(identity))
-            .map(CypherValue::Path),
+        OutputShape::Entity(kind) => decode_entity(encoded, kind)
+            .map(|value| PendingValue::Materialized(value.to_cypher_value())),
+        OutputShape::PathIdentity => decode_path_identity(encoded).map(PendingValue::Path),
+        OutputShape::PathNodes => {
+            decode_path_identity(encoded).map(|identity| PendingValue::PathNodes(identity.node_ids))
+        }
+        OutputShape::PathRelationships => decode_path_identity(encoded)
+            .map(|identity| PendingValue::PathRelationships(identity.relationship_ids)),
     }
 }
 
@@ -1126,6 +1331,191 @@ mod tests {
             &CypherValue::Integer(9_007_199_254_740_993),
             &CypherValue::Float(9_007_199_254_740_992.0)
         ));
+    }
+
+    #[test]
+    fn pending_distinct_uses_typed_values_and_ordered_path_identity() {
+        let first = PathIdentity {
+            node_ids: vec!["a".into(), "b".into()],
+            relationship_ids: vec!["edge".into()],
+        };
+        let same = first.clone();
+        let reversed = PathIdentity {
+            node_ids: vec!["b".into(), "a".into()],
+            relationship_ids: vec!["edge".into()],
+        };
+        let different_edge = PathIdentity {
+            node_ids: vec!["a".into(), "b".into()],
+            relationship_ids: vec!["other".into()],
+        };
+
+        assert!(pending_values_equivalent(
+            &PendingValue::Materialized(CypherValue::Integer(1)),
+            &PendingValue::Materialized(CypherValue::Float(1.0)),
+        ));
+        assert!(pending_values_equivalent(
+            &PendingValue::Path(first.clone()),
+            &PendingValue::Path(same),
+        ));
+        assert!(!pending_values_equivalent(
+            &PendingValue::Path(first.clone()),
+            &PendingValue::Path(reversed),
+        ));
+        assert!(!pending_values_equivalent(
+            &PendingValue::Path(first.clone()),
+            &PendingValue::Path(different_edge),
+        ));
+        assert!(!pending_values_equivalent(
+            &PendingValue::Path(first),
+            &PendingValue::Materialized(CypherValue::String("path".into())),
+        ));
+    }
+
+    #[test]
+    fn pending_path_collections_use_entity_identity_and_bridge_typed_lists() {
+        let node = |id: &str| {
+            CypherValue::Node(NodeValue {
+                element_id: id.into(),
+                labels: Vec::new(),
+                properties: Default::default(),
+            })
+        };
+        let relationship = |id: &str| {
+            CypherValue::Relationship(RelationshipValue {
+                element_id: id.into(),
+                relationship_type: "LINK".into(),
+                start_node_element_id: "a".into(),
+                end_node_element_id: "b".into(),
+                properties: Default::default(),
+            })
+        };
+
+        let nodes = PendingValue::PathNodes(vec!["a".into(), "b".into()]);
+        let materialized_nodes =
+            PendingValue::Materialized(CypherValue::List(vec![node("a"), node("b")]));
+        assert!(pending_values_equivalent(&nodes, &materialized_nodes));
+        assert!(pending_values_equivalent(&materialized_nodes, &nodes));
+
+        let relationships = PendingValue::PathRelationships(vec!["edge".into()]);
+        let materialized_relationships =
+            PendingValue::Materialized(CypherValue::List(vec![relationship("edge")]));
+        assert!(pending_values_equivalent(
+            &relationships,
+            &materialized_relationships,
+        ));
+        assert!(!pending_values_equivalent(&nodes, &relationships));
+
+        let empty_relationships = PendingValue::PathRelationships(Vec::new());
+        let materialized_empty = PendingValue::Materialized(CypherValue::List(Vec::new()));
+        assert!(pending_values_equivalent(
+            &empty_relationships,
+            &materialized_empty,
+        ));
+        assert!(pending_values_equivalent(
+            &materialized_empty,
+            &empty_relationships,
+        ));
+    }
+
+    #[test]
+    fn pending_path_id_collection_is_unique_across_rows_and_columns() {
+        let rows = vec![
+            vec![
+                PendingValue::Path(PathIdentity {
+                    node_ids: vec!["a".into(), "b".into()],
+                    relationship_ids: vec!["ab".into()],
+                }),
+                PendingValue::Path(PathIdentity {
+                    node_ids: vec!["b".into(), "c".into()],
+                    relationship_ids: vec!["bc".into()],
+                }),
+            ],
+            vec![
+                PendingValue::Path(PathIdentity {
+                    node_ids: vec!["a".into(), "b".into()],
+                    relationship_ids: vec!["ab".into()],
+                }),
+                PendingValue::PathNodes(vec!["node-only".into(), "b".into()]),
+                PendingValue::PathRelationships(vec!["edge-only".into(), "bc".into()]),
+            ],
+        ];
+
+        let (nodes, relationships) = collect_path_ids(&rows);
+        assert_eq!(
+            nodes,
+            BTreeSet::from([
+                "a".to_owned(),
+                "b".to_owned(),
+                "c".to_owned(),
+                "node-only".to_owned()
+            ])
+        );
+        assert_eq!(
+            relationships,
+            BTreeSet::from(["ab".to_owned(), "bc".to_owned(), "edge-only".to_owned()])
+        );
+    }
+
+    #[test]
+    fn directly_materialized_entities_seed_path_hydration() {
+        let node = NodeValue {
+            element_id: "seeded".into(),
+            labels: vec!["Seed".into()],
+            properties: Default::default(),
+        };
+        let rows = vec![vec![
+            PendingValue::Materialized(CypherValue::Node(node.clone())),
+            PendingValue::Path(PathIdentity {
+                node_ids: vec![node.element_id.clone()],
+                relationship_ids: Vec::new(),
+            }),
+        ]];
+
+        // This connection intentionally has no graph schema. Loading can only
+        // succeed if the directly materialized node satisfies the path cache.
+        let connection = Connection::open_in_memory().unwrap();
+        let hydrator = PathHydrator::load(&connection, &rows).unwrap();
+        let path = hydrator
+            .hydrate(PathIdentity {
+                node_ids: vec![node.element_id.clone()],
+                relationship_ids: Vec::new(),
+            })
+            .unwrap();
+        assert_eq!(path.nodes, [node]);
+        assert!(path.relationships.is_empty());
+    }
+
+    #[test]
+    fn empty_and_seeded_relationship_lists_need_no_storage_query() {
+        let relationship = RelationshipValue {
+            element_id: "seeded-edge".into(),
+            relationship_type: "LINK".into(),
+            start_node_element_id: "a".into(),
+            end_node_element_id: "b".into(),
+            properties: Default::default(),
+        };
+        let rows = vec![
+            vec![PendingValue::PathRelationships(Vec::new())],
+            vec![
+                PendingValue::Materialized(CypherValue::Relationship(relationship.clone())),
+                PendingValue::PathRelationships(vec![relationship.element_id.clone()]),
+            ],
+        ];
+
+        // No graph schema exists: both the empty zero-hop list and the seeded
+        // relationship list must avoid a storage lookup entirely.
+        let connection = Connection::open_in_memory().unwrap();
+        let hydrator = PathHydrator::load(&connection, &rows).unwrap();
+        assert_eq!(
+            hydrator.hydrate_relationship_list(Vec::new()).unwrap(),
+            CypherValue::List(Vec::new())
+        );
+        assert_eq!(
+            hydrator
+                .hydrate_relationship_list(vec![relationship.element_id.clone()])
+                .unwrap(),
+            CypherValue::List(vec![CypherValue::Relationship(relationship)])
+        );
     }
 
     #[test]

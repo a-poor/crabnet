@@ -68,6 +68,11 @@ Within those shapes, the first iteration supports:
   `*min..max`, and `*..max`, with outgoing, incoming, and undirected direction
 - named paths in mandatory read-only `MATCH`, across fixed, bounded, and mixed
   patterns, returned as `CypherValue::Path(PathValue)`
+- `length(path)` as an integer scalar in filters, comparisons, arithmetic,
+  ordering, grouping, aggregate arguments, and direct or aliased projections
+- `nodes(path)` and `relationships(path)` as traversal-ordered typed entity
+  lists in direct projections and computed `WITH` aliases, with semantic
+  `DISTINCT`/`UNION` equality before hydration
 - fixed-length `OPTIONAL MATCH`, including whole-pattern null extension and
   optional-local `WHERE` predicates
 - at most one node label; zero or one relationship type in `MATCH`, and exactly
@@ -150,14 +155,23 @@ multiplicity even when they reach the same endpoint.
 `PathValue` exposes nodes and relationships in traversal order, always with one
 more node than relationship. A zero-hop path therefore has one node and no
 relationships. Relationship values keep their stored start/end direction even
-when the path traversed them backwards. SQLite returns only compact ordered IDs;
-after the cursor is materialized, Rust hydrates graph values with node and
-relationship caches scoped to each SQL branch. Paths survive direct `WITH`
-aliases and use ordered node/relationship identity for `RETURN DISTINCT` and
-distinct `UNION`. Hydration currently precedes that deduplication; batching it
-after identity-level dedup and sharing one deferred read snapshot across union
-branches are milestone-8 follow-ups. Concurrent external writers are not a
-current goal.
+when the path traversed them backwards. SQLite returns compact ordered
+identities. `length(path)` is the relationship count and remains an ordinary
+SQL-backed integer across filters, arithmetic, ordering, implicit grouping,
+and aggregate arguments. `nodes(path)` and `relationships(path)` return
+`CypherValue::List` values whose members are typed `NodeValue` and
+`RelationshipValue` cells in traversal order; zero-hop relationships are an
+empty list. These graph lists may be returned directly or carried through a
+computed `WITH` alias, but they are not yet accepted as predicates, arithmetic
+operands, ordering/grouping keys, aggregate inputs, or `UNWIND` inputs.
+
+Rust keeps path and path-derived graph-list cells pending while branch-local
+`RETURN DISTINCT` and deferred pagination, followed by left-to-right
+`UNION`/`UNION ALL`, shape complete typed rows. It then collects only
+surviving IDs query-wide, seeds hydration from directly projected node and
+relationship values, and loads the remainder in batches—at most one node query
+and one edge query. Every branch and hydration read shares one deferred SQLite
+snapshot. Concurrent external writers are not a current goal.
 
 Unsupported syntax is parsed first and then reported as `Error::Unsupported`.
 Malformed Cypher, semantic errors such as unknown variables, and missing
@@ -168,13 +182,15 @@ one immediate transaction; any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
 unbounded traversal, postfix graph quantifiers, named variable-length
-relationship lists, path selectors and path functions/property access, named
+relationship lists, path selectors and path property access, named
 paths in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`, traversal-fed writes,
 writes fed by any named path, match modes and hints, parameter-map matching,
 `RETURN *`, `MERGE`, exponentiation (`^`), concatenation (`||`), computed
 right-hand sides for property updates, and computed projections or
 `DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. Paths also cannot
-yet be scalar operands, aggregate inputs/grouping keys, or ordering keys.
+themselves be scalar operands, aggregate inputs/grouping keys, or ordering
+keys; use `length(path)` where an integer scalar is required. Typed graph lists
+from `nodes` and `relationships` retain the context restrictions above.
 `WITH DISTINCT`, `WITH *`, unaliased computed `WITH` expressions,
 `collect(DISTINCT ...)`, nested/embedded aggregate projections, and writes in a
 read-composition pipeline are explicitly rejected. For now, `DISTINCT` is
@@ -190,23 +206,27 @@ The planner is deliberately small and layered:
   SQLite queries; each read-only `WITH` boundary becomes a CTE carrying the
   projected entity, path, and scalar slots, while bounded traversal becomes a
   recursive CTE carrying depth plus ordered per-path node/edge identity.
-- `database.rs` executes SQL read fragments, hydrates compact path identities
-  after cursor materialization, and combines union branches. For mutations, it
-  materializes all input rows before the first change and applies ordered
-  mutation operators to that stable row bag.
+- `database.rs` executes SQL read fragments into pending typed cells, applies
+  branch-local semantic distinctness and deferred pagination plus left-to-right
+  unions, and then batch-hydrates surviving path and path-derived graph-list
+  identities into public rows.
+  Every read fragment and hydration query shares one deferred snapshot. For
+  mutations, it materializes all input rows before the first change and applies
+  ordered mutation operators to that stable row bag.
 
-Path hydration, read-only `RETURN DISTINCT`, and distinct query unions are
-deliberate hybrid boundaries. SQLite produces compact rows, then Rust hydrates
-paths and performs recursive typed row deduplication. `RETURN DISTINCT` applies
-its deferred pagination after deduplication. With that projection modifier,
-`ORDER BY` is restricted to projected expressions or their aliases.
+Pending-row shaping and path hydration are deliberate hybrid boundaries.
+SQLite produces compact rows; Rust applies semantic row operations before one
+query-wide hydration pass. Directly projected entities can satisfy path
+references without another lookup, and the remaining IDs use at most one node
+query and one edge query. With `RETURN DISTINCT`, `ORDER BY` is restricted to
+projected expressions or their aliases.
 
 `crabnet::explain(cypher)` renders a deterministic logical plan for inspecting
 slots, graph operators, clause stages, and `WITH` scopes without turning
 incidental SQLite aliases into the debug contract.
 `crabnet::explain_physical(cypher)` exposes the generated read SQL/CTEs, bind
-positions, path-hydration boundary, and Rust distinct/pagination stages when
-backend details matter.
+positions, Rust distinct/pagination and union stages, and the final shared
+batch-hydration boundary when backend details matter.
 
 Materializing mutation input is intentionally naive, but gives this iteration
 clear snapshot, multiplicity, and rollback behavior. A streaming or more

@@ -15,6 +15,19 @@ pub(crate) struct TraversalId(pub(crate) usize);
 pub(crate) struct PathId(pub(crate) usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PathFunctionKind {
+    Length,
+    Nodes,
+    Relationships,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PathCollectionKind {
+    Nodes,
+    Relationships,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum EntityKind {
     Node,
     Relationship,
@@ -139,6 +152,10 @@ pub(crate) enum Expr {
     Entity(SlotId),
     Scalar(ScalarSlotId),
     Path(PathId),
+    PathFunction {
+        kind: PathFunctionKind,
+        path: PathId,
+    },
     Property(SlotId, String),
     ElementId(SlotId),
     Labels(SlotId),
@@ -186,6 +203,7 @@ impl Expr {
             Self::Entity(_)
             | Self::Scalar(_)
             | Self::Path(_)
+            | Self::PathFunction { .. }
             | Self::Property(_, _)
             | Self::ElementId(_)
             | Self::Labels(_)
@@ -210,7 +228,7 @@ impl Expr {
             | Self::RelationshipType(slot) => grouping
                 .iter()
                 .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
-            Self::Entity(_) | Self::Scalar(_) | Self::Path(_) => false,
+            Self::Entity(_) | Self::Scalar(_) | Self::Path(_) | Self::PathFunction { .. } => false,
         }
     }
 }
@@ -303,6 +321,11 @@ pub(crate) enum WithBinding {
     Path {
         name: String,
         path: PathId,
+    },
+    PathCollection {
+        name: String,
+        path: PathId,
+        kind: PathCollectionKind,
     },
     Scalar {
         name: String,
@@ -436,6 +459,9 @@ impl Expr {
             )),
             Self::Path(_) => Err(Error::Data(
                 "a write projection contained a path slot".into(),
+            )),
+            Self::PathFunction { .. } => Err(Error::Data(
+                "a write projection contained a path function".into(),
             )),
             Self::Property(slot, key) => Ok(ResolvedExpr::Property(*slot, key.clone())),
             Self::ElementId(slot) => Ok(ResolvedExpr::ElementId(*slot)),

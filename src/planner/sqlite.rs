@@ -6,9 +6,10 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan, PathId,
-    PathSegment, Projection, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection,
-    TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage, validate_storable_value,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
+    PathFunctionKind, PathId, PathSegment, Projection, ReadStage, RelationshipUse, ScalarSlotId,
+    SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    validate_storable_value,
 };
 
 #[derive(Clone, Debug)]
@@ -100,7 +101,9 @@ pub(crate) struct SqlQuery {
 pub(crate) enum OutputShape {
     Json,
     Entity(EntityKind),
-    Path,
+    PathIdentity,
+    PathNodes,
+    PathRelationships,
 }
 
 impl SqlQuery {
@@ -112,7 +115,16 @@ impl SqlQuery {
         self.distinct
     }
 
-    pub(crate) fn render_physical(&self) -> String {
+    pub(crate) fn has_path_identity_output(&self) -> bool {
+        self.output_shapes.iter().any(|shape| {
+            matches!(
+                shape,
+                OutputShape::PathIdentity | OutputShape::PathNodes | OutputShape::PathRelationships
+            )
+        })
+    }
+
+    pub(crate) fn render_physical(&self, batch_hydrate_paths: bool) -> String {
         let mut output = String::from("physical-query\n  sqlite-fragment:\n    sql: ");
         output.push_str(&self.sql);
         output.push_str("\n    bindings:\n");
@@ -123,26 +135,23 @@ impl SqlQuery {
                 output.push_str(&format!("      ?{} {}\n", index + 1, binding.kind_name()));
             }
         }
-        output.push_str("  rust-stage: ");
-        let hydrates_paths = self
-            .output_shapes
-            .iter()
-            .any(|shape| matches!(shape, OutputShape::Path));
-        if hydrates_paths {
-            output.push_str("hydrate-paths");
-            if self.distinct {
-                output.push_str(" then semantic-distinct");
-            }
-            if self.distinct && (self.post_offset.is_some() || self.post_limit.is_some()) {
-                output.push_str(" then pagination");
-            }
-        } else if self.distinct {
-            output.push_str("semantic-distinct");
+
+        let mut rust_stages = Vec::new();
+        if self.distinct {
+            rust_stages.push("semantic-distinct");
             if self.post_offset.is_some() || self.post_limit.is_some() {
-                output.push_str(" then pagination");
+                rust_stages.push("pagination");
             }
-        } else {
+        }
+        if batch_hydrate_paths && self.has_path_identity_output() {
+            rust_stages.push("batch-hydrate-paths");
+        }
+
+        output.push_str("  rust-stage: ");
+        if rust_stages.is_empty() {
             output.push_str("none");
+        } else {
+            output.push_str(&rust_stages.join(" then "));
         }
         output.push('\n');
         output
@@ -805,10 +814,12 @@ impl Compiler {
             )
         });
         if aggregating
-            && stage
-                .bindings
-                .iter()
-                .any(|binding| matches!(binding, WithBinding::Path { .. }))
+            && stage.bindings.iter().any(|binding| {
+                matches!(
+                    binding,
+                    WithBinding::Path { .. } | WithBinding::PathCollection { .. }
+                )
+            })
         {
             return Err(Error::Unsupported(
                 "path values in aggregating WITH projections".into(),
@@ -842,7 +853,7 @@ impl Compiler {
                         group_by.extend(self.grouping_terms(&Expr::Entity(*slot))?);
                     }
                 }
-                WithBinding::Path { path, .. } => {
+                WithBinding::Path { path, .. } | WithBinding::PathCollection { path, .. } => {
                     if !path_bindings.contains(path) {
                         select.push(format!("{} AS p{}", self.path_source(*path)?, path.0));
                         path_bindings.push(*path);
@@ -1163,7 +1174,21 @@ impl Compiler {
             return Ok((self.encoded_entity(*slot, kind)?, OutputShape::Entity(kind)));
         }
         if let Expr::Path(path) = expression {
-            return Ok((self.path_source(*path)?.to_owned(), OutputShape::Path));
+            return Ok((
+                self.path_source(*path)?.to_owned(),
+                OutputShape::PathIdentity,
+            ));
+        }
+        if let Expr::PathFunction { kind, path } = expression {
+            let shape = match kind {
+                PathFunctionKind::Length => {
+                    let (value, value_type) = self.scalar_parts(expression)?;
+                    return Ok((encoded_scalar(&value, &value_type), OutputShape::Json));
+                }
+                PathFunctionKind::Nodes => OutputShape::PathNodes,
+                PathFunctionKind::Relationships => OutputShape::PathRelationships,
+            };
+            return Ok((self.path_source(*path)?.to_owned(), shape));
         }
 
         let (value, value_type) = self.scalar_parts(expression)?;
@@ -1174,7 +1199,14 @@ impl Compiler {
         if let Expr::Entity(slot) = expression {
             return Ok(vec![self.entity_field(*slot, "id")?]);
         }
-        if matches!(expression, Expr::Path(_)) {
+        if matches!(
+            expression,
+            Expr::Path(_)
+                | Expr::PathFunction {
+                    kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+                    ..
+                }
+        ) {
             return Err(Error::Unsupported(
                 "path values as grouping keys".to_owned(),
             ));
@@ -1219,6 +1251,26 @@ impl Compiler {
             Expr::Path(_) => Err(Error::Unsupported(
                 "path values in scalar expressions".to_owned(),
             )),
+            Expr::PathFunction { kind, path } => match kind {
+                PathFunctionKind::Length => {
+                    let source = self.path_source(*path)?;
+                    Ok((
+                        format!(
+                            "CASE WHEN ({source}) IS NULL \
+                                      OR json_type(({source}), '$') = 'null' \
+                             THEN NULL ELSE \
+                               (SELECT COALESCE(SUM(json_array_length(\
+                                   path_segment.value, '$.relationships')), 0) \
+                                FROM json_each(({source}), '$.segments') AS path_segment) \
+                             END"
+                        ),
+                        "'integer'".into(),
+                    ))
+                }
+                PathFunctionKind::Nodes | PathFunctionKind::Relationships => Err(
+                    Error::Unsupported("typed path collections in scalar expressions".to_owned()),
+                ),
+            },
             Expr::Scalar(slot) => {
                 let source = self.scalars.get(slot).cloned().ok_or_else(|| {
                     Error::Data(format!("scalar slot {} has no SQL source", slot.0))
@@ -1784,6 +1836,55 @@ mod tests {
         assert!(!plan.sql.contains("SELECT DISTINCT"));
         assert!(!plan.sql.contains(" LIMIT "));
         assert!(!plan.sql.contains(" OFFSET "));
+    }
+
+    #[test]
+    fn path_output_stays_an_identity_until_the_read_plan_hydration_stage() {
+        let query = lower::lower(
+            "MATCH path = (start)-[:NEXT]->(end) \
+             RETURN DISTINCT path, end.name AS name ORDER BY name SKIP 1 LIMIT 2",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert_eq!(
+            plan.output_shapes,
+            [OutputShape::PathIdentity, OutputShape::Json]
+        );
+        assert!(plan.has_path_identity_output());
+        let branch = plan.render_physical(false);
+        assert!(branch.contains("rust-stage: semantic-distinct then pagination\n"));
+        assert!(!branch.contains("batch-hydrate-paths"));
+        let root = plan.render_physical(true);
+        assert!(
+            root.contains(
+                "rust-stage: semantic-distinct then pagination then batch-hydrate-paths\n"
+            )
+        );
+    }
+
+    #[test]
+    fn path_length_is_sql_pushable_while_entity_lists_stay_pending() {
+        let query = lower::lower(
+            "MATCH path = (start)-[:NEXT*0..2]->(end) \
+             RETURN length(path) AS hops, nodes(path) AS points, \
+                    relationships(path) AS links",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert_eq!(
+            plan.output_shapes,
+            [
+                OutputShape::Json,
+                OutputShape::PathNodes,
+                OutputShape::PathRelationships,
+            ]
+        );
+        assert!(plan.sql.contains("SUM(json_array_length("));
+        assert!(plan.sql.contains("'$.relationships'"));
+        assert!(plan.sql.contains("json_type("));
+        assert!(plan.has_path_identity_output());
     }
 
     #[test]

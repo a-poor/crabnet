@@ -37,8 +37,9 @@ Crabnet already has more than a greenfield skeleton:
 - anonymous legacy bounded traversal compiles to recursive SQLite CTEs with an
   explicit maximum depth, endpoint results, and per-path edge uniqueness;
 - mandatory read-only fixed, bounded, and mixed patterns can bind public typed
-  paths, including zero-hop values; SQLite carries ordered IDs and Rust
-  hydrates them after cursor materialization;
+  paths, including zero-hop values; SQLite carries ordered IDs into pending
+  cells, which Rust shapes before one query-wide batch hydration pass on a
+  shared deferred snapshot;
 - `CREATE` and `MATCH ... CREATE` run transactionally, preserve input-row
   multiplicity, and roll back atomically;
 - matched node and relationship properties support direct `SET`/`REMOVE` plus
@@ -49,9 +50,9 @@ Crabnet already has more than a greenfield skeleton:
   distinguished.
 
 The current executor is already a hybrid: SQLite materializes match rows and
-compact path identities, while Rust hydrates paths, applies semantic
-distinctness/unions, and executes mutations. We should grow that design instead
-of restarting from a read-only architecture.
+compact path identities, while Rust applies semantic row shaping, batch-hydrates
+surviving paths, and executes mutations. We should grow that design instead of
+restarting from a read-only architecture.
 
 ## Design principles
 
@@ -252,13 +253,21 @@ composition, explicit resource limits, and rejection boundaries.
   patterns bind public `PathValue` results, including zero-hop paths. Direct
   `WITH` aliases, `RETURN DISTINCT`, and `UNION` preserve ordered node and
   relationship identity.
-- SQLite emits compact ordered IDs and Rust hydrates them after cursor
-  materialization. Per-query caches avoid repeated entity lookups within each
-  SQL branch. Hydration still occurs before identity-level `DISTINCT`/`UNION`
-  deduplication, and branches do not yet share a deferred read snapshot.
-- Next, batch hydration after identity-level deduplication and use one shared
-  deferred read snapshot, then add path functions/expressions and a distinct
-  relationship-list binding contract.
+- The path-function slice is green. `length(path)` remains a SQL integer across
+  filters, arithmetic, ordering, grouping, aggregate arguments, and aliases.
+  `nodes(path)` and `relationships(path)` return traversal-ordered typed entity
+  lists and survive computed `WITH` aliases.
+- SQLite emits compact ordered IDs into pending typed cells after cursor
+  materialization. Branch-local semantic `RETURN DISTINCT` and deferred
+  pagination plus left-to-right unions operate before path and graph-list
+  hydration, including cross-transport zero-hop empty-list equality.
+- Only surviving IDs of the required entity kinds are deduplicated query-wide.
+  Directly projected graph entities seed the hydration maps, and the remainder
+  uses at most one node query and one edge query.
+- Every branch SQL fragment and hydration query shares one deferred read
+  snapshot. Concurrent external-writer semantics beyond it remain a non-goal.
+- Next, define the distinct relationship-list pattern binding/result contract;
+  it is not the same value as a stored edge or a first-class path.
 - Add deep/unbounded traversal, `shortestPath`, and `allShortestPaths` where
   Rust graph algorithms are clearer than SQL. Optional-bound paths, selectors,
   and writes fed by a named path remain explicit rejections meanwhile.
@@ -286,9 +295,9 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 ## Near-term working order
 
 With the gates from milestones 2–7 complete, milestone 8 hybrid execution is
-now active. Its first named-path slice is green; batch/shared-snapshot
-hydration, path operations, relationship-list results, and deep or unbounded
-traversal remain. Small contract gaps may still be tightened when a focused
-test exposes them. The day-to-day loop is documented in
+now active. Named path values, path functions, and query-wide shared batch
+hydration are green; the relationship-list pattern binding/result contract and
+deep or unbounded traversal remain. Small contract gaps may still be tightened
+when a focused test exposes them. The day-to-day loop is documented in
 [testing.md](testing.md); planned-but-inactive cases stay in the coverage
 backlog instead of accumulating as ignored tests.
