@@ -14,7 +14,7 @@ pub enum Error {
     Semantic(String),
     /// A referenced named parameter was not supplied.
     MissingParameter(String),
-    /// Execution stopped because a built-in query work budget was exhausted.
+    /// Execution stopped because a built-in query resource budget was exhausted.
     ResourceLimit(String),
     /// SQLite rejected a schema or query operation.
     Sqlite(rusqlite::Error),

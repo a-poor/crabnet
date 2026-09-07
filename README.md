@@ -85,6 +85,11 @@ Within those shapes, the first iteration supports:
 - at most one node label; zero or one relationship type in `MATCH`, and exactly
   one type for each created relationship
 - literal maps and named `$parameters` for properties
+- exact, case-sensitive escaped identifiers and named parameters, including
+  whitespace, punctuation, Unicode, embedded backticks, and contextual words
+- recursive JSON list/map inputs through 100 nested containers, with deeper
+  values rejected during preflight before they can become unreadable stored
+  properties
 - inline property matching and `WHERE` typed comparisons, boolean expressions,
   `IN`, `STARTS WITH`, `CONTAINS`, and `ENDS WITH`
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
@@ -183,13 +188,16 @@ expression-position calls, `OPTIONAL MATCH`, a `WHERE` on that same `MATCH`,
 additional comma-separated parts, lower bounds above one, and writes are
 planning-time rejections.
 
-Deep/open-ended enumeration and shortest-path BFS share a 100,000-trail-state
-budget across the top-level query, including `UNION` branches and multiple
-hybrid expansions. If the query exhausts that budget, execution fails with
-`Error::ResourceLimit`; Crabnet never silently truncates the result. This is a
-fixed explored-work guard, not a memory bound: the current naive Rust stages
-fully materialize eligible graph inputs and their JSON result relations before
-SQLite applies selective endpoint constraints.
+Deep/open-ended enumeration and shortest-path BFS share two fail-closed limits
+across the top-level query, including `UNION` branches and multiple hybrid
+expansions: 100,000 explored trail states and 128 MiB of compact serialized JSON
+runtime relations. The JSON encoder admits exact UTF-8 bytes incrementally,
+including array punctuation and escaped IDs, instead of retaining a second
+whole-relation serialization. Exhausting either limit returns
+`Error::ResourceLimit`; Crabnet never silently truncates the result. The payload
+limit is not a total heap bound: eligible graph inputs, adjacency maps, and
+search frontiers are still fully materialized, and every stored node is still
+seeded before SQLite applies selective endpoint constraints.
 
 `PathValue` exposes nodes and relationships in traversal order, always with one
 more node than relationship. A zero-hop path therefore has one node and no
@@ -224,9 +232,10 @@ snapshot. Concurrent external writers are not a current goal.
 Unsupported syntax is parsed first and then reported as `Error::Unsupported`.
 Malformed Cypher, semantic errors such as unknown variables, and missing
 parameters have separate error variants. All parameters and stored property
-values are resolved and validated before a write transaction begins. Match
-materialization, every mutation, and post-write result evaluation then share
-one immediate transaction; any runtime failure rolls the whole statement back.
+values are resolved and validated before a write transaction begins, including
+integer range, map shape, and recursive depth. Match materialization, every
+mutation, and post-write result evaluation then share one immediate transaction;
+any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
 postfix graph quantifiers, exact matching against a pre-bound relationship
@@ -268,9 +277,9 @@ The planner is deliberately small and layered:
   extension.
 - `database.rs` prepares the complete physical tree before executing it, then
   evaluates its SQL and Rust operators into pending typed cells under one
-  deferred snapshot and one query-wide traversal budget. Mutations continue to
-  materialize their input rows before the first change and apply ordered
-  mutation operators to that stable row bag.
+  deferred snapshot and one query-wide traversal resource budget. Mutations
+  continue to materialize their input rows before the first change and apply
+  ordered mutation operators to that stable row bag.
 
 Trail and shortest-path expansion, pending-row shaping, and path hydration are
 deliberate hybrid boundaries. Whole-tree preparation resolves every static
@@ -355,4 +364,8 @@ SQLite-bounded traversal is covered in `tests/bounded_traversal.rs`. Milestone
 8's path/list transport and hybrid deep/open-ended traversal slices are covered
 in `tests/path_values.rs`, `tests/relationship_list_values.rs`, and
 `tests/unbounded_traversal.rs`; its legacy shortest-path slice is covered in
-`tests/shortest_paths.rs`.
+`tests/shortest_paths.rs`. Milestone 9's deterministic planner, generated-SQL,
+relationship-property, finite predicate, unusual-identifier, and recursive
+property invariants are covered by planner and database unit tests plus
+`tests/read_semantics.rs`, `tests/predicate_truth_tables.rs`, and
+`tests/property_invariants.rs`.

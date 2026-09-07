@@ -46,10 +46,13 @@ impl ValueExpr {
     pub(crate) fn resolve(&self, parameters: &Parameters) -> Result<Value> {
         match self {
             Self::Literal(value) => Ok(value.clone()),
-            Self::Parameter(name) => parameters
-                .get(name)
-                .cloned()
-                .ok_or_else(|| Error::MissingParameter(name.clone())),
+            Self::Parameter(name) => {
+                let value = parameters
+                    .get(name)
+                    .ok_or_else(|| Error::MissingParameter(name.clone()))?;
+                validate_storable_value(value)?;
+                Ok(value.clone())
+            }
             Self::List(items) => items
                 .iter()
                 .map(|item| item.resolve(parameters))
@@ -71,6 +74,26 @@ impl ValueExpr {
             }
             Self::Negated(value) => negate(value.resolve(parameters)?),
         }
+    }
+
+    pub(crate) fn resolve_properties(
+        &self,
+        parameters: &Parameters,
+        description: &str,
+    ) -> Result<Value> {
+        if let Self::Parameter(name) = self {
+            let value = parameters
+                .get(name)
+                .ok_or_else(|| Error::MissingParameter(name.clone()))?;
+            require_object(value, description)?;
+            validate_storable_properties(value)?;
+            return Ok(value.clone());
+        }
+
+        let value = self.resolve(parameters)?;
+        require_object(&value, description)?;
+        validate_storable_properties(&value)?;
+        Ok(value)
     }
 }
 
@@ -508,13 +531,57 @@ pub(crate) fn require_object(value: &Value, description: &str) -> Result<()> {
     }
 }
 
+pub(crate) const MAX_USER_VALUE_NESTING: usize = 100;
+
 pub(crate) fn validate_storable_value(value: &Value) -> Result<()> {
-    match value {
-        Value::Number(number) if number.as_u64().is_some() && number.as_i64().is_none() => Err(
-            Error::Semantic("Cypher integers must fit SQLite's signed 64-bit range".into()),
-        ),
-        Value::Array(values) => values.iter().try_for_each(validate_storable_value),
-        Value::Object(values) => values.values().try_for_each(validate_storable_value),
-        _ => Ok(()),
+    validate_json_value(value, MAX_USER_VALUE_NESTING)
+}
+
+fn validate_storable_properties(value: &Value) -> Result<()> {
+    let Value::Object(properties) = value else {
+        return Err(Error::Semantic("properties must be a map".into()));
+    };
+
+    // The stored `props` object is an internal envelope, not a property value.
+    // Give every top-level property the same nesting allowance as a standalone
+    // value regardless of whether the map came from a parameter or literal.
+    for value in properties.values() {
+        validate_storable_value(value)?;
     }
+    Ok(())
+}
+
+fn validate_json_value(value: &Value, maximum_nesting: usize) -> Result<()> {
+    let mut pending = vec![(value, 0usize)];
+    while let Some((value, nesting)) = pending.pop() {
+        match value {
+            Value::Number(number) if number.as_u64().is_some() && number.as_i64().is_none() => {
+                return Err(Error::Semantic(
+                    "Cypher integers must fit SQLite's signed 64-bit range".into(),
+                ));
+            }
+            Value::Array(values) => {
+                let nesting = nesting + 1;
+                if nesting > maximum_nesting {
+                    return Err(Error::Semantic(format!(
+                        "JSON value nesting exceeds the supported maximum of \
+                         {MAX_USER_VALUE_NESTING} list/map containers"
+                    )));
+                }
+                pending.extend(values.iter().map(|value| (value, nesting)));
+            }
+            Value::Object(values) => {
+                let nesting = nesting + 1;
+                if nesting > maximum_nesting {
+                    return Err(Error::Semantic(format!(
+                        "JSON value nesting exceeds the supported maximum of \
+                         {MAX_USER_VALUE_NESTING} list/map containers"
+                    )));
+                }
+                pending.extend(values.values().map(|value| (value, nesting)));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

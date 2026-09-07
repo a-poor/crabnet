@@ -153,9 +153,19 @@ impl TryFrom<&JsonValue> for CypherValue {
                         "Cypher integers must fit the signed 64-bit range".into(),
                     ))
                 } else {
-                    number.as_f64().map(Self::Float).ok_or_else(|| {
-                        Error::Data("JSON number has no supported numeric representation".into())
-                    })
+                    number
+                        .as_f64()
+                        .map(|value| {
+                            // SQLite's JSON scalar extraction canonicalizes
+                            // negative zero. Normalize every public transport
+                            // so whole entities and scalar projections agree.
+                            Self::Float(if value == 0.0 { 0.0 } else { value })
+                        })
+                        .ok_or_else(|| {
+                            Error::Data(
+                                "JSON number has no supported numeric representation".into(),
+                            )
+                        })
                 }
             }
             JsonValue::String(value) => Ok(Self::String(value.clone())),
@@ -247,6 +257,15 @@ mod tests {
             CypherValue::try_from(nested),
             Err(crate::Error::Semantic(_))
         ));
+    }
+
+    #[test]
+    fn json_conversion_canonicalizes_negative_zero() {
+        let CypherValue::Float(value) = CypherValue::try_from(json!(-0.0)).unwrap() else {
+            panic!("expected a float")
+        };
+
+        assert_eq!(value.to_bits(), 0.0_f64.to_bits());
     }
 
     #[test]

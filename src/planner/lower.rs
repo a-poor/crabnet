@@ -19,13 +19,17 @@ use crate::{Error, Result};
 
 use super::UnionKind;
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
-    ReadPipeline, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, SortItem,
-    TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MAX_USER_VALUE_NESTING,
+    MatchOperator, MatchPlan, Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment,
+    Projection, Query, ReadPipeline, ReadStage, RelationshipUse, ScalarSlotId, SlotId,
+    SortDirection, SortItem, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
+
+// This bounds recursive AST lowering independently of the JSON collection
+// depth contract below.
+const MAX_EXPRESSION_NESTING: usize = 128;
 
 pub(super) struct UnionSource {
     pub(super) head: String,
@@ -1100,6 +1104,12 @@ impl<'source> Lowerer<'source> {
             .as_ref()
             .ok_or_else(|| semantic(span, "a created relationship must have one type"))
             .and_then(|label| single_label(label, "multiple or boolean relationship types"))?;
+        if relationship_type.is_empty() {
+            return Err(semantic(
+                span,
+                "a created relationship type cannot be empty",
+            ));
+        }
         let (from, to) = match relationship.direction.kind {
             RelationshipDirection::Right => (left, right),
             RelationshipDirection::Left => (right, left),
@@ -1143,14 +1153,14 @@ impl<'source> Lowerer<'source> {
                     let slot = self.resolve_entity_name(target)?;
                     self.mutations.push(Mutation::ReplaceProperties {
                         slot,
-                        properties: input_value(value)?,
+                        properties: property_map_input(value)?,
                     });
                 }
                 SetItemKind::MergeProperties { target, value } => {
                     let slot = self.resolve_entity_name(target)?;
                     self.mutations.push(Mutation::MergeProperties {
                         slot,
-                        properties: input_value(value)?,
+                        properties: property_map_input(value)?,
                     });
                 }
                 SetItemKind::Labels { .. } => {
@@ -1465,6 +1475,7 @@ impl<'source> Lowerer<'source> {
         let mut columns = Vec::with_capacity(projection.items.len());
         let mut expressions = Vec::with_capacity(projection.items.len());
         let mut aliases = HashMap::new();
+        let mut column_names = HashSet::with_capacity(projection.items.len());
         for item in &projection.items {
             let ProjectionItemKind::Expression { expression, alias } = &item.kind else {
                 return Err(unsupported(item.span, "RETURN *"));
@@ -1493,7 +1504,14 @@ impl<'source> Lowerer<'source> {
                     "computed projection after a mutation",
                 ));
             }
-            columns.push(column_name(self.source, expression, alias.as_ref()));
+            let column = column_name(self.source, expression, alias.as_ref());
+            if !column_names.insert(column.clone()) {
+                return Err(semantic(
+                    item.span,
+                    format!("RETURN projects duplicate column `{column}`"),
+                ));
+            }
+            columns.push(column);
             expressions.push(lowered.clone());
             if let Some(alias) = alias {
                 aliases.insert(alias.kind.text.clone(), lowered);
@@ -1591,6 +1609,25 @@ impl<'source> Lowerer<'source> {
         expression: &AstExpr,
         aliases: &HashMap<String, Expr>,
     ) -> Result<Expr> {
+        self.output_expression_with_aliases_at_depth(expression, aliases, 0)
+    }
+
+    fn output_expression_with_aliases_at_depth(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        if expression_depth > MAX_EXPRESSION_NESTING {
+            return Err(semantic(
+                expression.span,
+                format!(
+                    "output expression nesting exceeds the supported maximum of \
+                     {MAX_EXPRESSION_NESTING}"
+                ),
+            ));
+        }
+
         match &expression.kind {
             ExprKind::Property {
                 expression: base,
@@ -1631,8 +1668,12 @@ impl<'source> Lowerer<'source> {
             ExprKind::Function(function) => {
                 self.function_expression(function, expression.span, aliases)
             }
-            ExprKind::Parenthesized(inner) => self.output_expression_with_aliases(inner, aliases),
-            _ => self.scalar_expression_with_aliases(expression, aliases),
+            ExprKind::Parenthesized(inner) => {
+                self.output_expression_with_aliases_at_depth(inner, aliases, expression_depth + 1)
+            }
+            _ => {
+                self.scalar_expression_with_aliases_at_depth(expression, aliases, expression_depth)
+            }
         }
     }
 
@@ -1657,6 +1698,25 @@ impl<'source> Lowerer<'source> {
         expression: &AstExpr,
         aliases: &HashMap<String, Expr>,
     ) -> Result<Expr> {
+        self.scalar_expression_with_aliases_at_depth(expression, aliases, 0)
+    }
+
+    fn scalar_expression_with_aliases_at_depth(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        if expression_depth > MAX_EXPRESSION_NESTING {
+            return Err(semantic(
+                expression.span,
+                format!(
+                    "scalar expression nesting exceeds the supported maximum of \
+                     {MAX_EXPRESSION_NESTING}"
+                ),
+            ));
+        }
+
         // The positive spelling of i64::MIN does not fit Crabnet's integer
         // domain, so preserve a directly negated integer literal as one value.
         // Other unary expressions stay in the scalar IR and receive the same
@@ -1722,9 +1782,17 @@ impl<'source> Lowerer<'source> {
                     _ => return Err(unsupported(operator.span, "binary operator")),
                 };
                 Ok(Expr::Binary {
-                    left: Box::new(self.scalar_expression_with_aliases(left, aliases)?),
+                    left: Box::new(self.scalar_expression_with_aliases_at_depth(
+                        left,
+                        aliases,
+                        expression_depth + 1,
+                    )?),
                     operator,
-                    right: Box::new(self.scalar_expression_with_aliases(right, aliases)?),
+                    right: Box::new(self.scalar_expression_with_aliases_at_depth(
+                        right,
+                        aliases,
+                        expression_depth + 1,
+                    )?),
                 })
             }
             ExprKind::Unary { operator, operand } => {
@@ -1736,7 +1804,11 @@ impl<'source> Lowerer<'source> {
                 };
                 Ok(Expr::Unary {
                     operator,
-                    operand: Box::new(self.scalar_expression_with_aliases(operand, aliases)?),
+                    operand: Box::new(self.scalar_expression_with_aliases_at_depth(
+                        operand,
+                        aliases,
+                        expression_depth + 1,
+                    )?),
                 })
             }
             ExprKind::Is {
@@ -1744,14 +1816,20 @@ impl<'source> Lowerer<'source> {
                 negated,
                 predicate: IsPredicate::Null,
             } => Ok(Expr::IsNull {
-                expression: Box::new(self.scalar_expression_with_aliases(expression, aliases)?),
+                expression: Box::new(self.scalar_expression_with_aliases_at_depth(
+                    expression,
+                    aliases,
+                    expression_depth + 1,
+                )?),
                 negated: *negated,
             }),
             ExprKind::Is { .. } => Err(unsupported(expression.span, "IS predicate")),
             ExprKind::Function(function) => self
                 .function_expression(function, expression.span, aliases)
                 .and_then(|lowered| require_scalar_context(lowered, expression.span)),
-            ExprKind::Parenthesized(inner) => self.scalar_expression_with_aliases(inner, aliases),
+            ExprKind::Parenthesized(inner) => {
+                self.scalar_expression_with_aliases_at_depth(inner, aliases, expression_depth + 1)
+            }
             ExprKind::Variable(variable) => {
                 if let Some(expression) = aliases.get(&variable.kind.text) {
                     return match expression {
@@ -2068,14 +2146,57 @@ fn properties_input(properties: Option<&AstExpr>) -> Result<ValueExpr> {
         None => Ok(ValueExpr::Map(Vec::new())),
         Some(expression) => match &expression.kind {
             ExprKind::Map(_) | ExprKind::Parameter(_) | ExprKind::Parenthesized(_) => {
-                input_value(expression)
+                property_map_input(expression)
             }
             _ => Err(unsupported(expression.span, "non-map pattern properties")),
         },
     }
 }
 
+fn property_map_input(expression: &AstExpr) -> Result<ValueExpr> {
+    property_map_input_at_depth(expression, 0)
+}
+
+fn property_map_input_at_depth(expression: &AstExpr, expression_depth: usize) -> Result<ValueExpr> {
+    if expression_depth > MAX_EXPRESSION_NESTING {
+        return Err(semantic(
+            expression.span,
+            format!(
+                "property-map expression nesting exceeds the supported maximum of \
+                 {MAX_EXPRESSION_NESTING}"
+            ),
+        ));
+    }
+
+    match &expression.kind {
+        ExprKind::Map(entries) => entries
+            .iter()
+            .map(|entry| Ok((entry.key.kind.text.clone(), input_value(&entry.value)?)))
+            .collect::<Result<Vec<_>>>()
+            .map(ValueExpr::Map),
+        ExprKind::Parenthesized(inner) => property_map_input_at_depth(inner, expression_depth + 1),
+        _ => input_value(expression),
+    }
+}
+
 fn input_value(expression: &AstExpr) -> Result<ValueExpr> {
+    input_value_at_depth(expression, 0, 0)
+}
+
+fn input_value_at_depth(
+    expression: &AstExpr,
+    collection_depth: usize,
+    expression_depth: usize,
+) -> Result<ValueExpr> {
+    if expression_depth > MAX_EXPRESSION_NESTING {
+        return Err(semantic(
+            expression.span,
+            format!(
+                "value expression nesting exceeds the supported maximum of \
+                 {MAX_EXPRESSION_NESTING}"
+            ),
+        ));
+    }
     match &expression.kind {
         ExprKind::Literal(literal) => literal_value(&literal.kind).map(ValueExpr::Literal),
         ExprKind::Parameter(parameter) => match &parameter.name {
@@ -2085,16 +2206,29 @@ fn input_value(expression: &AstExpr) -> Result<ValueExpr> {
             }
             _ => Err(unsupported(expression.span, "parameter form")),
         },
-        ExprKind::List(items) => items
-            .iter()
-            .map(input_value)
-            .collect::<Result<Vec<_>>>()
-            .map(ValueExpr::List),
-        ExprKind::Map(entries) => entries
-            .iter()
-            .map(|entry| Ok((entry.key.kind.text.clone(), input_value(&entry.value)?)))
-            .collect::<Result<Vec<_>>>()
-            .map(ValueExpr::Map),
+        ExprKind::List(items) => {
+            let collection_depth = collection_depth + 1;
+            validate_collection_depth(expression.span, collection_depth)?;
+            items
+                .iter()
+                .map(|item| input_value_at_depth(item, collection_depth, expression_depth + 1))
+                .collect::<Result<Vec<_>>>()
+                .map(ValueExpr::List)
+        }
+        ExprKind::Map(entries) => {
+            let collection_depth = collection_depth + 1;
+            validate_collection_depth(expression.span, collection_depth)?;
+            entries
+                .iter()
+                .map(|entry| {
+                    Ok((
+                        entry.key.kind.text.clone(),
+                        input_value_at_depth(&entry.value, collection_depth, expression_depth + 1)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()
+                .map(ValueExpr::Map)
+        }
         ExprKind::Unary { operator, operand } => match operator.kind {
             AstUnaryOperator::Minus => {
                 if let ExprKind::Literal(literal) = &operand.kind
@@ -2102,14 +2236,20 @@ fn input_value(expression: &AstExpr) -> Result<ValueExpr> {
                 {
                     negative_integer_literal(integer).map(ValueExpr::Literal)
                 } else {
-                    input_value(operand).map(Box::new).map(ValueExpr::Negated)
+                    input_value_at_depth(operand, collection_depth, expression_depth + 1)
+                        .map(Box::new)
+                        .map(ValueExpr::Negated)
                 }
             }
-            AstUnaryOperator::Plus => input_value(operand),
+            AstUnaryOperator::Plus => {
+                input_value_at_depth(operand, collection_depth, expression_depth + 1)
+            }
             AstUnaryOperator::Not => Err(unsupported(expression.span, "NOT in a stored value")),
             _ => Err(unsupported(expression.span, "unary value expression")),
         },
-        ExprKind::Parenthesized(inner) => input_value(inner),
+        ExprKind::Parenthesized(inner) => {
+            input_value_at_depth(inner, collection_depth, expression_depth + 1)
+        }
         _ => Err(unsupported(
             expression.span,
             "non-literal stored value expression",
@@ -2117,7 +2257,33 @@ fn input_value(expression: &AstExpr) -> Result<ValueExpr> {
     }
 }
 
+fn validate_collection_depth(span: Span, depth: usize) -> Result<()> {
+    if depth > MAX_USER_VALUE_NESTING {
+        return Err(semantic(
+            span,
+            format!(
+                "JSON value nesting exceeds the supported maximum of \
+                 {MAX_USER_VALUE_NESTING} list/map containers"
+            ),
+        ));
+    }
+    Ok(())
+}
+
 fn page_value(expression: &AstExpr) -> Result<ValueExpr> {
+    page_value_at_depth(expression, 0)
+}
+
+fn page_value_at_depth(expression: &AstExpr, expression_depth: usize) -> Result<ValueExpr> {
+    if expression_depth > MAX_EXPRESSION_NESTING {
+        return Err(semantic(
+            expression.span,
+            format!(
+                "pagination expression nesting exceeds the supported maximum of \
+                 {MAX_EXPRESSION_NESTING}"
+            ),
+        ));
+    }
     match &expression.kind {
         ExprKind::Literal(literal) if matches!(literal.kind, LiteralKind::Integer(_)) => {
             input_value(expression)
@@ -2129,10 +2295,10 @@ fn page_value(expression: &AstExpr) -> Result<ValueExpr> {
                 AstUnaryOperator::Plus | AstUnaryOperator::Minus
             ) =>
         {
-            page_value(operand)?;
+            page_value_at_depth(operand, expression_depth + 1)?;
             input_value(expression)
         }
-        ExprKind::Parenthesized(inner) => page_value(inner),
+        ExprKind::Parenthesized(inner) => page_value_at_depth(inner, expression_depth + 1),
         _ => Err(semantic(
             expression.span,
             "SKIP and LIMIT require an integer literal or named parameter",

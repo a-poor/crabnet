@@ -45,6 +45,16 @@ end-to-end result test for user-visible semantics.
 - `tests/membership_and_string_predicates.rs` covers typed `IN` membership and
   the three string predicates across parameters, structured values, empty
   collections/strings, Unicode, null, and wrong-kind operands.
+- `tests/predicate_truth_tables.rs` compares every supported comparison,
+  boolean, membership, string, and null predicate with an independent finite
+  Rust oracle across 28 typed operand states, including missing properties and
+  mixed numeric precision boundaries.
+- `tests/property_invariants.rs` covers exact decoded identifiers and named
+  parameters, SQL-looking labels/types/keys, case sensitivity, duplicate
+  decoded output names, empty relationship types, recursive node/relationship
+  property transport through every mutation form and path hydration, signed
+  zero normalization, fail-closed 100-container value-depth boundaries, and
+  the independent 128-step expression-syntax guard.
 - `tests/entity_values.rs` covers whole node and relationship result values,
   recursive properties, identity, and stored-direction endpoints.
 - `tests/write_semantics.rs` holds focused write result/state contracts that do
@@ -76,6 +86,11 @@ end-to-end result test for user-visible semantics.
   paths and relationship lists, path functions, prior bags, `WITH`, `UNION`,
   Rust BFS stage order and structured planning rejections. Traversal unit
   tests cover shortest-specific use of the shared fail-closed work guard.
+- `tests/traversal_limits.rs` crosses the public default 100,000-state limit
+  while emitting no runtime rows, then proves the connection remains usable.
+  Traversal and executor unit tests separately pin exact compact-JSON byte
+  accounting, empty relations, shortest-path parity, and query-wide sharing
+  across `UNION` branches.
 - `tests/path_values.rs` covers public named-path results for fixed, bounded,
   mixed, and zero-hop patterns; traversal order and stored relationship
   direction; identity across cycles, diamonds, and parallel edges; direct
@@ -93,11 +108,15 @@ end-to-end result test for user-visible semantics.
 - Unit tests beside `planner/sqlite.rs` cover SQL lowering, internal aliases,
   bind placement, and graph-to-relational joins. They complement rather than
   replace execution tests.
+- Unit tests beside `planner/physical.rs` exhaust valid runtime-slot producer
+  and consumer permutations with static arguments present in every possible
+  gap, and reject duplicate, missing, unreferenced, or reused slots.
 - Unit tests in `database.rs` cover schema invariants, pending typed-cell
   equivalence, query-wide path-ID collection, direct-entity cache seeding, and
-  failure modes that need direct SQLite access. Integration tests cover the
-  staged hydration boundary; direct database tests retain late transaction
-  failures and rollback.
+  failure modes requiring direct SQLite access. Its generated-fragment corpus
+  asks initialized SQLite to prepare main and traversal-edge statements and
+  validates read-only behavior, dense exact bindings, and result shape.
+  Integration tests retain semantic and rollback coverage.
 
 For a new query feature, prefer a vertical set of tests: one successful
 end-to-end example, relevant zero-row or `null` behavior, dynamic wrong-kind
@@ -137,7 +156,11 @@ cargo test --test engine match_create_runs_once_per_input_row -- --exact
 cargo test --test read_semantics property_to_property_equality_is_type_aware -- --exact
 cargo test --test arithmetic_and_distinct dynamic_arithmetic_is_numeric_only_and_null_propagating -- --exact
 cargo test --test membership_and_string_predicates in_preserves_typed_membership_and_three_valued_null_semantics -- --exact
+cargo test --test predicate_truth_tables binary_predicates_match_the_finite_typed_oracle -- --exact
+cargo test --test predicate_truth_tables unary_predicates_match_the_finite_typed_oracle -- --exact
 cargo test --test write_semantics create_duplicate_property_keys_fail_before_any_mutation -- --exact
+cargo test --test property_invariants unusual_property_keys_survive_match_set_read_and_remove -- --exact
+cargo test --test property_invariants recursive_property_depth_is_preflighted_before_any_write -- --exact
 cargo test --test matched_mutations set_equals_replaces_the_complete_property_map -- --exact
 cargo test --test delete_mutations duplicate_bag_targets_are_deleted_once_but_keep_return_snapshots -- --exact
 cargo test --test bounded_traversal cycles_may_revisit_nodes_but_may_not_reuse_an_edge -- --exact
@@ -146,6 +169,9 @@ cargo test --test shortest_paths lower_bound_one_finds_shortest_positive_cycles_
 cargo test --test path_values fixed_multi_hop_match_returns_a_public_typed_path -- --exact
 cargo test --test relationship_list_values exact_relationship_list_coexists_with_its_named_path -- --exact
 cargo test --lib planner::sqlite::tests::relationship_joins_are_lowered_to_endpoint_predicates -- --exact
+cargo test --test read_semantics relationship_property_matching_preserves_scalar_and_nested_json_types -- --exact
+cargo test --lib planner::physical::tests
+cargo test --lib database::tests::generated_read_fragments_prepare_with_exact_dense_bindings -- --exact
 ```
 
 Then run the adjacent integration or unit group:
@@ -154,8 +180,10 @@ Then run the adjacent integration or unit group:
 cargo test --test engine match_create
 cargo test --test arithmetic_and_distinct
 cargo test --test membership_and_string_predicates
+cargo test --test predicate_truth_tables
 cargo test --test matched_mutations
 cargo test --test delete_mutations
+cargo test --test property_invariants
 cargo test --test bounded_traversal
 cargo test --test unbounded_traversal
 cargo test --test shortest_paths
@@ -220,8 +248,18 @@ root hydration operator. Planner/database unit tests additionally prove
 whole-tree parameter preparation and one work budget across `UNION` branches;
 the path and traversal integration suites remain the semantic oracle.
 
-The next active TDD slices belong to milestone 9: broader planner invariants,
-the remaining parser/property gaps, and the next non-pushable read operator.
-Payload accounting, public default-budget exhaustion, and selective traversal
-seeding remain explicit hardening work. Concurrent external-writer behavior
-remains outside the test goal.
+Milestone 9 is in progress. Its deterministic invariants now exhaust
+runtime-slot layouts, prepare a representative generated-SQL corpus directly
+with SQLite, cover typed relationship properties in fixed and hybrid paths,
+and compare 9,492 predicate outcomes with a finite independent Rust oracle.
+The local property-invariant slice is also green: escaped and hostile names run
+through fixed and hybrid routes, eleven unusual property keys survive the full
+mutation lifecycle, recursive maps/lists survive entity and path hydration,
+and the 100-container input boundary is preflighted atomically. Labeled nodes
+after an earlier node-local `WHERE` and some bare contextual-keyword labels
+still await an upstream `open-cypher` parser release.
+
+Public default state-budget exhaustion and the 128 MiB serialized-payload guard
+are now covered. Selective traversal seeding and broader graph-input/frontier
+memory accounting remain explicit hardening work. Concurrent external-writer
+behavior remains outside the test goal.

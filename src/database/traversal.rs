@@ -1,6 +1,10 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    io::{self, Write},
+};
 
 use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
+#[cfg(test)]
 use serde_json::{Value, json};
 
 use crate::{
@@ -8,34 +12,70 @@ use crate::{
     planner::{ResolvedTrailExpansion, ShortestMode, TrailDirection},
 };
 
-// This limits explored work and fails closed; it is deliberately not presented
-// as a bound on the fully materialized graph input or JSON payload.
+// These query-wide limits bound explored work and the exact compact JSON bytes
+// passed from hybrid traversal operators into SQLite. They fail closed rather
+// than silently truncating a result.
 pub(super) const DEFAULT_TRAIL_STATE_LIMIT: usize = 100_000;
+pub(super) const DEFAULT_TRAIL_PAYLOAD_LIMIT: usize = 128 * 1024 * 1024;
 
 pub(super) struct TrailBudget {
-    limit: usize,
-    used: usize,
+    state_limit: usize,
+    state_used: usize,
+    payload_limit: usize,
+    payload_used: usize,
 }
 
 impl Default for TrailBudget {
     fn default() -> Self {
-        Self::new(DEFAULT_TRAIL_STATE_LIMIT)
+        Self::with_limits(DEFAULT_TRAIL_STATE_LIMIT, DEFAULT_TRAIL_PAYLOAD_LIMIT)
     }
 }
 
 impl TrailBudget {
-    pub(super) fn new(limit: usize) -> Self {
-        Self { limit, used: 0 }
+    #[cfg(test)]
+    pub(super) fn new(state_limit: usize) -> Self {
+        Self::with_limits(state_limit, DEFAULT_TRAIL_PAYLOAD_LIMIT)
+    }
+
+    pub(super) fn with_limits(state_limit: usize, payload_limit: usize) -> Self {
+        Self {
+            state_limit,
+            state_used: 0,
+            payload_limit,
+            payload_used: 0,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn payload_used(&self) -> usize {
+        self.payload_used
     }
 
     fn admit(&mut self, traversal: usize) -> Result<()> {
-        if self.used >= self.limit {
+        if self.state_used >= self.state_limit {
             return Err(Error::ResourceLimit(format!(
                 "trail expansion ~{traversal} exceeded the {}-state budget",
-                self.limit
+                self.state_limit
             )));
         }
-        self.used += 1;
+        self.state_used += 1;
+        Ok(())
+    }
+
+    fn admit_payload(&mut self, traversal: usize, bytes: usize) -> Result<()> {
+        let Some(next) = self.payload_used.checked_add(bytes) else {
+            return Err(Error::ResourceLimit(format!(
+                "trail expansion ~{traversal} exceeded the {}-byte serialized-payload budget",
+                self.payload_limit
+            )));
+        };
+        if next > self.payload_limit {
+            return Err(Error::ResourceLimit(format!(
+                "trail expansion ~{traversal} exceeded the {}-byte serialized-payload budget",
+                self.payload_limit
+            )));
+        }
+        self.payload_used = next;
         Ok(())
     }
 }
@@ -60,6 +100,126 @@ struct TrailState {
     node_ids: Vec<String>,
 }
 
+struct EncodedRows {
+    bytes: Vec<u8>,
+    has_rows: bool,
+}
+
+impl EncodedRows {
+    fn new(traversal: usize, budget: &mut TrailBudget) -> Result<Self> {
+        budget.admit_payload(traversal, 1)?;
+        Ok(Self {
+            bytes: vec![b'['],
+            has_rows: false,
+        })
+    }
+
+    fn push(
+        &mut self,
+        start: &str,
+        state: &TrailState,
+        traversal: usize,
+        budget: &mut TrailBudget,
+    ) -> Result<()> {
+        let mut writer = PayloadWriter::new(&mut self.bytes, traversal, budget);
+        if self.has_rows {
+            writer.write_bytes(b",")?;
+        }
+        writer.write_bytes(b"{\"depth\":")?;
+        writer.write_json_usize(state.edge_ids.len())?;
+        writer.write_bytes(b",\"end_id\":")?;
+        writer.write_json_string(&state.end_node)?;
+        writer.write_bytes(b",\"node_ids\":")?;
+        writer.write_string_array(&state.node_ids)?;
+        writer.write_bytes(b",\"start_id\":")?;
+        writer.write_json_string(start)?;
+        writer.write_bytes(b",\"used_edges\":")?;
+        writer.write_string_array(&state.edge_ids)?;
+        writer.write_bytes(b"}")?;
+        self.has_rows = true;
+        Ok(())
+    }
+
+    fn finish(mut self, traversal: usize, budget: &mut TrailBudget) -> Result<String> {
+        PayloadWriter::new(&mut self.bytes, traversal, budget).write_bytes(b"]")?;
+        String::from_utf8(self.bytes)
+            .map_err(|_| Error::Data("traversal runtime JSON was not valid UTF-8".into()))
+    }
+}
+
+struct PayloadWriter<'a> {
+    bytes: &'a mut Vec<u8>,
+    traversal: usize,
+    budget: &'a mut TrailBudget,
+    resource_error: Option<Error>,
+}
+
+impl<'a> PayloadWriter<'a> {
+    fn new(bytes: &'a mut Vec<u8>, traversal: usize, budget: &'a mut TrailBudget) -> Self {
+        Self {
+            bytes,
+            traversal,
+            budget,
+            resource_error: None,
+        }
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> Result<()> {
+        self.budget.admit_payload(self.traversal, bytes.len())?;
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    fn write_json_string(&mut self, value: &str) -> Result<()> {
+        let result = serde_json::to_writer(&mut *self, value);
+        self.finish_json(result)
+    }
+
+    fn write_json_usize(&mut self, value: usize) -> Result<()> {
+        let result = serde_json::to_writer(&mut *self, &value);
+        self.finish_json(result)
+    }
+
+    fn write_string_array(&mut self, values: &[String]) -> Result<()> {
+        self.write_bytes(b"[")?;
+        for (index, value) in values.iter().enumerate() {
+            if index > 0 {
+                self.write_bytes(b",")?;
+            }
+            self.write_json_string(value)?;
+        }
+        self.write_bytes(b"]")
+    }
+
+    fn finish_json(&mut self, result: serde_json::Result<()>) -> Result<()> {
+        match result {
+            Ok(()) => Ok(()),
+            Err(_) if self.resource_error.is_some() => {
+                Err(self.resource_error.take().expect("checked resource error"))
+            }
+            Err(error) => Err(Error::Data(format!(
+                "could not encode traversal runtime JSON: {error}"
+            ))),
+        }
+    }
+}
+
+impl Write for PayloadWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        match self.write_bytes(bytes) {
+            Ok(()) => Ok(bytes.len()),
+            Err(error) => {
+                self.resource_error = Some(error);
+                Err(io::Error::other("traversal payload budget exhausted"))
+            }
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 // The consuming SQLite fragment reads this ordered trail relation through
 // json_each(), keeping endpoint joins and downstream row operators in SQL.
 pub(super) fn materialize_trails(
@@ -68,7 +228,8 @@ pub(super) fn materialize_trails(
     budget: &mut TrailBudget,
 ) -> Result<SqlValue> {
     let Some((edges, nodes)) = load_expansion_inputs(connection, spec)? else {
-        return Ok(SqlValue::Text("[]".into()));
+        let rows = EncodedRows::new(spec.traversal, budget)?.finish(spec.traversal, budget)?;
+        return Ok(SqlValue::Text(rows));
     };
     let rows = enumerate_trails(
         &nodes,
@@ -79,7 +240,7 @@ pub(super) fn materialize_trails(
         spec.traversal,
         budget,
     )?;
-    Ok(encoded_rows(rows))
+    Ok(SqlValue::Text(rows))
 }
 
 pub(super) fn materialize_shortest(
@@ -89,7 +250,8 @@ pub(super) fn materialize_shortest(
     budget: &mut TrailBudget,
 ) -> Result<SqlValue> {
     let Some((edges, nodes)) = load_expansion_inputs(connection, spec)? else {
-        return Ok(SqlValue::Text("[]".into()));
+        let rows = EncodedRows::new(spec.traversal, budget)?.finish(spec.traversal, budget)?;
+        return Ok(SqlValue::Text(rows));
     };
     let rows = enumerate_shortest_paths(
         &nodes,
@@ -100,7 +262,7 @@ pub(super) fn materialize_shortest(
         spec.traversal,
         budget,
     )?;
-    Ok(encoded_rows(rows))
+    Ok(SqlValue::Text(rows))
 }
 
 fn load_expansion_inputs(
@@ -114,10 +276,6 @@ fn load_expansion_inputs(
         load_edges(connection, spec)?,
         load_nodes(connection)?,
     )))
-}
-
-fn encoded_rows(rows: Vec<Value>) -> SqlValue {
-    SqlValue::Text(Value::Array(rows).to_string())
 }
 
 fn load_nodes(connection: &Connection) -> Result<Vec<String>> {
@@ -152,14 +310,14 @@ fn enumerate_trails(
     maximum: Option<usize>,
     traversal: usize,
     budget: &mut TrailBudget,
-) -> Result<Vec<Value>> {
+) -> Result<String> {
+    let mut rows = EncodedRows::new(traversal, budget)?;
     let effective_maximum = maximum.unwrap_or(edges.len()).min(edges.len());
     if minimum > effective_maximum {
-        return Ok(Vec::new());
+        return rows.finish(traversal, budget);
     }
 
     let adjacency = adjacency(edges, direction);
-    let mut rows = Vec::new();
     for start in nodes {
         let seed = TrailState {
             end_node: start.clone(),
@@ -168,7 +326,7 @@ fn enumerate_trails(
         };
         if minimum == 0 {
             budget.admit(traversal)?;
-            rows.push(encoded_trail(start, &seed));
+            rows.push(start, &seed, traversal, budget)?;
         }
 
         let mut pending = vec![seed];
@@ -189,13 +347,13 @@ fn enumerate_trails(
                 next.edge_ids.push(step.edge_id.clone());
                 next.node_ids.push(step.next_node.clone());
                 if next.edge_ids.len() >= minimum {
-                    rows.push(encoded_trail(start, &next));
+                    rows.push(start, &next, traversal, budget)?;
                 }
                 pending.push(next);
             }
         }
     }
-    Ok(rows)
+    rows.finish(traversal, budget)
 }
 
 // Run one BFS per stored start node. The first depth recorded for an end node
@@ -210,16 +368,16 @@ fn enumerate_shortest_paths(
     mode: ShortestMode,
     traversal: usize,
     budget: &mut TrailBudget,
-) -> Result<Vec<Value>> {
+) -> Result<String> {
+    let mut rows = EncodedRows::new(traversal, budget)?;
     let (minimum, maximum) = bounds;
     let effective_maximum = maximum.unwrap_or(edges.len()).min(edges.len());
     if minimum > effective_maximum {
-        return Ok(Vec::new());
+        return rows.finish(traversal, budget);
     }
 
     let adjacency = adjacency(edges, direction);
     let include_all = mode == ShortestMode::All;
-    let mut rows = Vec::new();
     for start in nodes {
         let seed = TrailState {
             end_node: start.clone(),
@@ -228,7 +386,7 @@ fn enumerate_shortest_paths(
         };
         if minimum == 0 {
             budget.admit(traversal)?;
-            rows.push(encoded_trail(start, &seed));
+            rows.push(start, &seed, traversal, budget)?;
         }
 
         let mut best_depth = BTreeMap::from([(start.clone(), 0_usize)]);
@@ -260,7 +418,7 @@ fn enumerate_shortest_paths(
                 next.edge_ids.push(step.edge_id.clone());
                 next.node_ids.push(step.next_node.clone());
                 if depth >= minimum {
-                    rows.push(encoded_trail(start, &next));
+                    rows.push(start, &next, traversal, budget)?;
                 }
                 pending.push_back(next);
             }
@@ -277,11 +435,11 @@ fn enumerate_shortest_paths(
                 traversal,
                 budget,
             )? {
-                rows.push(encoded_trail(start, &cycle));
+                rows.push(start, &cycle, traversal, budget)?;
             }
         }
     }
-    Ok(rows)
+    rows.finish(traversal, budget)
 }
 
 fn enumerate_shortest_cycles(
@@ -402,6 +560,7 @@ fn add_step(adjacency: &mut BTreeMap<String, Vec<TrailStep>>, from: &str, to: &s
         });
 }
 
+#[cfg(test)]
 fn encoded_trail(start: &str, state: &TrailState) -> Value {
     json!({
         "start_id": start,
@@ -424,12 +583,16 @@ mod tests {
         }
     }
 
+    fn decode_rows(encoded: &str) -> Vec<Value> {
+        serde_json::from_str(encoded).unwrap()
+    }
+
     #[test]
     fn undirected_self_loop_is_emitted_once_per_depth() {
         let nodes = vec!["a".into()];
         let edges = vec![edge("loop", "a", "a")];
         let mut budget = TrailBudget::new(10);
-        let rows = enumerate_trails(
+        let encoded = enumerate_trails(
             &nodes,
             &edges,
             TrailDirection::Undirected,
@@ -439,7 +602,9 @@ mod tests {
             &mut budget,
         )
         .unwrap();
+        let rows = decode_rows(&encoded);
 
+        assert_eq!(budget.payload_used, encoded.len());
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0]["depth"], 0);
         assert_eq!(rows[1]["depth"], 1);
@@ -484,10 +649,10 @@ mod tests {
     }
 
     #[test]
-    fn reversed_bounds_are_empty_without_spending_budget() {
+    fn reversed_bounds_are_empty_without_spending_state_budget() {
         let nodes = vec!["a".into(), "b".into()];
         let edges = vec![edge("ab", "a", "b")];
-        let mut budget = TrailBudget::new(0);
+        let mut budget = TrailBudget::with_limits(0, 2);
         let rows = enumerate_trails(
             &nodes,
             &edges,
@@ -499,6 +664,152 @@ mod tests {
         )
         .unwrap();
 
-        assert!(rows.is_empty());
+        assert_eq!(rows, "[]");
+        assert_eq!(budget.state_used, 0);
+        assert_eq!(budget.payload_used, 2);
+    }
+
+    #[test]
+    fn serialized_payload_boundary_is_exact_for_escaped_utf8_ids() {
+        let nodes = vec!["a\n".into(), "β".into()];
+        let edges = vec![edge("edge\"", "a\n", "β")];
+        let row = encoded_trail(
+            "a\n",
+            &TrailState {
+                end_node: "β".into(),
+                edge_ids: vec!["edge\"".into()],
+                node_ids: vec!["a\n".into(), "β".into()],
+            },
+        );
+        let expected = Value::Array(vec![row]).to_string();
+        assert!(expected.len() > expected.chars().count());
+
+        let mut exact = TrailBudget::with_limits(10, expected.len());
+        let actual = enumerate_trails(
+            &nodes,
+            &edges,
+            TrailDirection::Right,
+            1,
+            None,
+            11,
+            &mut exact,
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(exact.payload_used, expected.len());
+
+        let mut short = TrailBudget::with_limits(10, expected.len() - 1);
+        let error = enumerate_trails(
+            &nodes,
+            &edges,
+            TrailDirection::Right,
+            1,
+            None,
+            12,
+            &mut short,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::ResourceLimit(message)
+                if message.contains("~12")
+                    && message.contains(&format!("{}-byte serialized-payload budget", expected.len() - 1))
+        ));
+    }
+
+    #[test]
+    fn empty_relation_requires_its_two_serialized_bytes() {
+        let mut exact = TrailBudget::with_limits(0, 2);
+        let rows =
+            enumerate_trails(&[], &[], TrailDirection::Right, 1, None, 13, &mut exact).unwrap();
+        assert_eq!(rows, "[]");
+
+        let mut short = TrailBudget::with_limits(0, 1);
+        let error =
+            enumerate_trails(&[], &[], TrailDirection::Right, 1, None, 13, &mut short).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::ResourceLimit(message)
+                if message.contains("~13")
+                    && message.contains("1-byte serialized-payload budget")
+        ));
+    }
+
+    #[test]
+    fn emitted_relations_consume_one_shared_payload_budget() {
+        let nodes = vec!["a".into(), "b".into()];
+        let edges = vec![edge("ab", "a", "b")];
+        let expected = Value::Array(vec![encoded_trail(
+            "a",
+            &TrailState {
+                end_node: "b".into(),
+                edge_ids: vec!["ab".into()],
+                node_ids: vec!["a".into(), "b".into()],
+            },
+        )])
+        .to_string();
+        let mut budget = TrailBudget::with_limits(10, expected.len());
+
+        let first = enumerate_trails(
+            &nodes,
+            &edges,
+            TrailDirection::Right,
+            1,
+            None,
+            14,
+            &mut budget,
+        )
+        .unwrap();
+        assert_eq!(first, expected);
+
+        let error = enumerate_trails(
+            &nodes,
+            &edges,
+            TrailDirection::Right,
+            1,
+            None,
+            15,
+            &mut budget,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::ResourceLimit(message)
+                if message.contains("~15") && message.contains("serialized-payload budget")
+        ));
+    }
+
+    #[test]
+    fn shortest_paths_use_the_same_fail_closed_payload_guard() {
+        let nodes = vec!["a".into(), "b".into()];
+        let edges = vec![edge("ab", "a", "b")];
+        let expected = Value::Array(vec![encoded_trail(
+            "a",
+            &TrailState {
+                end_node: "b".into(),
+                edge_ids: vec!["ab".into()],
+                node_ids: vec!["a".into(), "b".into()],
+            },
+        )])
+        .to_string();
+        let mut budget = TrailBudget::with_limits(10, expected.len() - 1);
+
+        let error = enumerate_shortest_paths(
+            &nodes,
+            &edges,
+            TrailDirection::Right,
+            (1, None),
+            ShortestMode::One,
+            16,
+            &mut budget,
+        )
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            Error::ResourceLimit(message)
+                if message.contains("~16")
+                    && message.contains("serialized-payload budget")
+        ));
     }
 }

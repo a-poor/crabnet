@@ -7,7 +7,7 @@ mod sqlite;
 use crate::{Error, Parameters, Result};
 
 pub(crate) use logical::{EntityKind, ResolvedExpr, SlotId};
-use logical::{Input, Mutation, Projection, Query, require_object, validate_storable_value};
+use logical::{Input, Mutation, Projection, Query, validate_storable_value};
 pub(crate) use physical::{
     OutputShape, PhysicalOperator, PreparedFragmentArgument, PreparedPhysicalOperator,
     PreparedSqlFragment, PreparedValueOperator, ResolvedTrailExpansion, ShortestMode,
@@ -281,9 +281,8 @@ impl MutationPlan {
                     label,
                     properties,
                 } => {
-                    let properties = properties.resolve(parameters)?;
-                    require_object(&properties, "node properties")?;
-                    validate_storable_value(&properties)?;
+                    let properties =
+                        properties.resolve_properties(parameters, "node properties")?;
                     Ok(ResolvedMutation::CreateNode {
                         slot,
                         label,
@@ -297,9 +296,8 @@ impl MutationPlan {
                     to,
                     properties,
                 } => {
-                    let properties = properties.resolve(parameters)?;
-                    require_object(&properties, "relationship properties")?;
-                    validate_storable_value(&properties)?;
+                    let properties =
+                        properties.resolve_properties(parameters, "relationship properties")?;
                     Ok(ResolvedMutation::CreateRelationship {
                         slot,
                         relationship_type,
@@ -314,15 +312,13 @@ impl MutationPlan {
                     Ok(ResolvedMutation::SetProperty { slot, key, value })
                 }
                 Mutation::ReplaceProperties { slot, properties } => {
-                    let properties = properties.resolve(parameters)?;
-                    require_object(&properties, "replacement properties")?;
-                    validate_storable_value(&properties)?;
+                    let properties =
+                        properties.resolve_properties(parameters, "replacement properties")?;
                     Ok(ResolvedMutation::ReplaceProperties { slot, properties })
                 }
                 Mutation::MergeProperties { slot, properties } => {
-                    let properties = properties.resolve(parameters)?;
-                    require_object(&properties, "merged properties")?;
-                    validate_storable_value(&properties)?;
+                    let properties =
+                        properties.resolve_properties(parameters, "merged properties")?;
                     Ok(ResolvedMutation::MergeProperties { slot, properties })
                 }
                 Mutation::RemoveProperty { slot, key } => {

@@ -313,11 +313,13 @@ composition, the SQLite-depth threshold, and rejection boundaries.
 - Whole-tree preparation resolves deferred pagination, ordinary parameters, and
   traversal-edge filters in every `UNION` branch before the first producer or
   SQL fragment executes.
-- One fixed 100,000 explored-trail-state work guard is shared query-wide and
-  fails closed with `Error::ResourceLimit`; it is neither truncation nor a
-  claimed memory bound. The Rust stages currently fully materialize eligible
-  graph inputs and JSON trail relations without start/end-domain pushdown.
-  Payload-byte accounting and selective seeding remain hardening work.
+- Fixed query-wide guards cap hybrid traversal at 100,000 explored trail states
+  and 128 MiB of exact compact JSON runtime payload. Both fail closed with
+  `Error::ResourceLimit`, and the payload encoder builds its final relation
+  incrementally instead of retaining a second whole serialization. The byte cap
+  is not a total memory bound: graph inputs, adjacency maps, and frontiers remain
+  fully materialized without start/end-domain pushdown. Broader retained-memory
+  accounting and selective seeding remain hardening work.
 - The explicit read boundary is complete for the supported operator set, with
   one SQL fragment per branch. Future non-pushable reads can add a value or row
   operator without reviving traversal-specific SQL bindings; a construct that
@@ -333,10 +335,27 @@ without changing scope, ordering, null, bag, snapshot, or parameter-preflight
 semantics. `tests/physical_plan.rs` locks down the operator boundary.
 Concurrent external-writer semantics remain a non-goal.
 
-### 9. Conformance and optimization
+### 9. Conformance and optimization — in progress
 
-- Add property tests for binding, type/null matrices, planner invariants, and
-  generated SQL preparation.
+- The first deterministic invariant slice is green: physical-plan tests exhaust
+  19,046 runtime producer/consumer layouts, while a seven-family compiler
+  corpus asks SQLite to prepare every main and traversal-edge fragment and
+  verifies dense bind positions plus result shape.
+- Fixed and Rust-backed open relationship-property filters now share a typed
+  scalar/nested JSON matrix.
+- A finite independent Rust oracle now exhausts 9,408 binary and 84 unary
+  predicate outcomes across 28 missing/null/boolean/numeric/text/list/map
+  operands. It covers mixed integer/float precision boundaries and explicitly
+  locks the current stored-JSON equality rule for structured values.
+- The property-invariant slice is green. Escaped, case-sensitive, and SQL-
+  looking label/type filters remain bound across fixed, SQLite-recursive, and
+  Rust-backed reads. Contextual variables, aliases, parameters, and unusual
+  node/edge keys survive their applicable read, mutation, and removal routes;
+  recursive values survive whole-entity and path hydration. Duplicate decoded
+  output columns, empty created relationship types, and values beyond the
+  documented 100-container boundary now fail before execution. Remaining bare
+  contextual keyword labels and labeled-node-after-local-`WHERE` cases are isolated to
+  `open-cypher 0.2.0-alpha.1` and await an upstream parser release.
 - Adopt a pinned, curated openCypher TCK allowlist once typed graph values and
   setup clauses can represent its scenarios faithfully.
 - Add deterministic differential tests against a pinned reference engine;
@@ -348,12 +367,19 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 
 ## Near-term working order
 
-With milestones 2–8 complete, the next active gate is milestone 9.
-The immediate work is to broaden invariant/property coverage, close the
-remaining parser and relationship-property gaps, and use the new physical
-boundary for the next genuinely non-pushable read construct. Selective
-traversal seeding, public default-budget exhaustion, and payload accounting
-remain traversal hardening. After those local contracts stabilize, adopt a
-small pinned openCypher TCK allowlist and deterministic differential cases.
-The working loop is documented in [testing.md](testing.md); planned cases stay
-in the coverage backlog instead of becoming ignored tests.
+Milestone 9 is in progress. Runtime slots are exhaustively checked,
+representative generated SQL is prepared directly by SQLite,
+relationship-property kind coverage spans fixed and hybrid paths, and the
+finite predicate oracle exhausts the documented type/null contract. Unusual
+identifier, property-key, recursive-value, depth-preflight, and transport
+normalization invariants are now green as well. Consume the upstream parser fix
+when released; it no longer blocks local hardening.
+
+Public default state-budget exhaustion and exact query-wide serialized-payload
+accounting are now green. Selective traversal seeding is the next local
+hardening candidate; deterministic accounting for loaded graph inputs and
+search frontiers can follow once that retained set is smaller and better
+defined. The next physical-boundary feature remains exact matching against a
+pre-bound relationship list. After those local contracts stabilize, adopt a
+small pinned openCypher TCK allowlist and deterministic differential cases. The
+working loop is documented in [testing.md](testing.md).

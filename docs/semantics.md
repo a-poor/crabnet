@@ -199,7 +199,23 @@ therefore distinct from ordinary property maps at the API boundary.
 Node and relationship `props` columns must contain JSON objects. Lists and maps
 may be nested property values; conversion to result cells recursively preserves
 their Cypher value kinds. Integers outside SQLite's signed 64-bit range and
-non-finite floats are rejected.
+non-finite floats are rejected. Float zero is canonicalized to positive zero at
+the public `CypherValue` boundary so a value returned through a whole entity,
+direct property projection, or hydrated path has the same representation.
+
+A standalone literal or named JSON value may contain at most 100 nested
+list/map containers. When an object supplies a complete stored property map,
+its outer `props` envelope is not counted; each top-level property value
+receives the same 100-container allowance whether it came from a parameter
+or literal. Parentheses and unary signs do not consume that collection-depth
+allowance. Output, scalar, literal/property-map, and pagination lowering
+separately cap recursive expression syntax at 128 AST steps to bound planner
+stack use.
+
+Resolution checks JSON depth iteratively before cloning parameter data and, for
+writes, before opening the transaction. A deeper input fails with
+`Error::Semantic` instead of committing JSON that cannot later be decoded as a
+whole entity or hydrated path.
 
 A missing property and a property whose stored value is explicit JSON `null`
 both evaluate to Cypher `null`. Returning either property produces
@@ -243,9 +259,13 @@ Equality uses JSON type information to avoid SQLite's broad coercions:
 - values of different non-numeric JSON kinds are not equal.
 
 For the current implementation, same-kind list and map equality ultimately
-uses their stored JSON representation. Full Cypher structural equality rules,
-including whether map key order must be ignored in every storage situation,
-remain unresolved.
+uses their stored JSON representation rather than recursively normalizing
+numeric members. Consequently, `[1] = [1.0]` and `{x: 1} = {x: 1.0}` are
+false, while `[null] = [null]` and `{x: null} = {x: null}` are true. `IN`
+inherits the same member-equality rule. The finite predicate oracle in
+`tests/predicate_truth_tables.rs` deliberately locks this current contract.
+Full Cypher structural equality rules, including whether map key order must be
+ignored in every storage situation, remain unresolved.
 
 Ordering comparisons are deliberately narrower than SQLite's storage-class
 ordering. Integers and floats are mutually comparable as numbers; strings are
@@ -283,6 +303,27 @@ Crabnet never dynamically coerces them to numbers.
 Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
 rejections. Computed scalar projections are currently read-only: the
 post-mutation result stage does not yet execute them.
+
+## Names and identifiers
+
+Escaped symbolic names are decoded once and remain exact and case-sensitive.
+Variables, labels, relationship types, property keys, parameter names, and
+projection aliases may therefore contain whitespace, punctuation, Unicode,
+embedded backticks, or contextual keywords when the name is escaped. Labels
+and relationship types are compared case-sensitively; property and named
+parameter lookup is likewise case-sensitive.
+
+Graph variables and aliases are mapped to generated internal slots and SQL
+aliases. Labels, relationship types, property keys, and parameter values are
+carried as bound data; their source spelling is never pasted into generated
+SQL. Two `RETURN` items whose decoded column names are identical are rejected
+during semantic planning, including a bare expression repeated twice or an
+escaped alias colliding with an unescaped one. A created relationship type must
+also decode to a nonempty string.
+
+The current `open-cypher 0.2.0-alpha.1` parser can misclassify a bare
+contextual-keyword label in some later-pattern positions. Escaping that name is
+the supported spelling until the upstream parser fix is released.
 
 ## Labels and relationship types
 
@@ -343,12 +384,21 @@ An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
 one trail to at most the number of eligible stored edges, although the number of
 distinct trails can still grow rapidly. Deep/open-ended enumeration and
 shortest-path BFS share a 100,000-trail-state budget across one top-level query,
-including `UNION` branches and multiple hybrid expansions. Exhausting it fails
-the query with `Error::ResourceLimit` rather than returning a truncated or
-partial result. The counter is a fixed explored-work guard, not a memory bound.
-The current Rust stages fully materialize eligible graph inputs and their JSON
-trail relations; selective seeding and payload accounting remain future
-hardening.
+including `UNION` branches and multiple hybrid expansions. Their runtime
+relations also share a 128 MiB (134,217,728-byte) serialized-payload budget.
+That second counter is the exact UTF-8 byte length of each compact JSON array,
+including `[]`, row separators, JSON escapes, keys, and values. The relation is
+encoded incrementally, and a byte is appended only after the budget admits it.
+An exact-limit payload succeeds; the next byte fails the query with
+`Error::ResourceLimit`. Both counters are cumulative across runtime producers
+and `UNION` branches, and neither failure returns a truncated or partial result.
+
+The state counter is an explored-work guard, while the payload counter bounds
+only the serialized Rust-to-SQLite relations. Neither is a total heap bound.
+The current Rust stages still fully materialize eligible graph inputs,
+adjacency maps, and search frontiers, and the naive physical plan still seeds
+every stored node. Selective seeding and accounting for those other in-memory
+structures remain future hardening.
 
 The physical read plan represents Rust-produced relations as explicit value
 operators with branch-local runtime slots; they are not special SQL parameter
@@ -356,6 +406,11 @@ variants. Before any producer or SQLite fragment executes, preparation walks
 the complete tree and resolves ordinary parameters, deferred pagination, and
 traversal-edge filters in every `UNION` branch. A preparation error therefore
 does not spend traversal budget or expose partial rows.
+
+Runtime slots are linear within a fragment: each has exactly one producer and
+one consumer. Preparation rejects duplicate, missing, unreferenced, or reused
+slots before execution. Exhaustive zero-to-four-slot tests cover every producer
+and consumer permutation with static arguments in every possible gap.
 
 Legacy pattern-position `shortestPath` and `allShortestPaths` are supported in
 mandatory read-only `MATCH`. The inner pattern must be exactly two nodes joined
@@ -507,10 +562,12 @@ entity snapshots. This intentionally allows the returned node or relationship
 value to describe an entity that no longer exists after commit.
 
 All parameters and storable property values for a write are resolved and
-validated before the write transaction starts. Match materialization, all
-mutations, and post-write result evaluation then occur in one immediate SQLite
-transaction. Any execution failure rolls back every mutation performed by the
-statement. An optional `RETURN` emits one row per mutation input row and may
+validated before the write transaction starts, including recursive value depth,
+integer range, complete-map shape, and every parameter referenced by a later
+mutation or result. Match materialization, all mutations, and post-write result
+evaluation then occur in one immediate SQLite transaction. Any execution
+failure rolls back every mutation performed by the statement. An optional
+`RETURN` emits one row per mutation input row and may
 project whole matched or created entities as well as supported properties and
 metadata; for deleted entities it follows the snapshot rule above.
 
@@ -525,9 +582,10 @@ execution, so an unsupported write statement cannot partially modify the
 graph.
 
 Supported deep/open-ended or shortest-path traversal can instead fail during
-execution with `Error::ResourceLimit` when the shared query-wide
-100,000-trail-state budget is exhausted. This is an explicit resource failure;
-Crabnet does not return a truncated result.
+execution with `Error::ResourceLimit` when either shared query-wide limit is
+exhausted: 100,000 explored trail states or 128 MiB of serialized runtime JSON.
+This is an explicit resource failure; Crabnet does not return a truncated
+result.
 
 Semantics for unsupported constructs—including modern path selectors,
 expression-position shortest-path calls, other path expressions beyond the

@@ -1402,6 +1402,225 @@ fn validate_schema(connection: &Connection) -> Result<()> {
 mod tests {
     use super::*;
     use rusqlite::OptionalExtension;
+    use serde_json::json;
+
+    #[test]
+    fn generated_read_fragments_prepare_with_exact_dense_bindings() {
+        #[derive(Default)]
+        struct Inspected {
+            fragments: usize,
+            edge_sources: usize,
+        }
+
+        fn assert_dense_bindings(
+            statement: &rusqlite::Statement<'_>,
+            expected: usize,
+            context: &str,
+        ) {
+            assert_eq!(
+                statement.parameter_count(),
+                expected,
+                "{context}: SQLite parameter arity differs from the physical arguments"
+            );
+            for index in 1..=expected {
+                let expected_name = format!("?{index}");
+                assert_eq!(
+                    statement.parameter_name(index),
+                    Some(expected_name.as_str()),
+                    "{context}: physical placeholders must be dense and numbered from ?1"
+                );
+            }
+        }
+
+        fn inspect_operator(
+            connection: &Connection,
+            operator: &PreparedPhysicalOperator,
+            expected_columns: &[String],
+            context: &str,
+            inspected: &mut Inspected,
+        ) {
+            match operator {
+                PreparedPhysicalOperator::Sqlite(fragment) => {
+                    inspected.fragments += 1;
+                    let statement = connection.prepare(&fragment.sql).unwrap_or_else(|error| {
+                        panic!("{context}: generated SQLite fragment did not prepare: {error}")
+                    });
+                    assert!(statement.readonly(), "{context}: read fragment writes");
+                    assert_dense_bindings(&statement, fragment.arguments.len(), context);
+                    assert_eq!(
+                        fragment.columns, expected_columns,
+                        "{context}: fragment columns differ from the read plan"
+                    );
+                    assert_eq!(
+                        statement.column_count(),
+                        fragment.columns.len(),
+                        "{context}: SQLite result width differs from the planned columns"
+                    );
+                    assert_eq!(
+                        fragment.columns.len(),
+                        fragment.output_shapes.len(),
+                        "{context}: every result column needs one output shape"
+                    );
+
+                    for (index, input) in fragment.inputs.iter().enumerate() {
+                        inspected.edge_sources += 1;
+                        let edge_context = format!("{context}/edge-source-{index}");
+                        let spec = match input {
+                            PreparedValueOperator::TrailExpand { spec, .. }
+                            | PreparedValueOperator::ShortestExpand { spec, .. } => spec,
+                        };
+                        let statement =
+                            connection.prepare(&spec.edge_sql).unwrap_or_else(|error| {
+                                panic!(
+                                    "{edge_context}: generated edge SQL did not prepare: {error}"
+                                )
+                            });
+                        assert!(statement.readonly(), "{edge_context}: edge source writes");
+                        assert_dense_bindings(&statement, spec.edge_bindings.len(), &edge_context);
+                        assert_eq!(
+                            statement.column_count(),
+                            3,
+                            "{edge_context}: traversal edge sources must return id/from/to"
+                        );
+                    }
+                }
+                PreparedPhysicalOperator::SemanticDistinct { input }
+                | PreparedPhysicalOperator::Paginate { input, .. }
+                | PreparedPhysicalOperator::BatchHydrate { input } => {
+                    inspect_operator(connection, input, expected_columns, context, inspected)
+                }
+                PreparedPhysicalOperator::Union { left, right, .. } => {
+                    inspect_operator(
+                        connection,
+                        left,
+                        expected_columns,
+                        &format!("{context}/union-left"),
+                        inspected,
+                    );
+                    inspect_operator(
+                        connection,
+                        right,
+                        expected_columns,
+                        &format!("{context}/union-right"),
+                        inspected,
+                    );
+                }
+            }
+        }
+
+        let database = Database::in_memory().unwrap();
+        let cases = vec![
+            (
+                "literal-and-parameter-projections",
+                "RETURN 1 AS literal, $value AS parameter, [$value] AS nested",
+                Parameters::from([("value".to_owned(), json!({"items": [true, 2]}))]),
+                1,
+                0,
+            ),
+            (
+                "typed-predicates",
+                r#"MATCH (node:Thing {kind: $kind})
+                   WHERE node.score >= $floor AND node.name CONTAINS $piece
+                   RETURN node.value AS value ORDER BY value"#,
+                Parameters::from([
+                    ("kind".to_owned(), json!("sample")),
+                    ("floor".to_owned(), json!(2)),
+                    ("piece".to_owned(), json!("am")),
+                ]),
+                1,
+                0,
+            ),
+            (
+                "with-aggregate-and-ordering",
+                r#"WITH $seed AS seed WHERE seed >= $floor
+                   WITH seed + $step AS adjusted
+                   RETURN count(adjusted) AS total ORDER BY $order"#,
+                Parameters::from([
+                    ("seed".to_owned(), json!(4)),
+                    ("floor".to_owned(), json!(1)),
+                    ("step".to_owned(), json!(3)),
+                    ("order".to_owned(), json!(0)),
+                ]),
+                1,
+                0,
+            ),
+            (
+                "semantic-distinct-pagination",
+                r#"MATCH (node:Thing {kind: $kind})
+                   RETURN DISTINCT node.value AS value ORDER BY value
+                   SKIP $skip LIMIT $limit"#,
+                Parameters::from([
+                    ("kind".to_owned(), json!("sample")),
+                    ("skip".to_owned(), json!(1)),
+                    ("limit".to_owned(), json!(2)),
+                ]),
+                1,
+                0,
+            ),
+            (
+                "three-branch-union",
+                r#"RETURN $left AS value
+                   UNION RETURN $middle AS value
+                   UNION ALL RETURN $right AS value"#,
+                Parameters::from([
+                    ("left".to_owned(), json!(1)),
+                    ("middle".to_owned(), json!(1.0)),
+                    ("right".to_owned(), json!([2])),
+                ]),
+                3,
+                0,
+            ),
+            (
+                "two-runtime-trail-inputs",
+                r#"MATCH (start:Start)-[:FIRST* {enabled: $enabled}]->(middle:Middle)-
+                         [:SECOND* {weight: $weight}]->(end:End)
+                   WHERE end.flag = $flag RETURN end"#,
+                Parameters::from([
+                    ("enabled".to_owned(), json!(true)),
+                    ("weight".to_owned(), json!(2)),
+                    ("flag".to_owned(), json!("kept")),
+                ]),
+                1,
+                2,
+            ),
+            (
+                "shortest-runtime-input",
+                r#"MATCH route = allShortestPaths(
+                         (start)-[:ROAD*..4 {open: $open}]->(end))
+                   RETURN length(route) AS hops"#,
+                Parameters::from([("open".to_owned(), json!(true))]),
+                1,
+                1,
+            ),
+        ];
+
+        for (name, query, parameters, expected_fragments, expected_edge_sources) in cases {
+            let Plan::Read(plan) = planner::compile(query)
+                .unwrap_or_else(|error| panic!("{name}: query did not compile: {error}"))
+            else {
+                panic!("{name}: expected a read plan")
+            };
+            let plan = plan
+                .prepare(&parameters)
+                .unwrap_or_else(|error| panic!("{name}: physical plan did not prepare: {error}"));
+            let mut inspected = Inspected::default();
+            inspect_operator(
+                &database.connection,
+                &plan.root,
+                &plan.columns,
+                name,
+                &mut inspected,
+            );
+            assert_eq!(
+                inspected.fragments, expected_fragments,
+                "{name}: unexpected number of SQLite fragments"
+            );
+            assert_eq!(
+                inspected.edge_sources, expected_edge_sources,
+                "{name}: unexpected number of runtime edge sources"
+            );
+        }
+    }
 
     #[test]
     fn distinct_pagination_parameters_preflight_before_trail_materialization() {
@@ -1487,6 +1706,46 @@ mod tests {
             error,
             crate::Error::ResourceLimit(message)
                 if message.contains("trail expansion") && message.contains("1-state budget")
+        ));
+    }
+
+    #[test]
+    fn union_branches_share_one_serialized_trail_payload_budget() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:PayloadStart)-[:LINK]->(:PayloadEnd)")
+            .unwrap();
+        let branch = "MATCH (:PayloadStart)-[:LINK*]->(end) RETURN end AS value";
+        let Plan::Read(single_plan) = planner::compile(branch).unwrap() else {
+            panic!("expected a read plan");
+        };
+        let mut measurement = traversal::TrailBudget::with_limits(100, usize::MAX);
+        execute_read_plan(
+            &database.connection,
+            single_plan,
+            &Parameters::new(),
+            &mut measurement,
+        )
+        .unwrap();
+        let one_branch_payload = measurement.payload_used();
+        assert!(one_branch_payload > 0);
+
+        let Plan::Read(plan) = planner::compile(&format!("{branch} UNION ALL {branch}")).unwrap()
+        else {
+            panic!("expected a read plan");
+        };
+        let mut budget = traversal::TrailBudget::with_limits(100, one_branch_payload);
+
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::Error::ResourceLimit(message)
+                if message.contains("trail expansion")
+                    && message.contains(&format!(
+                        "{one_branch_payload}-byte serialized-payload budget"
+                    ))
         ));
     }
 

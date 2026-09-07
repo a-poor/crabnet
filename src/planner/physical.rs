@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::types::Value as SqlValue;
 use serde_json::Value;
@@ -268,6 +268,7 @@ impl SqlFragment {
         }
 
         let mut prepared_inputs = Vec::new();
+        let mut consumed_slots = HashSet::with_capacity(inputs.len());
         let mut arguments = Vec::with_capacity(self.arguments.len());
         for argument in self.arguments {
             match argument {
@@ -275,6 +276,12 @@ impl SqlFragment {
                     PreparedFragmentArgument::Value(parameter.resolve(parameters)?),
                 ),
                 FragmentArgument::Runtime(slot) => {
+                    if !consumed_slots.insert(slot) {
+                        return Err(Error::Data(format!(
+                            "physical SQL fragment consumes runtime slot %r{} more than once",
+                            slot.0
+                        )));
+                    }
                     let input = inputs.remove(&slot).ok_or_else(|| {
                         Error::Data(format!(
                             "physical SQL fragment reads missing runtime slot %r{}",
@@ -543,4 +550,172 @@ pub(crate) enum PreparedPhysicalOperator {
     BatchHydrate {
         input: Box<Self>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trail_input(slot: usize) -> ValueOperator {
+        ValueOperator::TrailExpand {
+            output: RuntimeSlot(slot),
+            spec: TrailExpansionSpec {
+                traversal: TraversalId(slot),
+                direction: TrailDirection::Right,
+                minimum: 1,
+                maximum: Some(2),
+                edge_sql: "SELECT id, from_node, to_node FROM edges WHERE edge_type = ?1".into(),
+                edge_bindings: vec![SqlParameter::Text(format!("edge-{slot}"))],
+            },
+        }
+    }
+
+    fn fragment(arguments: Vec<FragmentArgument>, inputs: Vec<ValueOperator>) -> SqlFragment {
+        SqlFragment {
+            sql: "SELECT 1".into(),
+            columns: vec!["value".into()],
+            output_shapes: vec![OutputShape::Json],
+            arguments,
+            inputs,
+        }
+    }
+
+    fn permutations(values: &[usize]) -> Vec<Vec<usize>> {
+        fn append(
+            prefix: &mut Vec<usize>,
+            remaining: &mut Vec<usize>,
+            output: &mut Vec<Vec<usize>>,
+        ) {
+            if remaining.is_empty() {
+                output.push(prefix.clone());
+                return;
+            }
+            for index in 0..remaining.len() {
+                let value = remaining.remove(index);
+                prefix.push(value);
+                append(prefix, remaining, output);
+                prefix.pop();
+                remaining.insert(index, value);
+            }
+        }
+
+        let mut output = Vec::new();
+        append(&mut Vec::new(), &mut values.to_vec(), &mut output);
+        output
+    }
+
+    fn prepared_input(prepared: &PreparedValueOperator) -> (usize, usize, &SqlValue) {
+        let PreparedValueOperator::TrailExpand { output, spec } = prepared else {
+            panic!("expected a trail expansion")
+        };
+        (output.0, spec.traversal, &spec.edge_bindings[0])
+    }
+
+    #[test]
+    fn valid_runtime_layouts_prepare_in_consumer_order() {
+        for slot_count in 0..=4 {
+            let slots = (0..slot_count).collect::<Vec<_>>();
+            for producer_order in permutations(&slots) {
+                for consumer_order in permutations(&slots) {
+                    for static_mask in 0..(1 << (slot_count + 1)) {
+                        let inputs = producer_order.iter().copied().map(trail_input).collect();
+                        let mut arguments = Vec::new();
+                        for gap in 0..=slot_count {
+                            if static_mask & (1 << gap) != 0 {
+                                arguments.push(FragmentArgument::Static(SqlParameter::Text(
+                                    format!("static-{gap}"),
+                                )));
+                            }
+                            if let Some(slot) = consumer_order.get(gap) {
+                                arguments.push(FragmentArgument::Runtime(RuntimeSlot(*slot)));
+                            }
+                        }
+
+                        let prepared = fragment(arguments, inputs)
+                            .prepare(&Parameters::new())
+                            .unwrap();
+
+                        let actual_input_order = prepared
+                            .inputs
+                            .iter()
+                            .map(|input| prepared_input(input).0)
+                            .collect::<Vec<_>>();
+                        assert_eq!(actual_input_order, consumer_order);
+                        for input in &prepared.inputs {
+                            let (output, traversal, edge_binding) = prepared_input(input);
+                            assert_eq!(traversal, output);
+                            assert_eq!(edge_binding, &SqlValue::Text(format!("edge-{output}")));
+                        }
+
+                        let mut expected_argument_index = 0;
+                        for gap in 0..=slot_count {
+                            if static_mask & (1 << gap) != 0 {
+                                let PreparedFragmentArgument::Value(SqlValue::Text(value)) =
+                                    &prepared.arguments[expected_argument_index]
+                                else {
+                                    panic!("expected static argument in gap {gap}")
+                                };
+                                assert_eq!(value, &format!("static-{gap}"));
+                                expected_argument_index += 1;
+                            }
+                            if let Some(slot) = consumer_order.get(gap) {
+                                let PreparedFragmentArgument::Runtime(actual_slot) =
+                                    prepared.arguments[expected_argument_index]
+                                else {
+                                    panic!("expected runtime argument after gap {gap}")
+                                };
+                                assert_eq!(actual_slot, RuntimeSlot(*slot));
+                                expected_argument_index += 1;
+                            }
+                        }
+                        assert_eq!(prepared.arguments.len(), expected_argument_index);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_runtime_slot_layouts_are_rejected() {
+        let cases = [
+            (
+                "duplicate producer",
+                vec![FragmentArgument::Runtime(RuntimeSlot(0))],
+                vec![trail_input(0), trail_input(0)],
+                "physical plan produces runtime slot %r0 more than once",
+            ),
+            (
+                "missing producer",
+                vec![FragmentArgument::Runtime(RuntimeSlot(0))],
+                vec![],
+                "physical SQL fragment reads missing runtime slot %r0",
+            ),
+            (
+                "unreferenced producer",
+                vec![],
+                vec![trail_input(0)],
+                "physical plan produces unreferenced runtime slot %r0",
+            ),
+            (
+                "reused slot",
+                vec![
+                    FragmentArgument::Runtime(RuntimeSlot(0)),
+                    FragmentArgument::Runtime(RuntimeSlot(0)),
+                ],
+                vec![trail_input(0)],
+                "physical SQL fragment consumes runtime slot %r0 more than once",
+            ),
+        ];
+
+        for (name, arguments, inputs, expected) in cases {
+            let error = match fragment(arguments, inputs).prepare(&Parameters::new()) {
+                Ok(_) => panic!("{name}: expected an invalid runtime-slot layout"),
+                Err(error) => error,
+            };
+            let Error::Data(message) = error else {
+                panic!("{name}: expected Error::Data, found {error}")
+            };
+            assert_eq!(message, expected, "{name}");
+        }
+    }
 }

@@ -461,6 +461,71 @@ fn relationship_properties_filter_matches() {
 }
 
 #[test]
+fn relationship_property_matching_preserves_scalar_and_nested_json_types() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (from:TypedEdgeNode {name: 'from'})-
+                    [:LINK {kind: 'boolean', payload: true}]->
+                    (to:TypedEdgeNode {name: 'to'}), \
+                    (from)-[:LINK {kind: 'integer', payload: 1}]->(to), \
+                    (from)-[:LINK {kind: 'float', payload: 1.0}]->(to), \
+                    (from)-[:LINK {kind: 'string', payload: '1'}]->(to), \
+                    (from)-[:LINK {
+                        kind: 'list',
+                        payload: [1, {nested: true}]
+                    }]->(to), \
+                    (from)-[:LINK {
+                        kind: 'map',
+                        payload: {nested: [1, false]}
+                    }]->(to), \
+                    (from)-[:LINK {kind: 'null', payload: null}]->(to), \
+                    (from)-[:LINK {kind: 'missing'}]->(to)",
+        )
+        .unwrap();
+
+    for (payload, expected) in [
+        (json!(true), vec!["boolean"]),
+        (json!(1), vec!["float", "integer"]),
+        (json!(1.0), vec!["float", "integer"]),
+        (json!("1"), vec!["string"]),
+        (json!([1, {"nested": true}]), vec!["list"]),
+        (json!({"nested": [1, false]}), vec!["map"]),
+        (json!([1, {"nested": false}]), Vec::new()),
+        (Value::Null, Vec::new()),
+    ] {
+        let parameters = parameters([("payload", payload)]);
+        let expected_count = expected.len() as i64;
+        let result = database
+            .execute_with(
+                "MATCH (:TypedEdgeNode {name: 'from'})-
+                       [edge:LINK {payload: $payload}]->
+                       (:TypedEdgeNode {name: 'to'})
+                 RETURN edge.kind AS kind ORDER BY kind",
+                &parameters,
+            )
+            .unwrap();
+        let expected = expected
+            .into_iter()
+            .map(|kind| vec![json!(kind)])
+            .collect::<Vec<_>>();
+
+        assert_eq!(result.rows, expected);
+
+        let hybrid = database
+            .execute_with(
+                "MATCH (:TypedEdgeNode {name: 'from'})-
+                       [:LINK* {payload: $payload}]->
+                       (:TypedEdgeNode {name: 'to'})
+                 RETURN count(*) AS matches",
+                &parameters,
+            )
+            .unwrap();
+        assert_eq!(hybrid.rows, [vec![json!(expected_count)]]);
+    }
+}
+
+#[test]
 fn element_local_where_filters_nodes_and_relationships() {
     let mut database = Database::in_memory().unwrap();
     database
