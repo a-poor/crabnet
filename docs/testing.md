@@ -257,9 +257,18 @@ through fixed and hybrid routes, eleven unusual property keys survive the full
 mutation lifecycle, recursive maps/lists survive entity and path hydration,
 and the 100-container input boundary is preflighted atomically. Labeled nodes
 after an earlier node-local `WHERE` and some bare contextual-keyword labels
-still await an upstream `open-cypher` parser release.
+still await an upstream `open-cypher` parser release; `0.2.0-alpha.2` was
+checked and still reproduces them.
 
 Public default state-budget exhaustion and the 128 MiB serialized-payload guard
-are now covered. Selective traversal seeding and broader graph-input/frontier
-memory accounting remain explicit hardening work. Concurrent external-writer
-behavior remains outside the test goal.
+are now covered. Selective traversal seeding is covered at every layer: the
+compiler emits bound node-domain queries, the generated-SQL corpus prepares
+them, `tests/physical_plan.rs` shows them or `unrestricted` in explanations,
+producer unit tests prove end domains filter rows without pruning states, and
+`tests/traversal_limits.rs` shows a constrained start staying inside the state
+budget on a graph whose unconstrained seeding exhausts it. Retained-memory
+accounting is covered by producer unit tests that pin hand-computed peaks,
+exact boundaries, and zero residual charge after depth-first and shortest-path
+searches, plus executor tests showing the charge propagates as
+`Error::ResourceLimit` and is released between `UNION` branches. Concurrent
+external-writer behavior remains outside the test goal.

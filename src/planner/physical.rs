@@ -138,6 +138,38 @@ impl ShortestMode {
     }
 }
 
+/// A parameterized SQLite query selecting the node IDs that one traversal
+/// endpoint may take. It is always a superset of the endpoint's final
+/// matches: the consuming fragment still joins the endpoint slot, so the
+/// domain only prunes seeds and emitted rows, never semantics.
+#[derive(Clone, Debug)]
+pub(crate) struct NodeDomainSpec {
+    pub(crate) sql: String,
+    pub(crate) bindings: Vec<SqlParameter>,
+}
+
+impl NodeDomainSpec {
+    fn resolve(&self, parameters: &Parameters) -> Result<ResolvedNodeDomain> {
+        Ok(ResolvedNodeDomain {
+            sql: self.sql.clone(),
+            bindings: resolve_bindings(&self.bindings, parameters)?,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ResolvedNodeDomain {
+    pub(crate) sql: String,
+    pub(crate) bindings: Vec<SqlValue>,
+}
+
+fn resolve_bindings(bindings: &[SqlParameter], parameters: &Parameters) -> Result<Vec<SqlValue>> {
+    bindings
+        .iter()
+        .map(|binding| binding.resolve(parameters))
+        .collect()
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct TrailExpansionSpec {
     pub(crate) traversal: TraversalId,
@@ -146,6 +178,8 @@ pub(crate) struct TrailExpansionSpec {
     pub(crate) maximum: Option<usize>,
     pub(crate) edge_sql: String,
     pub(crate) edge_bindings: Vec<SqlParameter>,
+    pub(crate) start_domain: Option<NodeDomainSpec>,
+    pub(crate) end_domain: Option<NodeDomainSpec>,
 }
 
 impl TrailExpansionSpec {
@@ -156,11 +190,17 @@ impl TrailExpansionSpec {
             minimum: self.minimum,
             maximum: self.maximum,
             edge_sql: self.edge_sql.clone(),
-            edge_bindings: self
-                .edge_bindings
-                .iter()
-                .map(|binding| binding.resolve(parameters))
-                .collect::<Result<Vec<_>>>()?,
+            edge_bindings: resolve_bindings(&self.edge_bindings, parameters)?,
+            start_domain: self
+                .start_domain
+                .as_ref()
+                .map(|domain| domain.resolve(parameters))
+                .transpose()?,
+            end_domain: self
+                .end_domain
+                .as_ref()
+                .map(|domain| domain.resolve(parameters))
+                .transpose()?,
         })
     }
 }
@@ -173,6 +213,8 @@ pub(crate) struct ResolvedTrailExpansion {
     pub(crate) maximum: Option<usize>,
     pub(crate) edge_sql: String,
     pub(crate) edge_bindings: Vec<SqlValue>,
+    pub(crate) start_domain: Option<ResolvedNodeDomain>,
+    pub(crate) end_domain: Option<ResolvedNodeDomain>,
 }
 
 #[derive(Clone, Debug)]
@@ -480,14 +522,27 @@ fn render_value_operator(operator: &ValueOperator, output: &mut String, index: &
         spec.minimum,
         maximum
     ));
-    output.push_str("      edge-source:\n");
-    output.push_str("        sql: ");
-    output.push_str(&spec.edge_sql);
-    output.push_str("\n        bindings:\n");
-    if spec.edge_bindings.is_empty() {
+    render_source(output, "edge-source", &spec.edge_sql, &spec.edge_bindings);
+    render_domain(output, "start-domain", spec.start_domain.as_ref());
+    render_domain(output, "end-domain", spec.end_domain.as_ref());
+    *index += 1;
+}
+
+fn render_domain(output: &mut String, name: &str, domain: Option<&NodeDomainSpec>) {
+    match domain {
+        Some(domain) => render_source(output, name, &domain.sql, &domain.bindings),
+        None => output.push_str(&format!("      {name}: unrestricted\n")),
+    }
+}
+
+fn render_source(output: &mut String, name: &str, sql: &str, bindings: &[SqlParameter]) {
+    output.push_str(&format!(
+        "      {name}:\n        sql: {sql}\n        bindings:\n"
+    ));
+    if bindings.is_empty() {
         output.push_str("          none\n");
     } else {
-        for (binding_index, binding) in spec.edge_bindings.iter().enumerate() {
+        for (binding_index, binding) in bindings.iter().enumerate() {
             output.push_str(&format!(
                 "          ?{} {}\n",
                 binding_index + 1,
@@ -495,7 +550,6 @@ fn render_value_operator(operator: &ValueOperator, output: &mut String, index: &
             ));
         }
     }
-    *index += 1;
 }
 
 pub(crate) enum PreparedFragmentArgument {
@@ -566,6 +620,8 @@ mod tests {
                 maximum: Some(2),
                 edge_sql: "SELECT id, from_node, to_node FROM edges WHERE edge_type = ?1".into(),
                 edge_bindings: vec![SqlParameter::Text(format!("edge-{slot}"))],
+                start_domain: None,
+                end_domain: None,
             },
         }
     }

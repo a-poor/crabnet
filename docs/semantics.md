@@ -321,9 +321,11 @@ during semantic planning, including a bare expression repeated twice or an
 escaped alias colliding with an unescaped one. A created relationship type must
 also decode to a nonempty string.
 
-The current `open-cypher 0.2.0-alpha.1` parser can misclassify a bare
-contextual-keyword label in some later-pattern positions. Escaping that name is
-the supported spelling until the upstream parser fix is released.
+The current `open-cypher 0.2.0-alpha.2` parser still rejects a labeled node
+that follows an earlier node-local `WHERE` in the same pattern or clause, and
+can misclassify a bare contextual-keyword label in some later-pattern
+positions. Splitting the pattern across `MATCH` clauses, or escaping the label,
+is the supported spelling until an upstream parser fix is released.
 
 ## Labels and relationship types
 
@@ -376,9 +378,17 @@ revisited through cycles and self-loops, but a stored edge cannot be reused
 within one complete path. The uniqueness rule also spans fixed and
 variable-length segments in the same path. Each distinct valid edge sequence
 remains a separate result row, so diamonds and parallel edges can produce
-duplicate endpoint projections. The current naive physical plan seeds every
-stored node before applying selective endpoint constraints; start-domain
-pushdown remains future optimization work.
+duplicate endpoint projections. The hybrid producer seeds selectively: label
+and inline-property constraints that the same `MATCH` places on the start
+endpoint compile to a bound node-domain query, and only those nodes are
+expanded. An unconstrained start with a positive lower bound seeds only nodes
+that begin an eligible edge, while a zero-hop lower bound still seeds every
+stored node because each is its own identity trail. Constraints on the end
+endpoint filter emitted rows the same way but never prune intermediate
+states. Both domains are supersets of the endpoint's final matches, so the
+consuming SQLite join remains the semantic boundary; the seeding only reduces
+explored states and serialized payload. Constraints from earlier clauses or a
+node-local `WHERE` are not pushed into the domain.
 
 An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
 one trail to at most the number of eligible stored edges, although the number of
@@ -394,11 +404,21 @@ An exact-limit payload succeeds; the next byte fails the query with
 and `UNION` branches, and neither failure returns a truncated or partial result.
 
 The state counter is an explored-work guard, while the payload counter bounds
-only the serialized Rust-to-SQLite relations. Neither is a total heap bound.
-The current Rust stages still fully materialize eligible graph inputs,
-adjacency maps, and search frontiers, and the naive physical plan still seeds
-every stored node. Selective seeding and accounting for those other in-memory
-structures remain future hardening.
+only the serialized Rust-to-SQLite relations. A third counter bounds the graph
+inputs a hybrid producer retains while it runs: eligible edges, seed and
+end-domain node lists, adjacency maps, search frontiers, shortest-path visited
+maps, and retained candidate cycles share a 256 MiB (268,435,456-byte)
+retained-memory budget. That counter is deterministic rather than an allocator
+measurement: every retained ID string costs its UTF-8 length plus a fixed 24
+bytes, and each visited-map entry costs a further 8 bytes. Edges, seeds, and
+adjacency steps are charged as they are read or inserted, so an oversized input
+fails before it is fully loaded; frontier states are charged when queued and
+released when expanded; and a producer releases its whole charge when it
+finishes, so the counter tracks live inputs rather than accumulating across
+producers or `UNION` branches. Exhausting it fails the query with
+`Error::ResourceLimit`. Encoded output rows remain under the payload counter,
+and Rust allocator overhead, SQLite's own memory, and the final result set
+remain outside all three counters.
 
 The physical read plan represents Rust-produced relations as explicit value
 operators with branch-local runtime slots; they are not special SQL parameter

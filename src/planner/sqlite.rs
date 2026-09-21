@@ -12,8 +12,8 @@ use super::logical::{
     SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
-    FragmentArgument, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode, SqlFragment,
-    SqlParameter, TrailExpansionSpec, ValueOperator,
+    FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
+    SqlFragment, SqlParameter, TrailExpansionSpec, ValueOperator,
 };
 #[cfg(test)]
 use super::physical::{PreparedValueOperator, TrailDirection};
@@ -317,6 +317,8 @@ struct HybridVariableLengthSpec<'a> {
     kind: HybridExpansionKind,
     relationship_type: Option<&'a str>,
     properties: &'a [(String, ValueExpr)],
+    start_domain: Option<NodeDomainSpec>,
+    end_domain: Option<NodeDomainSpec>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -461,6 +463,8 @@ impl Compiler {
                         kind: HybridExpansionKind::Trails,
                         relationship_type: relationship_type.as_deref(),
                         properties,
+                        start_domain: Self::compile_node_domain(&plan.operators, *left),
+                        end_domain: Self::compile_node_domain(&plan.operators, *right),
                     })?;
                 }
                 MatchOperator::ExpandShortestPath {
@@ -488,6 +492,8 @@ impl Compiler {
                         }),
                         relationship_type: relationship_type.as_deref(),
                         properties,
+                        start_domain: Self::compile_node_domain(&plan.operators, *left),
+                        end_domain: Self::compile_node_domain(&plan.operators, *right),
                     })?;
                 }
                 MatchOperator::DistinctRelationships(relationships) => {
@@ -678,6 +684,8 @@ impl Compiler {
             kind,
             relationship_type,
             properties,
+            start_domain,
+            end_domain,
         } = spec;
         if self.traversals.contains_key(&traversal) {
             return Err(Error::Data(format!(
@@ -696,6 +704,8 @@ impl Compiler {
             maximum,
             edge_sql,
             edge_bindings,
+            start_domain,
+            end_domain,
         };
         let operator = match kind {
             HybridExpansionKind::Trails => ValueOperator::TrailExpand { output, spec },
@@ -761,15 +771,62 @@ impl Compiler {
             sql.push_str(&filters.join(" AND "));
         }
         sql.push_str(&format!(" ORDER BY {edge}.id"));
-        let bindings = compiler
-            .bindings
+        (sql, compiler.into_static_bindings())
+    }
+
+    /// Compile the label and inline-property constraints that this `MATCH`
+    /// places on one traversal endpoint into a standalone node-ID query. The
+    /// result is a superset of the endpoint's final matches, so the hybrid
+    /// producer can seed or filter by it without changing semantics. An
+    /// endpoint without such constraints has no domain query.
+    fn compile_node_domain(
+        operators: &[MatchOperator],
+        endpoint: SlotId,
+    ) -> Option<NodeDomainSpec> {
+        let mut compiler = Self::new();
+        let node = "trail_node";
+        let mut filters = Vec::new();
+        for operator in operators {
+            match operator {
+                MatchOperator::HasLabel { slot, label } if *slot == endpoint => {
+                    let expected = compiler.push_binding(SqlParameter::Text(label.clone()));
+                    filters.push(format!("{node}.label = {expected}"));
+                }
+                MatchOperator::PropertyEquals { slot, key, value } if *slot == endpoint => {
+                    let (property, property_type) =
+                        compiler.json_property_parts(format!("{node}.props"), key);
+                    filters.push(compiler.typed_value_comparison(
+                        property,
+                        property_type,
+                        value.clone(),
+                        BinaryOp::Equal,
+                    ));
+                }
+                _ => {}
+            }
+        }
+        if filters.is_empty() {
+            return None;
+        }
+        Some(NodeDomainSpec {
+            sql: format!(
+                "SELECT {node}.id FROM nodes AS {node} WHERE {} ORDER BY {node}.id",
+                filters.join(" AND ")
+            ),
+            bindings: compiler.into_static_bindings(),
+        })
+    }
+
+    fn into_static_bindings(self) -> Vec<SqlParameter> {
+        self.bindings
             .into_iter()
             .map(|argument| match argument {
                 FragmentArgument::Static(parameter) => parameter,
-                FragmentArgument::Runtime(_) => unreachable!("edge filters are SQL-only"),
+                FragmentArgument::Runtime(_) => {
+                    unreachable!("traversal source filters are SQL-only")
+                }
             })
-            .collect();
-        (sql, bindings)
+            .collect()
     }
 
     fn compile_relationship_uniqueness(&mut self, relationships: &[RelationshipUse]) -> Result<()> {
@@ -2052,6 +2109,65 @@ mod tests {
             })
             .unwrap();
         assert_eq!(bindings, [SqlValue::Text("[]".into())]);
+    }
+
+    #[test]
+    fn hybrid_endpoint_constraints_become_bound_node_domains() {
+        let query = lower::lower(
+            "MATCH (start:Person {name: $name})-[:NEXT*2..]->(end {open: true}) RETURN end",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+        let physical = plan.render_physical(true);
+        assert!(physical.contains("start-domain:\n        sql: SELECT trail_node.id"));
+        assert!(physical.contains("end-domain:\n        sql: SELECT trail_node.id"));
+
+        let parameters = Parameters::from([("name".to_owned(), Value::String("Ada".into()))]);
+        plan.resolve_bindings(&parameters, |input| {
+            let PreparedValueOperator::TrailExpand { spec, .. } = input else {
+                panic!("expected a trail expansion")
+            };
+            let start = spec.start_domain.as_ref().expect("start domain");
+            assert!(
+                start
+                    .sql
+                    .starts_with("SELECT trail_node.id FROM nodes AS trail_node WHERE ")
+            );
+            assert!(start.sql.contains("trail_node.label = ?1"));
+            assert!(start.sql.contains("json_type(trail_node.props"));
+            assert!(start.sql.ends_with(" ORDER BY trail_node.id"));
+            assert_eq!(
+                start.bindings.as_slice(),
+                &[
+                    SqlValue::Text("Person".into()),
+                    SqlValue::Text("name".into()),
+                    SqlValue::Text("Ada".into()),
+                    SqlValue::Text("\"Ada\"".into()),
+                ]
+            );
+            let end = spec.end_domain.as_ref().expect("end domain");
+            assert!(!end.sql.contains("label"));
+            assert_eq!(
+                end.bindings.as_slice(),
+                &[
+                    SqlValue::Text("open".into()),
+                    SqlValue::Integer(1),
+                    SqlValue::Text("true".into()),
+                ]
+            );
+            Ok(SqlValue::Text("[]".into()))
+        })
+        .unwrap();
+
+        let unconstrained = lower::lower("MATCH (start)-[:NEXT*2..]->(end) RETURN end").unwrap();
+        let plan = compile_read(
+            &unconstrained.input,
+            unconstrained.projection.as_ref().unwrap(),
+        )
+        .unwrap();
+        let physical = plan.render_physical(true);
+        assert!(physical.contains("start-domain: unrestricted"));
+        assert!(physical.contains("end-domain: unrestricted"));
     }
 
     #[test]

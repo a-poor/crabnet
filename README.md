@@ -194,10 +194,16 @@ expansions: 100,000 explored trail states and 128 MiB of compact serialized JSON
 runtime relations. The JSON encoder admits exact UTF-8 bytes incrementally,
 including array punctuation and escaped IDs, instead of retaining a second
 whole-relation serialization. Exhausting either limit returns
-`Error::ResourceLimit`; Crabnet never silently truncates the result. The payload
-limit is not a total heap bound: eligible graph inputs, adjacency maps, and
-search frontiers are still fully materialized, and every stored node is still
-seeded before SQLite applies selective endpoint constraints.
+`Error::ResourceLimit`; Crabnet never silently truncates the result. Label and
+inline-property constraints on a traversal's start node seed only the matching
+nodes, an unconstrained positive-hop start seeds only nodes with an eligible
+edge, and end-node constraints filter emitted rows before serialization. A
+third fail-closed limit, 256 MiB of deterministically counted retained graph
+input, bounds the eligible edges, seed lists, adjacency maps, and search
+frontiers a producer holds while it runs; it is charged as inputs are loaded
+and released when each producer finishes. None of the limits is a total heap
+bound: allocator overhead, SQLite's memory, and the final result set stay
+outside them.
 
 `PathValue` exposes nodes and relationships in traversal order, always with one
 more node than relationship. A zero-hop path therefore has one node and no

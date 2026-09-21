@@ -316,10 +316,9 @@ composition, the SQLite-depth threshold, and rejection boundaries.
 - Fixed query-wide guards cap hybrid traversal at 100,000 explored trail states
   and 128 MiB of exact compact JSON runtime payload. Both fail closed with
   `Error::ResourceLimit`, and the payload encoder builds its final relation
-  incrementally instead of retaining a second whole serialization. The byte cap
-  is not a total memory bound: graph inputs, adjacency maps, and frontiers remain
-  fully materialized without start/end-domain pushdown. Broader retained-memory
-  accounting and selective seeding remain hardening work.
+  incrementally instead of retaining a second whole serialization. Selective
+  seeding and a deterministic 256 MiB retained-memory budget for eligible
+  edges, adjacency maps, and frontiers landed in milestone 9.
 - The explicit read boundary is complete for the supported operator set, with
   one SQL fragment per branch. Future non-pushable reads can add a value or row
   operator without reviving traversal-specific SQL bindings; a construct that
@@ -355,7 +354,22 @@ Concurrent external-writer semantics remain a non-goal.
   output columns, empty created relationship types, and values beyond the
   documented 100-container boundary now fail before execution. Remaining bare
   contextual keyword labels and labeled-node-after-local-`WHERE` cases are isolated to
-  `open-cypher 0.2.0-alpha.1` and await an upstream parser release.
+  the parser; `open-cypher 0.2.0-alpha.2` still reproduces them, so they await
+  a later upstream release.
+- The selective-seeding slice is green. Start-endpoint label and
+  inline-property constraints compile to a bound node-domain query that seeds
+  the hybrid producer, an unconstrained positive-hop start seeds only nodes
+  that begin an eligible edge, and end-endpoint constraints filter emitted rows
+  before serialization. Both domains are supersets of the SQLite join, so the
+  physical-plan tests, generated-SQL corpus, and traversal suites lock in
+  unchanged results with fewer explored states and bytes.
+- The retained-memory slice is green. Eligible edges, seed and end-domain
+  lists, adjacency maps, search frontiers, visited maps, and retained cycles
+  are charged to a third fail-closed counter as they are loaded or queued,
+  released as frontiers pop and producers finish, and costed by a fixed
+  per-ID formula so the failure point is platform-independent. Unit tests pin
+  hand-computed peaks and exact boundaries; executor tests show the charge
+  released between `UNION` branches.
 - Adopt a pinned, curated openCypher TCK allowlist once typed graph values and
   setup clauses can represent its scenarios faithfully.
 - Add deterministic differential tests against a pinned reference engine;
@@ -375,11 +389,10 @@ identifier, property-key, recursive-value, depth-preflight, and transport
 normalization invariants are now green as well. Consume the upstream parser fix
 when released; it no longer blocks local hardening.
 
-Public default state-budget exhaustion and exact query-wide serialized-payload
-accounting are now green. Selective traversal seeding is the next local
-hardening candidate; deterministic accounting for loaded graph inputs and
-search frontiers can follow once that retained set is smaller and better
-defined. The next physical-boundary feature remains exact matching against a
+Public default state-budget exhaustion, exact query-wide serialized-payload
+accounting, selective traversal seeding, and deterministic retained-memory
+accounting for loaded edges, adjacency maps, and search frontiers are now
+green. The next physical-boundary feature remains exact matching against a
 pre-bound relationship list. After those local contracts stabilize, adopt a
 small pinned openCypher TCK allowlist and deterministic differential cases. The
 working loop is documented in [testing.md](testing.md).

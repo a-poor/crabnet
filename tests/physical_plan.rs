@@ -93,11 +93,35 @@ fn deep_and_open_ended_trails_are_explicit_inputs_to_sqlite() {
             "sql: SELECT trail_edge.id, trail_edge.from_node, trail_edge.to_node FROM edges AS trail_edge"
         ));
         assert!(explanation.contains("?1 text"));
+        assert!(explanation.contains("start-domain: unrestricted"));
+        assert!(explanation.contains("end-domain: unrestricted"));
         assert!(
             !explanation.contains("trail-input"),
             "trail expansion must be an operator, not an opaque SQL binding:\n{explanation}"
         );
     }
+}
+
+#[test]
+fn constrained_trail_endpoints_expose_bound_node_domains() {
+    let explanation = explain_physical(
+        "MATCH (start:Person {name: $name})-[:NEXT*]->(end:City) RETURN end.name AS name",
+    )
+    .unwrap();
+
+    assert_operator_sequence(&explanation, &["trail-expand", "sqlite-fragment"]);
+    assert_precedes(&explanation, "edge-source:", "start-domain:");
+    assert_precedes(&explanation, "start-domain:", "end-domain:");
+    assert!(explanation.contains(
+        "start-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.label = ?1"
+    ));
+    assert!(explanation.contains(
+        "end-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.label = ?1 ORDER BY trail_node.id"
+    ));
+    assert!(
+        !explanation.contains("unrestricted"),
+        "both endpoints are constrained:\n{explanation}"
+    );
 }
 
 #[test]

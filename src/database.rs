@@ -1410,6 +1410,7 @@ mod tests {
         struct Inspected {
             fragments: usize,
             edge_sources: usize,
+            node_domains: usize,
         }
 
         fn assert_dense_bindings(
@@ -1482,6 +1483,32 @@ mod tests {
                             3,
                             "{edge_context}: traversal edge sources must return id/from/to"
                         );
+                        for (name, domain) in [
+                            ("start-domain", spec.start_domain.as_ref()),
+                            ("end-domain", spec.end_domain.as_ref()),
+                        ] {
+                            let Some(domain) = domain else { continue };
+                            inspected.node_domains += 1;
+                            let domain_context = format!("{edge_context}/{name}");
+                            let statement =
+                                connection.prepare(&domain.sql).unwrap_or_else(|error| {
+                                    panic!(
+                                        "{domain_context}: generated node-domain SQL did not \
+                                         prepare: {error}"
+                                    )
+                                });
+                            assert!(statement.readonly(), "{domain_context}: domain writes");
+                            assert_dense_bindings(
+                                &statement,
+                                domain.bindings.len(),
+                                &domain_context,
+                            );
+                            assert_eq!(
+                                statement.column_count(),
+                                1,
+                                "{domain_context}: node domains must return only ids"
+                            );
+                        }
                     }
                 }
                 PreparedPhysicalOperator::SemanticDistinct { input }
@@ -1594,6 +1621,7 @@ mod tests {
             ),
         ];
 
+        let mut prepared_node_domains = 0;
         for (name, query, parameters, expected_fragments, expected_edge_sources) in cases {
             let Plan::Read(plan) = planner::compile(query)
                 .unwrap_or_else(|error| panic!("{name}: query did not compile: {error}"))
@@ -1619,7 +1647,12 @@ mod tests {
                 inspected.edge_sources, expected_edge_sources,
                 "{name}: unexpected number of runtime edge sources"
             );
+            prepared_node_domains += inspected.node_domains;
         }
+        assert!(
+            prepared_node_domains > 0,
+            "the corpus must prepare at least one constrained traversal endpoint domain"
+        );
     }
 
     #[test]
@@ -1746,6 +1779,84 @@ mod tests {
                     && message.contains(&format!(
                         "{one_branch_payload}-byte serialized-payload budget"
                     ))
+        ));
+    }
+
+    #[test]
+    fn retained_memory_limit_propagates_through_the_executor() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:MemoryStart)-[:LINK]->(:MemoryEnd)")
+            .unwrap();
+        let Plan::Read(plan) =
+            planner::compile("MATCH (:MemoryStart)-[:LINK*]->(end) RETURN end").unwrap()
+        else {
+            panic!("expected a read plan");
+        };
+        let mut budget = traversal::TrailBudget::new(100).with_memory_limit(0);
+
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            crate::Error::ResourceLimit(message)
+                if message.contains("trail expansion")
+                    && message.contains("0-byte retained-memory budget")
+        ));
+    }
+
+    #[test]
+    fn retained_memory_is_released_between_producers_rather_than_accumulated() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:MemoryStart)-[:LINK]->(:MemoryEnd)")
+            .unwrap();
+        let branch = "MATCH (:MemoryStart)-[:LINK*]->(end) RETURN end AS value";
+        let Plan::Read(single_plan) = planner::compile(branch).unwrap() else {
+            panic!("expected a read plan");
+        };
+        let mut measurement = traversal::TrailBudget::with_limits(100, usize::MAX);
+        execute_read_plan(
+            &database.connection,
+            single_plan,
+            &Parameters::new(),
+            &mut measurement,
+        )
+        .unwrap();
+        let one_branch_peak = measurement.memory_peak();
+        assert!(one_branch_peak > 0);
+        assert_eq!(measurement.memory_used(), 0);
+
+        // Unlike the cumulative state and payload counters, each producer
+        // returns its inputs when it finishes, so two branches fit inside the
+        // peak of one.
+        let Plan::Read(plan) = planner::compile(&format!("{branch} UNION ALL {branch}")).unwrap()
+        else {
+            panic!("expected a read plan");
+        };
+        let mut exact =
+            traversal::TrailBudget::with_limits(100, usize::MAX).with_memory_limit(one_branch_peak);
+        let result =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &mut exact).unwrap();
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(exact.memory_peak(), one_branch_peak);
+        assert_eq!(exact.memory_used(), 0);
+
+        let Plan::Read(plan) = planner::compile(branch).unwrap() else {
+            panic!("expected a read plan");
+        };
+        let mut short = traversal::TrailBudget::with_limits(100, usize::MAX)
+            .with_memory_limit(one_branch_peak - 1);
+        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut short)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            crate::Error::ResourceLimit(message)
+                if message.contains(&format!(
+                    "{}-byte retained-memory budget",
+                    one_branch_peak - 1
+                ))
         ));
     }
 

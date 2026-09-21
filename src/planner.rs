@@ -10,8 +10,8 @@ pub(crate) use logical::{EntityKind, ResolvedExpr, SlotId};
 use logical::{Input, Mutation, Projection, Query, validate_storable_value};
 pub(crate) use physical::{
     OutputShape, PhysicalOperator, PreparedFragmentArgument, PreparedPhysicalOperator,
-    PreparedSqlFragment, PreparedValueOperator, ResolvedTrailExpansion, ShortestMode,
-    TrailDirection,
+    PreparedSqlFragment, PreparedValueOperator, ResolvedNodeDomain, ResolvedTrailExpansion,
+    ShortestMode, TrailDirection,
 };
 pub(crate) use sqlite::ResolvedRowSource;
 
