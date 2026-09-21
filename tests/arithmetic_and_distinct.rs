@@ -109,17 +109,26 @@ fn dynamic_arithmetic_is_numeric_only_and_null_propagating() {
                  RETURN operand.name AS name ORDER BY name"
             ))
             .unwrap();
+        // `+` is also list concatenation, so a list operand appends rather
+        // than producing null; every other operator is numeric only.
+        let mut expected = vec![
+            "boolean",
+            "list",
+            "map",
+            "missing-left",
+            "missing-right",
+            "null",
+            "text",
+        ];
+        if operator == "+" {
+            expected.retain(|name| *name != "list");
+        }
         assert_eq!(
             named_rows(result),
-            string_rows([
-                "boolean",
-                "list",
-                "map",
-                "missing-left",
-                "missing-right",
-                "null",
-                "text",
-            ]),
+            expected
+                .iter()
+                .map(|name| vec![CypherValue::String((*name).to_owned())])
+                .collect::<Vec<_>>(),
             "operator {operator}"
         );
     }

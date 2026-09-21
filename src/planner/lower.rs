@@ -1546,6 +1546,10 @@ impl<'source> Lowerer<'source> {
                         | Expr::List(_)
                         | Expr::Map(_)
                         | Expr::ListComprehension { .. }
+                        | Expr::Index { .. }
+                        | Expr::DynamicProperty(_, _)
+                        | Expr::Slice { .. }
+                        | Expr::Range { .. }
                 )
             {
                 return Err(unsupported(
@@ -1928,11 +1932,65 @@ impl<'source> Lowerer<'source> {
             // Name every remaining expression kind so unsupported-feature
             // reports rank real gaps instead of one opaque bucket.
             ExprKind::MapProjection(_) => Err(unsupported(expression.span, "map projection")),
-            ExprKind::DynamicProperty { .. } => {
-                Err(unsupported(expression.span, "dynamic property access"))
+            ExprKind::DynamicProperty {
+                expression: base,
+                key,
             }
-            ExprKind::Index { .. } => Err(unsupported(expression.span, "list or map indexing")),
-            ExprKind::Slice { .. } => Err(unsupported(expression.span, "list slicing")),
+            | ExprKind::Index {
+                expression: base,
+                index: key,
+            } => {
+                let key = self.scalar_expression_with_aliases_at_depth(
+                    key,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let base = self.output_expression_with_aliases_at_depth(
+                    base,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                match base {
+                    Expr::Entity(slot) => Ok(Expr::DynamicProperty(slot, Box::new(key))),
+                    Expr::Path(_) | Expr::PathFunction { .. } => Err(semantic(
+                        expression.span,
+                        "paths and path collections cannot be indexed",
+                    )),
+                    base => Ok(Expr::Index {
+                        base: Box::new(base),
+                        index: Box::new(key),
+                    }),
+                }
+            }
+            ExprKind::Slice {
+                expression: base,
+                lower,
+                upper,
+            } => {
+                let base = self.scalar_expression_with_aliases_at_depth(
+                    base,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let bound = |bound: &Option<Box<AstExpr>>| -> Result<Option<Box<Expr>>> {
+                    bound
+                        .as_deref()
+                        .map(|bound| {
+                            self.scalar_expression_with_aliases_at_depth(
+                                bound,
+                                aliases,
+                                expression_depth + 1,
+                            )
+                            .map(Box::new)
+                        })
+                        .transpose()
+                };
+                Ok(Expr::Slice {
+                    base: Box::new(base),
+                    lower: bound(lower)?,
+                    upper: bound(upper)?,
+                })
+            }
             ExprKind::Case(_) => Err(unsupported(expression.span, "CASE expression")),
             ExprKind::ListComprehension(comprehension) => {
                 // As with quantifiers, the list is evaluated in the enclosing
@@ -2069,6 +2127,23 @@ impl<'source> Lowerer<'source> {
             }
             "length" => {
                 self.path_function_expression(function, PathFunctionKind::Length, span, aliases)
+            }
+            "range" => {
+                let (start, end, step) = match function.arguments.as_slice() {
+                    [start, end] => (start, end, None),
+                    [start, end, step] => (start, end, Some(step)),
+                    _ => {
+                        return Err(semantic(span, "range() requires two or three arguments"));
+                    }
+                };
+                Ok(Expr::Range {
+                    start: Box::new(self.scalar_expression_with_aliases(start, aliases)?),
+                    end: Box::new(self.scalar_expression_with_aliases(end, aliases)?),
+                    step: step
+                        .map(|step| self.scalar_expression_with_aliases(step, aliases))
+                        .transpose()?
+                        .map(Box::new),
+                })
             }
             "size" => {
                 let [argument] = function.arguments.as_slice() else {

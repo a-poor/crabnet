@@ -365,6 +365,31 @@ truncating integer division, while an operation with a float operand produces
 a float. Null, missing, boolean, string, list, or map operands produce null;
 Crabnet never dynamically coerces them to numbers.
 
+`+` is also concatenation: two strings join, two lists join, and a list beside
+a non-list value appends or prepends that value as one element. A null on
+either side, or any other pairing such as a string with a number, produces
+null; Cypher raises a type error for the latter.
+
+## List indexing, slicing, and `range()`
+
+`list[i]` reads the element at integer index `i`, counting from the end when
+negative, and `map[k]` reads the string key `k`. `entity[k]` reads the property
+named by a runtime string. An out-of-range index, a missing key, a null base
+or index, a non-integer list index, a non-string map key, or a base that is
+neither list nor map all read as null; Cypher raises a type error for the
+kind mismatches. Indexing a path or path collection is a semantic error.
+
+`list[lower..upper]` copies the elements from `lower` (inclusive, default 0)
+to `upper` (exclusive, default the length). Negative bounds count from the
+end and both bounds are clamped, so an inverted or exceeding range yields a
+shorter list rather than an error. A null bound, a non-integer bound, or a
+non-list base produces null.
+
+`range(start, end)` and `range(start, end, step)` build the inclusive integer
+sequence; a step pointing away from `end` gives an empty list, a null or
+non-integer argument gives null, and a zero step raises `Error::Argument` at
+runtime.
+
 Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
 rejections. Computed scalar projections are currently read-only: the
 post-mutation result stage does not yet execute them.

@@ -1319,7 +1319,20 @@ fn register_functions(connection: &Connection) -> Result<()> {
         "crabnet_json_real",
         1,
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-        |context| Ok(json_real_text(context.get::<f64>(0)?)),
+        |context| Ok(context.get::<Option<f64>>(0)?.map(json_real_text)),
+    )?;
+    // Generated SQL calls this from a CASE branch to raise a runtime argument
+    // error (for example a zero `range()` step) instead of producing a value.
+    connection.create_scalar_function(
+        "crabnet_raise",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| -> rusqlite::Result<Option<i64>> {
+            let message = context.get::<String>(0)?;
+            Err(rusqlite::Error::UserFunctionError(
+                format!("{}{message}", crate::error::ARGUMENT_ERROR_TAG).into(),
+            ))
+        },
     )?;
     Ok(())
 }

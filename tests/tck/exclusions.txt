@@ -102,7 +102,7 @@ clauses/delete/Delete1.feature::[4] Delete on null node	unsupported: DELETE
 clauses/delete/Delete1.feature::[5] Ignore null when deleting node	unsupported: DELETE
 clauses/delete/Delete1.feature::[6] Detach delete on null node	unsupported: DELETE
 clauses/delete/Delete1.feature::[7] Failing when deleting connected nodes	setup-failed: unsupported: this CREATE clause sequence
-clauses/delete/Delete2.feature::[1] Delete relationships	setup-failed: unsupported: function `range`
+clauses/delete/Delete2.feature::[1] Delete relationships	setup-failed: unsupported: writes in a read pipeline
 clauses/delete/Delete2.feature::[2] Delete optionally matched relationship	unsupported: DELETE
 clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional matching	unsupported: writes fed by named paths or relationship-list bindings
 clauses/delete/Delete2.feature::[4] Ignore null when deleting relationship	unsupported: DELETE
@@ -368,12 +368,14 @@ clauses/return-orderby/ReturnOrderBy2.feature::[4] Support sort and distinct	sem
 clauses/return-orderby/ReturnOrderBy2.feature::[5] Support ordering by a property after being distinct-ified	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[8] Returning all variables with ordering	unsupported: RETURN *
 clauses/return-orderby/ReturnOrderBy3.feature::[1] Sort on aggregate function and normal property	setup-failed: unsupported: this CREATE clause sequence
-clauses/return-orderby/ReturnOrderBy4.feature::[1] ORDER BY of a column introduced in RETURN should return salient results in ascending order	unsupported: list or map indexing
-clauses/return-orderby/ReturnOrderBy6.feature::[5] Fail if more complex expressions, even if returned, are used inside an order by item which contains an aggregation expression	expected-error-not-raised
-clauses/return-skip-limit/ReturnSkipLimit1.feature::[3] SKIP with an expression that does not depend on variables	setup-failed: unsupported: function `range`
-clauses/return-skip-limit/ReturnSkipLimit2.feature::[6] LIMIT with an expression that does not depend on variables	setup-failed: unsupported: function `range`
+clauses/return-orderby/ReturnOrderBy6.feature::[1] Handle constants and parameters inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT COALESCE(crabnet_json_real(((CASE WHEN COUNT(*) FILTER (WHERE ((json_extract(n0.props, '$.' |
+clauses/return-orderby/ReturnOrderBy6.feature::[2] Handle returned aliases inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT (CASE (json_type(n0.props, '$.' || json_quote(?3))) WHEN 'text' THEN json_quote((json_extract
+clauses/return-orderby/ReturnOrderBy6.feature::[3] Handle returned property accesses inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT (CASE (json_type(n0.props, '$.' || json_quote(?3))) WHEN 'text' THEN json_quote((json_extract
+clauses/return-orderby/ReturnOrderBy6.feature::[5] Fail if more complex expressions, even if returned, are used inside an order by item which contains an aggregation expression	wrong-error-kind: sqlite-error: misuse of aggregate function COUNT() in SELECT (SELECT (CASE (s1.t1_0) WHEN 'text' THEN json_quote((s1.v1_0)) WHEN 'real' THEN COALESCE(crab
+clauses/return-skip-limit/ReturnSkipLimit1.feature::[3] SKIP with an expression that does not depend on variables	setup-failed: unsupported: writes in a read pipeline
+clauses/return-skip-limit/ReturnSkipLimit2.feature::[6] LIMIT with an expression that does not depend on variables	setup-failed: unsupported: writes in a read pipeline
 clauses/return-skip-limit/ReturnSkipLimit2.feature::[8] Limit to more rows than actual results 2	setup-failed: unsupported: this CREATE clause sequence
-clauses/return-skip-limit/ReturnSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: function `range`
+clauses/return-skip-limit/ReturnSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: writes in a read pipeline
 clauses/return/Return2.feature::[10] Return count aggregation over an empty graph	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return2.feature::[12] Projecting a list of nodes and relationships	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return2.feature::[13] Projecting a map of nodes and relationships	setup-failed: unsupported: this CREATE clause sequence
@@ -382,17 +384,16 @@ clauses/return/Return2.feature::[16] Fail when returning labels of deleted nodes
 clauses/return/Return2.feature::[17] Fail when returning properties of deleted relationships	expected-error-not-raised
 clauses/return/Return2.feature::[18] Fail on projecting a non-existent function	wrong-error-kind: unsupported: function `foo`
 clauses/return/Return2.feature::[1] Arithmetic expressions should propagate null values	unsupported: `^`
-clauses/return/Return2.feature::[7] Adding list properties in projection	result-mismatch: row values differ
 clauses/return/Return2.feature::[8] Returning label predicate expression	unsupported: IS predicate
 clauses/return/Return3.feature::[1] Returning multiple expressions	semantic-error: graph variable `a` is not a scalar expression
 clauses/return/Return3.feature::[3] Projecting nodes and relationships	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return4.feature::[11] Reusing variable names in RETURN	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
-clauses/return/Return4.feature::[8] Support column renaming for aggregations	setup-failed: unsupported: function `range`
+clauses/return/Return4.feature::[8] Support column renaming for aggregations	setup-failed: unsupported: writes in a read pipeline
 clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map	unsupported: function `coalesce`
 clauses/return/Return5.feature::[5] Aggregate on list values	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[10] Multiple aggregates on same variable	unsupported: whole entities in aggregates other than count()
-clauses/return/Return6.feature::[11] Counting matches	setup-failed: unsupported: function `range`
+clauses/return/Return6.feature::[11] Counting matches	setup-failed: unsupported: writes in a read pipeline
 clauses/return/Return6.feature::[12] Counting matches per group	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[13] Returning the minimum length of paths	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[15] Using `rand()` in aggregations	wrong-error-kind: unsupported: function `rand`
@@ -403,8 +404,8 @@ clauses/return/Return6.feature::[19] Handle returned property accesses inside an
 clauses/return/Return6.feature::[20] Fail if not returned variables are used inside an expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[21] Fail if more complex expressions, even if returned, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[2] Projecting an arithmetic expression with aggregation	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	setup-failed: unsupported: function `range`
-clauses/return/Return6.feature::[5] Aggregates inside normal functions	setup-failed: unsupported: function `range`
+clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	setup-failed: unsupported: writes in a read pipeline
+clauses/return/Return6.feature::[5] Aggregates inside normal functions	setup-failed: unsupported: writes in a read pipeline
 clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[7] Aggregate on property	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[8] Handle aggregation on functions	setup-failed: unsupported: this CREATE clause sequence
@@ -458,9 +459,6 @@ clauses/unwind/Unwind1.feature::[11] Unwind does not prune context	unsupported: 
 clauses/unwind/Unwind1.feature::[12] Unwind does not remove variables from scope	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[13] Multiple unwinds after each other	unsupported: RETURN *
 clauses/unwind/Unwind1.feature::[14] Unwind with merge	unsupported: MERGE
-clauses/unwind/Unwind1.feature::[2] Unwinding a range	unsupported: function `range`
-clauses/unwind/Unwind1.feature::[3] Unwinding a concatenation of lists	result-mismatch: 0 rows instead of 6
-clauses/unwind/Unwind1.feature::[4] Unwinding a collected unwound expression	unsupported: function `range`
 clauses/unwind/Unwind1.feature::[5] Unwinding a collected expression	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[6] Creating nodes from an unwound parameter list	unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy1.feature::[10] Sort lists in descending order	result-mismatch: row values differ
@@ -506,19 +504,13 @@ clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable pro
 clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 1	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 2	unsupported: WITH DISTINCT
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 1	unsupported: function `range`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 10	unsupported: function `datetime`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 2	unsupported: function `range`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 3	unsupported: function `range`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 4	unsupported: function `range`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 5	unsupported: function `range`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 5	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 6	unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 7	unsupported: function `localtime`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 8	unsupported: function `time`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 9	unsupported: function `localdatetime`
 clauses/with-orderBy/WithOrderBy1.feature::[9] Sort lists in ascending order	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 1	unsupported: list or map indexing
-clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 2	unsupported: list or map indexing
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
@@ -544,21 +536,12 @@ clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression i
 clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy2.feature::[20] Sort by a date time expression in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy2.feature::[20] Sort by a date time expression in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[21] Sort by an expression that is only partially orderable on a non-distinct binding table::example 2	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy2.feature::[22] Sort by an expression that is only partially orderable on a non-distinct binding table, but used as a grouping key::example 1	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy2.feature::[22] Sort by an expression that is only partially orderable on a non-distinct binding table, but used as a grouping key::example 2	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy2.feature::[23] Sort by an expression that is only partially orderable on a non-distinct binding table, but used in parts as a grouping key::example 1	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy2.feature::[23] Sort by an expression that is only partially orderable on a non-distinct binding table, but used in parts as a grouping key::example 2	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy2.feature::[24] Sort by an expression that is only partially orderable on a non-distinct binding table, but made distinct::example 1	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy2.feature::[24] Sort by an expression that is only partially orderable on a non-distinct binding table, but made distinct::example 2	unsupported: WITH DISTINCT
-clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 1	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 2	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 3	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[8] Sort by a string expression in descending order::example 1	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[8] Sort by a string expression in descending order::example 2	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 1	unsupported: list or map indexing
-clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 2	unsupported: list or map indexing
-clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 3	unsupported: list or map indexing
 clauses/with-orderBy/WithOrderBy4.feature::[11] Sort by an aggregate projection	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy4.feature::[16] Handle constants and parameters inside an order by item which contains an aggregation expression	semantic-error: unknown variable `person`
 clauses/with-orderBy/WithOrderBy4.feature::[17] Handle projected variables inside an order by item which contains an aggregation expression	semantic-error: unknown variable `you`
@@ -567,7 +550,7 @@ clauses/with-orderBy/WithOrderBy4.feature::[20] Fail if more complex expressions
 clauses/with-skip-limit/WithSkipLimit1.feature::[1] Handle dependencies across WITH with SKIP	setup-failed: unsupported: non-literal stored value expression
 clauses/with-skip-limit/WithSkipLimit2.feature::[2] Handle dependencies across WITH with LIMIT	setup-failed: unsupported: non-literal stored value expression
 clauses/with-skip-limit/WithSkipLimit2.feature::[3] Connected components succeeding WITH with LIMIT	setup-failed: unsupported: this CREATE clause sequence
-clauses/with-skip-limit/WithSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: function `range`
+clauses/with-skip-limit/WithSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: writes in a read pipeline
 clauses/with-where/WithWhere1.feature::[2] Filter node with property predicate on a single variable with multiple distinct bindings	unsupported: WITH DISTINCT
 clauses/with-where/WithWhere1.feature::[3] Filter for an unbound relationship variable	setup-failed: unsupported: this CREATE clause sequence
 clauses/with-where/WithWhere1.feature::[4] Filter for an unbound node variable	setup-failed: unsupported: this CREATE clause sequence
@@ -606,7 +589,6 @@ expressions/aggregation/Aggregation2.feature::[11] `max()` over mixed values	res
 expressions/aggregation/Aggregation2.feature::[12] `min()` over mixed values	result-mismatch: row values differ
 expressions/aggregation/Aggregation2.feature::[9] `max()` over list values	result-mismatch: row values differ
 expressions/aggregation/Aggregation3.feature::[1] Sum only non-null values	setup-failed: unsupported: this CREATE clause sequence
-expressions/aggregation/Aggregation3.feature::[2] No overflow during summation	unsupported: function `range`
 expressions/aggregation/Aggregation5.feature::[1] `collect()` filtering nulls	unsupported: whole entities in aggregates other than count()
 expressions/aggregation/Aggregation5.feature::[2] OPTIONAL MATCH and `collect()` on node property	setup-failed: unsupported: this CREATE clause sequence
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 1	unsupported: function `percentiledisc`
@@ -621,7 +603,7 @@ expressions/aggregation/Aggregation6.feature::[3] `percentileCont()` failing on 
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 1	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 2	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 3	wrong-error-kind: unsupported: function `percentiledisc`
-expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	setup-failed: unsupported: function `range`
+expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	setup-failed: unsupported: writes in a read pipeline
 expressions/aggregation/Aggregation8.feature::[3] Collect distinct nulls	unsupported: collect(DISTINCT ...)
 expressions/aggregation/Aggregation8.feature::[4] Collect distinct values mixed with nulls	unsupported: collect(DISTINCT ...)
 expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 1	expected-error-not-raised
@@ -752,9 +734,9 @@ expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean l
 expressions/boolean/Boolean5.feature::[5] Conjunction is distributive over exclusive disjunction on non-null	unsupported: XOR
 expressions/boolean/Boolean5.feature::[6] Conjunction is not distributive over exclusive disjunction on null	unsupported: XOR
 expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path variable `p1` is not a scalar expression
-expressions/comparison/Comparison1.feature::[1] Number-typed integer comparison	unsupported: list or map indexing
-expressions/comparison/Comparison1.feature::[2] Number-typed float comparison	unsupported: list or map indexing
-expressions/comparison/Comparison1.feature::[3] Any-typed string comparison	unsupported: list or map indexing
+expressions/comparison/Comparison1.feature::[1] Number-typed integer comparison	unsupported: function `tointeger`
+expressions/comparison/Comparison1.feature::[2] Number-typed float comparison	unsupported: function `tointeger`
+expressions/comparison/Comparison1.feature::[3] Any-typed string comparison	unsupported: function `tointeger`
 expressions/comparison/Comparison1.feature::[4] Comparing nodes to nodes	semantic-error: graph variable `a` is not a scalar expression
 expressions/comparison/Comparison1.feature::[5] Comparing relationships to relationships	semantic-error: graph variable `a` is not a scalar expression
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 2	result-mismatch: row values differ
@@ -835,9 +817,8 @@ expressions/graph/Graph6.feature::[9] Fail when performing property access on a 
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 4	expected-error-not-raised
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 5	expected-error-not-raised
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 6	expected-error-not-raised
-expressions/graph/Graph7.feature::[1] Execute n['name'] in read queries	unsupported: list or map indexing
-expressions/graph/Graph7.feature::[2] Execute n['name'] in update queries	unsupported: list or map indexing
-expressions/graph/Graph7.feature::[3] Use dynamic property lookup based on parameters when there is lhs type information	unsupported: list or map indexing
+expressions/graph/Graph7.feature::[2] Execute n['name'] in update queries	unsupported: computed projection after a mutation
+expressions/graph/Graph7.feature::[3] Use dynamic property lookup based on parameters when there is lhs type information	unsupported: computed projection after a mutation
 expressions/graph/Graph8.feature::[1] Using `keys()` on a single node, non-empty result	unsupported: function `keys`
 expressions/graph/Graph8.feature::[2] Using `keys()` on multiple nodes, non-empty result	unsupported: function `keys`
 expressions/graph/Graph8.feature::[3] Using `keys()` on a single node, empty result	unsupported: function `keys`
@@ -853,137 +834,67 @@ expressions/graph/Graph9.feature::[4] `properties()` on a map	unsupported: funct
 expressions/graph/Graph9.feature::[5] `properties()` failing on an integer literal	wrong-error-kind: unsupported: function `properties`
 expressions/graph/Graph9.feature::[6] `properties()` failing on a string literal	wrong-error-kind: unsupported: function `properties`
 expressions/graph/Graph9.feature::[7] `properties()` failing on a list of booleans	wrong-error-kind: unsupported: function `properties`
-expressions/list/List1.feature::[1] Indexing into literal list	unsupported: list or map indexing
-expressions/list/List1.feature::[2] Indexing into nested literal lists	unsupported: list or map indexing
-expressions/list/List1.feature::[3] Use list lookup based on parameters when there is no type information	unsupported: list or map indexing
-expressions/list/List1.feature::[4] Use list lookup based on parameters when there is lhs type information	unsupported: list or map indexing
-expressions/list/List1.feature::[5] Use list lookup based on parameters when there is rhs type information	unsupported: list or map indexing
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 5	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 5	wrong-error-kind: unsupported: list or map indexing
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 1	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 10	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 11	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 12	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 13	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 14	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 2	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 3	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 4	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 5	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 6	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 7	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 8	unsupported: function `range`
-expressions/list/List11.feature::[1] Create list from `range()` with default step::example 9	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 1	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 10	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 11	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 12	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 13	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 14	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 15	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 16	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 17	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 18	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 19	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 2	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 20	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 21	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 22	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 23	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 24	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 25	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 26	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 3	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 4	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 5	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 6	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 7	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 8	unsupported: function `range`
-expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 9	unsupported: function `range`
-expressions/list/List11.feature::[3] Create an empty list if range direction and step direction are inconsistent	unsupported: function `range`
-expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 1	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 2	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 3	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 4	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 1	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 10	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 11	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 12	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 13	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 14	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 15	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 16	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 17	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 18	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 19	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 2	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 20	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 21	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 22	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 3	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 4	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 5	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 6	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 7	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 8	wrong-error-kind: unsupported: function `range`
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 9	wrong-error-kind: unsupported: function `range`
+expressions/list/List1.feature::[5] Use list lookup based on parameters when there is rhs type information	unsupported: function `tointeger`
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 1	expected-error-not-raised
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 2	expected-error-not-raised
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 3	expected-error-not-raised
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 4	expected-error-not-raised
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 1	expected-error-not-raised
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 2	expected-error-not-raised
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 3	expected-error-not-raised
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 4	expected-error-not-raised
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 1	expected-error-not-raised
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 2	expected-error-not-raised
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 3	expected-error-not-raised
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 4	expected-error-not-raised
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 5	expected-error-not-raised
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 1	expected-error-not-raised
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 2	expected-error-not-raised
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 3	expected-error-not-raised
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 4	expected-error-not-raised
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 5	expected-error-not-raised
+expressions/list/List11.feature::[3] Create an empty list if range direction and step direction are inconsistent	unsupported: function `sign`
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 1	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 10	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 11	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 12	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 13	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 14	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 15	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 16	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 17	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 18	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 19	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 2	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 20	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 21	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 22	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 3	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 4	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 5	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 6	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 7	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 8	expected-error-not-raised
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 9	expected-error-not-raised
 expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[3] Size of list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[4] Returning a list comprehension	setup-failed: unsupported: this CREATE clause sequence
 expressions/list/List12.feature::[5] Using a list comprehension in a WITH	setup-failed: unsupported: this CREATE clause sequence
 expressions/list/List12.feature::[6] Using a list comprehension in a WHERE	setup-failed: unsupported: this CREATE clause sequence
-expressions/list/List2.feature::[10] List slice with parameterised range	unsupported: list slicing
-expressions/list/List2.feature::[11] List slice with parameterised invalid range	unsupported: list slicing
-expressions/list/List2.feature::[1] List slice	unsupported: list slicing
-expressions/list/List2.feature::[2] List slice with implicit end	unsupported: list slicing
-expressions/list/List2.feature::[3] List slice with implicit start	unsupported: list slicing
-expressions/list/List2.feature::[4] List slice with singleton range	unsupported: list slicing
-expressions/list/List2.feature::[5] List slice with empty range	unsupported: list slicing
-expressions/list/List2.feature::[6] List slice with negative range	unsupported: list slicing
-expressions/list/List2.feature::[7] List slice with invalid range	unsupported: list slicing
-expressions/list/List2.feature::[8] List slice with exceeding range	unsupported: list slicing
-expressions/list/List2.feature::[9] List slice with null range::example 1	unsupported: list slicing
-expressions/list/List2.feature::[9] List slice with null range::example 2	unsupported: list slicing
-expressions/list/List2.feature::[9] List slice with null range::example 3	unsupported: list slicing
-expressions/list/List2.feature::[9] List slice with null range::example 4	unsupported: list slicing
-expressions/list/List2.feature::[9] List slice with null range::example 5	unsupported: list slicing
 expressions/list/List3.feature::[4] Equality between almost equal lists with null should return null	result-mismatch: row values differ
 expressions/list/List3.feature::[7] Equality between almost equal nested lists with null should return null	result-mismatch: row values differ
-expressions/list/List4.feature::[1] Concatenating lists of same type	result-mismatch: row values differ
-expressions/list/List4.feature::[2] Concatenating a list with a scalar of same type	result-mismatch: row values differ
-expressions/list/List5.feature::[1] IN should work with nested list subscripting	unsupported: list or map indexing
 expressions/list/List5.feature::[21] IN should return null if LHS and RHS are null - list version	result-mismatch: row values differ
 expressions/list/List5.feature::[29] IN should return null if comparison with null is required, list version	result-mismatch: row values differ
-expressions/list/List5.feature::[2] IN should work with nested literal list subscripting	unsupported: list or map indexing
 expressions/list/List5.feature::[31] IN should return null when comparing two so-called identical lists where one element is null	result-mismatch: row values differ
 expressions/list/List5.feature::[34] IN should return null if comparison with null is required, list version 2	result-mismatch: row values differ
-expressions/list/List5.feature::[3] IN should work with list slices	unsupported: list slicing
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 1	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 2	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 3	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 4	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 5	expected-error-not-raised
-expressions/list/List5.feature::[4] IN should work with literal list slices	unsupported: list slicing
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
 expressions/list/List6.feature::[2] Setting and returning the size of a list property	unsupported: computed projection after a mutation
-expressions/list/List6.feature::[3] Concatenating and returning the size of literal lists	result-mismatch: row values differ
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	wrong-error-kind: unsupported: pattern predicate
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	wrong-error-kind: unsupported: pattern predicate
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	wrong-error-kind: unsupported: pattern predicate
@@ -996,27 +907,16 @@ expressions/list/List6.feature::[7] Using size of pattern comprehension to test 
 expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: pattern comprehension
 expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: pattern comprehension
 expressions/list/List9.feature::[1] Returning nested expressions based on list property	unsupported: function `tail`
-expressions/map/Map1.feature::[3] Statically access a field of a map resulting from an expression	unsupported: list or map indexing
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 1	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 2	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 3	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 4	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 5	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 6	expected-error-not-raised
-expressions/map/Map2.feature::[1] Dynamically access a field based on parameters when there is no type information	unsupported: list or map indexing
-expressions/map/Map2.feature::[2] Dynamically access a field based on parameters when there is rhs type information	unsupported: list or map indexing
-expressions/map/Map2.feature::[3] Dynamically access a field on null results in null	unsupported: list or map indexing
-expressions/map/Map2.feature::[4] Dynamically access a field with null results in null	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 1	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 2	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 3	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 4	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 5	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 6	unsupported: list or map indexing
-expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 7	unsupported: list or map indexing
-expressions/map/Map2.feature::[6] Fail at runtime when attempting to index with an Int into a Map	wrong-error-kind: unsupported: list or map indexing
-expressions/map/Map2.feature::[7] Fail at runtime when trying to index into a map with a non-string	wrong-error-kind: unsupported: list or map indexing
-expressions/map/Map2.feature::[8] Fail at runtime when trying to index something which is not a map	wrong-error-kind: unsupported: list or map indexing
+expressions/map/Map2.feature::[2] Dynamically access a field based on parameters when there is rhs type information	unsupported: function `tostring`
+expressions/map/Map2.feature::[6] Fail at runtime when attempting to index with an Int into a Map	expected-error-not-raised
+expressions/map/Map2.feature::[7] Fail at runtime when trying to index into a map with a non-string	expected-error-not-raised
+expressions/map/Map2.feature::[8] Fail at runtime when trying to index something which is not a map	expected-error-not-raised
 expressions/map/Map3.feature::[1] Using `keys()` on a literal map	unsupported: function `keys`
 expressions/map/Map3.feature::[2] Using `keys()` on a parameter map	unsupported: function `keys`
 expressions/map/Map3.feature::[3] Using `keys()` on null map	unsupported: function `keys`
@@ -1098,11 +998,6 @@ expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence 
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 1	unsupported: `^`
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 2	unsupported: `^`
 expressions/precedence/Precedence2.feature::[4] Numeric unary negative takes precedence over exponentiation	unsupported: `^`
-expressions/precedence/Precedence3.feature::[1] List element access takes precedence over list appending	unsupported: list or map indexing
-expressions/precedence/Precedence3.feature::[2] List element access takes precedence over list concatenation	unsupported: list or map indexing
-expressions/precedence/Precedence3.feature::[3] List slicing takes precedence over list concatenation	unsupported: list slicing
-expressions/precedence/Precedence3.feature::[4] List appending takes precedence over list element containment	result-mismatch: row values differ
-expressions/precedence/Precedence3.feature::[5] List concatenation takes precedence over list element containment	result-mismatch: row values differ
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 3	result-mismatch: row values differ
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 4	result-mismatch: row values differ
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 5	result-mismatch: row values differ

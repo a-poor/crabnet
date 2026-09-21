@@ -348,10 +348,6 @@ enum ScalarType {
     Sql(String),
     /// A three-valued SQL boolean whose type name follows from its value.
     Boolean,
-    /// A SQL number (or null) whose type name follows from its value.
-    Numeric,
-    /// JSON array text (or null) whose type name follows from its value.
-    Array,
 }
 
 impl Scalar {
@@ -369,20 +365,6 @@ impl Scalar {
         }
     }
 
-    fn numeric(value: String) -> Self {
-        Self {
-            value,
-            kind: ScalarType::Numeric,
-        }
-    }
-
-    fn array(value: String) -> Self {
-        Self {
-            value,
-            kind: ScalarType::Array,
-        }
-    }
-
     /// The type SQL, given SQL that yields this scalar's value. Derived
     /// kinds are computed from `value` rather than from the scalar's own
     /// value text, so a scope can compute the value once and type it by name.
@@ -390,10 +372,6 @@ impl Scalar {
         match &self.kind {
             ScalarType::Sql(sql) => sql.clone(),
             ScalarType::Boolean => boolean_type(value),
-            ScalarType::Numeric => numeric_type(value),
-            ScalarType::Array => {
-                format!("(CASE WHEN ({value}) IS NULL THEN 'null' ELSE 'array' END)")
-            }
         }
     }
 
@@ -1784,8 +1762,9 @@ impl Compiler {
                         variable.0
                     ))
                 }),
-            Expr::Size(operand) => self
-                .scoped(&[operand], |_, parts| {
+            Expr::Size(operand) => self.composed(
+                &[operand],
+                |_, parts| {
                     let (value, value_type) = &parts[0];
                     // Lists count elements and strings count characters;
                     // null and every other kind read as null.
@@ -1793,16 +1772,25 @@ impl Compiler {
                         "(CASE WHEN ({value_type}) = 'array' THEN json_array_length(({value})) \
                           WHEN ({value_type}) = 'text' THEN length(({value})) END)"
                     ))
-                })
-                .map(Scalar::numeric),
+                },
+                |types| {
+                    format!(
+                        "(CASE WHEN ({}) IN ('array', 'text') THEN 'integer' ELSE 'null' END)",
+                        types[0]
+                    )
+                },
+            ),
             Expr::ListComprehension {
                 variable,
                 list,
                 predicate,
                 projection,
-            } => self
-                .list_comprehension(*variable, list, predicate.as_deref(), projection.as_deref())
-                .map(Scalar::array),
+            } => self.list_comprehension(
+                *variable,
+                list,
+                predicate.as_deref(),
+                projection.as_deref(),
+            ),
             Expr::List(items) => {
                 let items = items
                     .iter()
@@ -1826,6 +1814,221 @@ impl Compiler {
                     "'object'",
                 ))
             }
+            Expr::Index { base, index } => {
+                // An integer indexes a list (negative counts from the end)
+                // and a string keys a map; anything else reads as null, as
+                // does an out-of-range index or a missing key.
+                let base_scalar = self.compile_scalar(base)?;
+                let index_scalar = self.compile_scalar(index)?;
+                let operands = || {
+                    vec![
+                        (base_scalar.clone(), is_inline_operand(base)),
+                        (index_scalar.clone(), is_inline_operand(index)),
+                    ]
+                };
+                let path = |parts: &[(String, String)]| {
+                    let (base, base_type) = &parts[0];
+                    let (index, index_type) = &parts[1];
+                    let path = format!(
+                        "(CASE WHEN ({base_type}) = 'array' AND ({index_type}) = 'integer' THEN \
+                              CASE WHEN ({index}) >= 0 THEN '$[' || ({index}) || ']' \
+                                   ELSE '$[#' || ({index}) || ']' END \
+                          WHEN ({base_type}) = 'object' AND ({index_type}) = 'text' THEN \
+                              '$.' || json_quote(({index})) END)"
+                    );
+                    // Only JSON containers may reach json_extract; a string
+                    // base would be rejected as malformed JSON.
+                    let container = format!(
+                        "(CASE WHEN ({base_type}) IN ('array', 'object') THEN ({base}) END)"
+                    );
+                    (container, path)
+                };
+                let value = self.scoped_scalars(operands(), |_, parts| {
+                    let (base, path) = path(parts);
+                    Ok(format!("json_extract({base}, {path})"))
+                })?;
+                let value_type = self.scoped_scalars(operands(), |_, parts| {
+                    let (base, path) = path(parts);
+                    Ok(format!("json_type({base}, {path})"))
+                })?;
+                Ok(Scalar::sql(value, value_type))
+            }
+            Expr::DynamicProperty(slot, key) => {
+                let props = self.entity_props(*slot)?;
+                let key_scalar = self.compile_scalar(key)?;
+                let inline = is_inline_operand(key);
+                let path = |parts: &[(String, String)]| {
+                    let (key, key_type) = &parts[0];
+                    format!(
+                        "(CASE WHEN ({key_type}) = 'text' THEN '$.' || json_quote(({key})) END)"
+                    )
+                };
+                let value = self
+                    .scoped_scalars(vec![(key_scalar.clone(), inline)], |_, parts| {
+                        Ok(format!("json_extract({props}, {})", path(parts)))
+                    })?;
+                let value_type = self.scoped_scalars(vec![(key_scalar, inline)], |_, parts| {
+                    Ok(format!("json_type({props}, {})", path(parts)))
+                })?;
+                Ok(Scalar::sql(value, value_type))
+            }
+            Expr::Slice { base, lower, upper } => {
+                let mut operands = vec![base.as_ref()];
+                operands.extend(lower.as_deref());
+                operands.extend(upper.as_deref());
+                let invalid_bound = |bound_type: Option<&String>| {
+                    bound_type.map_or_else(
+                        || "0".to_owned(),
+                        |bound_type| {
+                            format!("(({bound_type}) IS NULL OR ({bound_type}) <> 'integer')")
+                        },
+                    )
+                };
+                let bound_types = |types: &[String]| {
+                    let mut bounds = types[1..].iter();
+                    let lower = lower.as_ref().and_then(|_| bounds.next());
+                    let upper = upper.as_ref().and_then(|_| bounds.next());
+                    format!("{} OR {}", invalid_bound(lower), invalid_bound(upper))
+                };
+                let value = |this: &mut Self, parts: &[(String, String)]| {
+                    let (list, list_type) = &parts[0];
+                    let types = parts.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>();
+                    let mut bounds = parts[1..].iter();
+                    let lower = lower.as_ref().and_then(|_| bounds.next());
+                    let upper = upper.as_ref().and_then(|_| bounds.next());
+                    let alias = format!("sl{}", this.scopes);
+                    let length = format!("json_array_length(({list}))");
+                    // Negative bounds count from the end and every bound is
+                    // clamped to the list, so an inverted or exceeding range
+                    // simply yields fewer elements.
+                    let normalize = |(bound, _): &(String, String)| {
+                        format!(
+                            "(CASE WHEN ({bound}) < 0 THEN max({length} + ({bound}), 0) \
+                              ELSE ({bound}) END)"
+                        )
+                    };
+                    let from = lower.map_or_else(|| "0".to_owned(), normalize);
+                    let to = upper.map_or_else(|| length.clone(), normalize);
+                    let element = element_json(&alias);
+                    Ok(format!(
+                        "(CASE WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' \
+                               OR {} THEN NULL \
+                          ELSE (SELECT json_group_array(json({element}) ORDER BY {alias}.key) \
+                                FROM json_each(({list})) AS {alias} \
+                                WHERE {alias}.key >= {from} AND {alias}.key < {to}) END)",
+                        bound_types(&types),
+                    ))
+                };
+                self.composed(&operands, value, |types| {
+                    format!(
+                        "(CASE WHEN ({}) = 'array' AND NOT ({}) THEN 'array' ELSE 'null' END)",
+                        types[0],
+                        bound_types(types)
+                    )
+                })
+            }
+            Expr::Range { start, end, step } => {
+                let mut operands = vec![start.as_ref(), end.as_ref()];
+                operands.extend(step.as_deref());
+                let all_integers = |types: &[String]| {
+                    types
+                        .iter()
+                        .map(|t| format!("(({t}) IS NOT NULL AND ({t}) = 'integer')"))
+                        .collect::<Vec<_>>()
+                        .join(" AND ")
+                };
+                let value = |this: &mut Self, parts: &[(String, String)]| {
+                    let (start, _) = &parts[0];
+                    let (end, _) = &parts[1];
+                    let step = parts
+                        .get(2)
+                        .map_or_else(|| "1".to_owned(), |(step, _)| step.clone());
+                    let types = parts.iter().map(|(_, t)| t.clone()).collect::<Vec<_>>();
+                    let alias = format!("rg{}", this.scopes);
+                    // A step pointing away from the end yields an empty list;
+                    // a zero step can never finish, so it is an error.
+                    Ok(format!(
+                        "(CASE WHEN NOT ({}) THEN NULL \
+                          WHEN ({step}) = 0 THEN crabnet_raise('range() step must not be zero') \
+                          ELSE (SELECT json_group_array(v) FROM \
+                                (WITH RECURSIVE {alias}(v) AS \
+                                   (SELECT ({start}) \
+                                    UNION ALL SELECT v + ({step}) FROM {alias} \
+                                    WHERE (({step}) > 0 AND v + ({step}) <= ({end})) \
+                                       OR (({step}) < 0 AND v + ({step}) >= ({end}))) \
+                                 SELECT v FROM {alias} \
+                                 WHERE (({step}) > 0 AND v <= ({end})) \
+                                    OR (({step}) < 0 AND v >= ({end})))) END)",
+                        all_integers(&types)
+                    ))
+                };
+                self.composed(&operands, value, |types| {
+                    format!(
+                        "(CASE WHEN {} THEN 'array' ELSE 'null' END)",
+                        all_integers(types)
+                    )
+                })
+            }
+        }
+    }
+
+    /// Compiles an operator whose result type follows from its operand
+    /// types alone. The value is built in a scope over the operands; the
+    /// type is composed from each operand's standalone type SQL, so it never
+    /// repeats an operand's value and nested operators stay linear.
+    fn composed(
+        &mut self,
+        operands: &[&Expr],
+        value: impl FnOnce(&mut Self, &[(String, String)]) -> Result<String>,
+        value_type: impl FnOnce(&[String]) -> String,
+    ) -> Result<Scalar> {
+        let mut compiled = Vec::with_capacity(operands.len());
+        let mut types = Vec::with_capacity(operands.len());
+        let mut all_inline = true;
+        for operand in operands {
+            let scalar = self.compile_scalar(operand)?;
+            let inline = is_inline_operand(operand);
+            all_inline &= inline;
+            types.push(self.standalone_type(&scalar, inline)?);
+            compiled.push((scalar, inline));
+        }
+        let value = self.scoped_scalars(compiled, value)?;
+        if all_inline {
+            return Ok(Scalar::sql(value, value_type(&types)));
+        }
+        // The composition mentions each operand type several times, so
+        // non-trivial types are bound once in a scope of their own; otherwise
+        // a chain of operators would multiply its type text at every level.
+        let scope = self.scopes;
+        self.scopes += 1;
+        let names = (0..types.len())
+            .map(|index| format!("ts{scope}.t{index}"))
+            .collect::<Vec<_>>();
+        let bound = types
+            .iter()
+            .enumerate()
+            .map(|(index, value_type)| format!("({value_type}) AS t{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Ok(Scalar::sql(
+            value,
+            format!(
+                "(SELECT {} FROM (SELECT {bound}) AS ts{scope})",
+                value_type(&names)
+            ),
+        ))
+    }
+
+    /// Type SQL usable outside a scope. A derived type of a non-trivial
+    /// operand is computed in its own scope so the operand's value appears
+    /// once rather than the two or three times its derivation needs.
+    fn standalone_type(&mut self, scalar: &Scalar, inline: bool) -> Result<String> {
+        match &scalar.kind {
+            ScalarType::Sql(sql) => Ok(sql.clone()),
+            _ if inline => Ok(scalar.type_of(&scalar.value)),
+            _ => self.scoped_scalars(vec![(scalar.clone(), false)], |_, parts| {
+                Ok(parts[0].1.clone())
+            }),
         }
     }
 
@@ -1838,8 +2041,8 @@ impl Compiler {
         list: &Expr,
         predicate: Option<&Expr>,
         projection: Option<&Expr>,
-    ) -> Result<String> {
-        self.scoped(&[list], |this, parts| {
+    ) -> Result<Scalar> {
+        let value = |this: &mut Self, parts: &[(String, String)]| {
             let (list_value, list_type) = &parts[0];
             let alias = format!("q{}", variable.0);
             let previous = this.list_elements.insert(
@@ -1853,7 +2056,7 @@ impl Compiler {
                 };
                 let element = match projection {
                     Some(projection) => this.encoded_expression(projection)?,
-                    None => encoded_scalar(&format!("{alias}.value"), &format!("{alias}.type")),
+                    None => element_json(&alias),
                 };
                 Ok::<_, Error>((filter, element))
             })();
@@ -1871,7 +2074,8 @@ impl Compiler {
                  ELSE (SELECT json_group_array(json({element}) ORDER BY {alias}.key) \
                        FROM json_each({list_value}) AS {alias}{filter}) END)"
             ))
-        })
+        };
+        self.composed(&[list], value, |types| array_when_list(&types[0]))
     }
 
     fn aggregate_parts(
@@ -1902,20 +2106,48 @@ impl Compiler {
 
         let scalar = self.compile_scalar(argument)?;
         let inline = is_inline_operand(argument);
-        let (value, value_type) = scalar.clone().into_parts();
-        let non_null = format!(
-            "({value}) IS NOT NULL AND ({value_type}) IS NOT NULL \
-             AND ({value_type}) <> 'null'"
-        );
-        let numeric = format!("({value_type}) IN ('integer', 'real')");
+        // Each place the aggregate mentions its argument (the aggregated
+        // value, the null filter, the type filters) is a separate expression
+        // context, so each gets its own scope: the argument appears once per
+        // use instead of once per mention, and a derived type no longer
+        // repeats the value again.
+        let mut bind = |body: &dyn Fn(&str, &str) -> String| {
+            self.scoped_scalars(vec![(scalar.clone(), inline)], |_, parts| {
+                let (value, value_type) = &parts[0];
+                Ok(body(value, value_type))
+            })
+        };
+        let non_null_of = |value: &str, value_type: &str| {
+            format!(
+                "({value}) IS NOT NULL AND ({value_type}) IS NOT NULL \
+                 AND ({value_type}) <> 'null'"
+            )
+        };
+        let numeric_of = |value_type: &str| format!("({value_type}) IN ('integer', 'real')");
+        let non_null = bind(&|value, value_type| non_null_of(value, value_type))?;
+        let numeric = bind(&|_, value_type| numeric_of(value_type))?;
+        let invalid = bind(&|value, value_type| {
+            format!(
+                "({}) AND NOT ({})",
+                non_null_of(value, value_type),
+                numeric_of(value_type)
+            )
+        })?;
+        let value = bind(&|value, _| value.to_owned())?;
+        let value_type = bind(&|_, value_type| value_type.to_owned())?;
         let modifier = if distinct { "DISTINCT " } else { "" };
 
         match kind {
             AggregateKind::Count => {
                 let counted = if distinct {
-                    aggregate_distinct_key(&value, &value_type)
+                    bind(&|value, value_type| aggregate_distinct_key(value, value_type))?
                 } else {
-                    format!("CASE WHEN {non_null} THEN ({value}) END")
+                    bind(&|value, value_type| {
+                        format!(
+                            "CASE WHEN {} THEN ({value}) END",
+                            non_null_of(value, value_type)
+                        )
+                    })?
                 };
                 Ok(Scalar::sql(
                     format!("COUNT({modifier}{counted})"),
@@ -1923,16 +2155,22 @@ impl Compiler {
                 ))
             }
             AggregateKind::Sum => {
-                let invalid = format!("({non_null}) AND NOT ({numeric})");
                 let sum = format!("SUM({modifier}{value}) FILTER (WHERE {numeric})");
                 let value = format!(
                     "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
                      ELSE COALESCE({sum}, 0) END)"
                 );
-                Ok(Scalar::numeric(value))
+                // The sum is real as soon as one real was summed; deciding
+                // this from the argument types keeps the type from repeating
+                // the sum itself.
+                let real = bind(&|_, value_type| format!("({value_type}) = 'real'"))?;
+                let value_type = format!(
+                    "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN 'null' \
+                      WHEN COUNT(*) FILTER (WHERE {real}) > 0 THEN 'real' ELSE 'integer' END)"
+                );
+                Ok(Scalar::sql(value, value_type))
             }
             AggregateKind::Average => {
-                let invalid = format!("({non_null}) AND NOT ({numeric})");
                 let average = format!("AVG({modifier}{value}) FILTER (WHERE {numeric})");
                 let value = format!(
                     "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
@@ -1947,10 +2185,7 @@ impl Compiler {
                 if distinct {
                     return Err(Error::Unsupported("collect(DISTINCT ...)".into()));
                 }
-                let encoded = self.scoped_scalars(vec![(scalar, inline)], |_, parts| {
-                    let (value, value_type) = &parts[0];
-                    Ok(encoded_scalar(value, value_type))
-                })?;
+                let encoded = bind(&|value, value_type| encoded_scalar(value, value_type))?;
                 let ordering = self
                     .ordering
                     .as_ref()
@@ -1966,8 +2201,64 @@ impl Compiler {
         }
     }
 
+    /// `+` adds numbers, concatenates strings, and concatenates lists (a
+    /// non-list operand beside a list is appended or prepended as one
+    /// element). The result type is decided from the operand types alone, so
+    /// it composes without repeating the operand values.
+    fn plus(&mut self, left: &Expr, right: &Expr) -> Result<Scalar> {
+        let value_type = |types: &[String]| {
+            let (left_type, right_type) = (&types[0], &types[1]);
+            format!(
+                "(CASE WHEN ({left_type}) IS NULL OR ({right_type}) IS NULL \
+                        OR ({left_type}) = 'null' OR ({right_type}) = 'null' THEN 'null' \
+                  WHEN ({left_type}) = 'integer' AND ({right_type}) = 'integer' THEN 'integer' \
+                  WHEN ({left_type}) IN ('integer', 'real') \
+                       AND ({right_type}) IN ('integer', 'real') THEN 'real' \
+                  WHEN ({left_type}) = 'text' AND ({right_type}) = 'text' THEN 'text' \
+                  WHEN ({left_type}) = 'array' OR ({right_type}) = 'array' THEN 'array' \
+                  ELSE 'null' END)"
+            )
+        };
+        let value = |this: &mut Self, parts: &[(String, String)]| {
+            let (left_value, left_type) = &parts[0];
+            let (right_value, right_type) = &parts[1];
+            let alias = format!("cat{}", this.scopes);
+            let as_list = |(value, value_type): &(String, String)| {
+                format!(
+                    "(CASE WHEN ({value_type}) = 'array' THEN ({value}) \
+                      ELSE json_array(json({})) END)",
+                    encoded_scalar(value, value_type)
+                )
+            };
+            let element = element_json(&alias);
+            let concatenated = format!(
+                "(SELECT json_group_array(json(element) ORDER BY side, position) FROM \
+                   (SELECT 0 AS side, {alias}.key AS position, {element} AS element \
+                    FROM json_each({}) AS {alias} \
+                    UNION ALL \
+                    SELECT 1, {alias}.key, {element} FROM json_each({}) AS {alias}))",
+                as_list(&parts[0]),
+                as_list(&parts[1])
+            );
+            Ok(format!(
+                "(CASE WHEN ({left_value}) IS NULL OR ({right_value}) IS NULL THEN NULL \
+                  WHEN ({left_type}) IN ('integer', 'real') \
+                       AND ({right_type}) IN ('integer', 'real') \
+                       THEN (({left_value}) + ({right_value})) \
+                  WHEN ({left_type}) = 'text' AND ({right_type}) = 'text' \
+                       THEN (({left_value}) || ({right_value})) \
+                  WHEN ({left_type}) = 'array' OR ({right_type}) = 'array' THEN {concatenated} \
+                  ELSE NULL END)"
+            ))
+        };
+        self.composed(&[left, right], value, value_type)
+    }
+
     fn numeric_binary(&mut self, left: &Expr, right: &Expr, operator: BinaryOp) -> Result<Scalar> {
-        self.scoped(&[left, right], |_, parts| {
+        if operator == BinaryOp::Add {
+            return self.plus(left, right);
+        }
+        let value = |_: &mut Self, parts: &[(String, String)]| {
             let (left_value, left_type) = &parts[0];
             let (right_value, right_type) = &parts[1];
             let compatible = format!(
@@ -1983,11 +2274,9 @@ impl Compiler {
                 )
             } else {
                 let symbol = match operator {
-                    BinaryOp::Add => "+",
                     BinaryOp::Subtract => "-",
                     BinaryOp::Multiply => "*",
                     BinaryOp::Divide => "/",
-                    BinaryOp::Remainder => unreachable!(),
                     _ => unreachable!("only arithmetic operators reach numeric_binary"),
                 };
                 format!("(({left_value}) {symbol} ({right_value}))")
@@ -1999,12 +2288,14 @@ impl Compiler {
              ELSE NULL END)"
             );
             Ok(value)
+        };
+        self.composed(&[left, right], value, |types| {
+            numeric_result_type(&types[0], &types[1])
         })
-        .map(Scalar::numeric)
     }
 
     fn numeric_unary(&mut self, operand: &Expr, operator: UnaryOp) -> Result<Scalar> {
-        self.scoped(&[operand], |_, parts| {
+        let value = |_: &mut Self, parts: &[(String, String)]| {
             let (operand_value, operand_type) = &parts[0];
             let symbol = match operator {
                 UnaryOp::Plus => "+",
@@ -2018,8 +2309,13 @@ impl Compiler {
              ELSE NULL END)"
             );
             Ok(value)
+        };
+        self.composed(&[operand], value, |types| {
+            format!(
+                "(CASE WHEN ({}) IN ('integer', 'real') THEN ({}) ELSE 'null' END)",
+                types[0], types[0]
+            )
         })
-        .map(Scalar::numeric)
     }
 
     fn membership_expression(&mut self, left: &Expr, right: &Expr) -> Result<String> {
@@ -2167,15 +2463,41 @@ impl Compiler {
     }
 }
 
-fn encoded_scalar(value: &str, value_type: &str) -> String {
+/// The JSON text of one `json_each` row, given the table alias. Equivalent to
+/// `encoded_scalar` over the row's value and type but far shorter, which
+/// matters because list operators embed it inside each other.
+fn element_json(alias: &str) -> String {
     format!(
-        "(CASE \
-         WHEN ({value}) IS NULL OR ({value_type}) IS NULL OR ({value_type}) = 'null' THEN 'null' \
-         WHEN ({value_type}) = 'true' THEN 'true' \
-         WHEN ({value_type}) = 'false' THEN 'false' \
-         WHEN ({value_type}) = 'text' THEN json_quote(({value})) \
-         WHEN ({value_type}) = 'real' THEN crabnet_json_real(({value})) \
-         ELSE json(({value})) END)"
+        "(CASE WHEN {alias}.type IN ('array', 'object') THEN {alias}.value \
+          WHEN {alias}.type IN ('true', 'false', 'null') THEN {alias}.type \
+          WHEN {alias}.type = 'real' THEN crabnet_json_real({alias}.value) \
+          ELSE json_quote({alias}.value) END)"
+    )
+}
+
+fn encoded_scalar(value: &str, value_type: &str) -> String {
+    // A statically known type needs no type gates, and the value can be
+    // mentioned once. Aggregates rely on this: they stay inline, so every
+    // mention of the result repeats the whole aggregate.
+    match value_type {
+        "'true'" | "'false'" => {
+            return format!("(CASE WHEN ({value}) IS NULL THEN 'null' ELSE {value_type} END)");
+        }
+        "'text'" | "'integer'" => return format!("json_quote(({value}))"),
+        "'real'" => return format!("COALESCE(crabnet_json_real(({value})), 'null')"),
+        "'array'" | "'object'" => return format!("COALESCE(json(({value})), 'null')"),
+        _ => {}
+    }
+    // Every branch maps a SQL NULL to 'null' on its own, so the type is
+    // mentioned once and the value three times.
+    format!(
+        "(CASE ({value_type}) \
+         WHEN 'text' THEN json_quote(({value})) \
+         WHEN 'real' THEN COALESCE(crabnet_json_real(({value})), 'null') \
+         WHEN 'true' THEN 'true' \
+         WHEN 'false' THEN 'false' \
+         WHEN 'null' THEN 'null' \
+         ELSE COALESCE(json(({value})), 'null') END)"
     )
 }
 
@@ -2307,12 +2629,23 @@ fn boolean_value(value_type: &str) -> String {
     )
 }
 
-// The JSON type name of a SQL number or null.
-fn numeric_type(value: &str) -> String {
+// The result type of a binary numeric operator, from its operand types:
+// integer with integer stays integer, any other numeric pairing is real, and
+// everything else (including null) is null.
+fn numeric_result_type(left_type: &str, right_type: &str) -> String {
     format!(
-        "(CASE WHEN ({value}) IS NULL THEN 'null' \
-         WHEN typeof(({value})) = 'integer' THEN 'integer' ELSE 'real' END)"
+        "(CASE WHEN ({left_type}) IS NULL OR ({right_type}) IS NULL \
+                OR ({left_type}) = 'null' OR ({right_type}) = 'null' THEN 'null' \
+          WHEN ({left_type}) = 'integer' AND ({right_type}) = 'integer' THEN 'integer' \
+          WHEN ({left_type}) IN ('integer', 'real') AND ({right_type}) IN ('integer', 'real') \
+               THEN 'real' \
+          ELSE 'null' END)"
     )
+}
+
+// The type of a list-producing operator whose only operand must be a list.
+fn array_when_list(list_type: &str) -> String {
+    format!("(CASE WHEN ({list_type}) = 'array' THEN 'array' ELSE 'null' END)")
 }
 
 fn typed_sql_comparison(

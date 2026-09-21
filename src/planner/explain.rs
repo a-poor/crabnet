@@ -563,6 +563,30 @@ fn render_expr(expression: &Expr) -> String {
         ),
         Expr::ListElement(variable) => format!("#l{}", variable.0),
         Expr::Size(operand) => format!("size({})", render_expr(operand)),
+        Expr::Index { base, index } => {
+            format!("index({}, {})", render_expr(base), render_expr(index))
+        }
+        Expr::DynamicProperty(slot, key) => {
+            format!(
+                "dynamic-property({}, {})",
+                slot_name(*slot),
+                render_expr(key)
+            )
+        }
+        Expr::Slice { base, lower, upper } => format!(
+            "slice({}, {}..{})",
+            render_expr(base),
+            lower.as_deref().map(render_expr).unwrap_or_default(),
+            upper.as_deref().map(render_expr).unwrap_or_default()
+        ),
+        Expr::Range { start, end, step } => format!(
+            "range({}, {}{})",
+            render_expr(start),
+            render_expr(end),
+            step.as_deref()
+                .map(|step| format!(", {}", render_expr(step)))
+                .unwrap_or_default()
+        ),
         Expr::List(items) => format!(
             "list[{}]",
             items.iter().map(render_expr).collect::<Vec<_>>().join(", ")

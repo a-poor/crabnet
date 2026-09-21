@@ -413,14 +413,17 @@ to burn down `tests/tck/exclusions.txt` by category, starting with the
 answers rather than rejections, then the largest `unsupported` buckets, before
 adding deterministic differential cases. Every unsupported expression kind and
 operator is now named in its rejection, so the exclusions file ranks the gaps
-directly. List quantifiers, map key access, list comprehensions, `size`, and
-computed list and map literals are in; the ranking now reads qualified
-function calls, the `CREATE` clause sequences that gate setup for other
-features, the temporal functions, `range`, `rand`, `CASE`, list indexing and
-slicing, and the stored-value expressions that gate setup for the
-`WITH ... ORDER BY` scenarios. The generated-SQL blowup that made
+directly. List quantifiers, map key access, list comprehensions, `size`,
+computed list and map literals, indexing, slicing, `range`, and string and
+list concatenation with `+` are in, which also cleared the concatenation
+rows out of `result-mismatch`; the ranking now reads qualified function
+calls, the `CREATE` clause sequences that gate setup for other features, the
+temporal functions, `rand`, `CASE`, `MERGE`, and the stored-value expressions
+that gate setup for the `WITH ... ORDER BY` scenarios. The generated-SQL blowup that made
 nested operators grow exponentially (a five-operator arithmetic expression
 reached 3 MB) is fixed by computing non-trivial operands once in a
-scalar-subquery scope; aggregates still repeat their argument a constant
-number of times, which is the remaining SQL-size cost. The working loop is
+scalar-subquery scope and composing result types from operand types, so
+nesting now grows at most quadratically; `sum`, `min`, and `max` still
+repeat their argument once per aggregate call they issue, which is the
+remaining constant-factor SQL-size cost. The working loop is
 documented in [testing.md](testing.md).

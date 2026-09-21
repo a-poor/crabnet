@@ -393,7 +393,7 @@ impl Runner<'_> {
             None => Err("unsupported-step: error check before any query".into()),
             Some(Ok(_)) => Err("expected-error-not-raised".into()),
             Some(Err(Error::Parse(_) | Error::Semantic(_) | Error::MissingParameter(_))) => Ok(()),
-            Some(Err(Error::Data(_))) if !compile_time => Ok(()),
+            Some(Err(Error::Data(_) | Error::Argument(_))) if !compile_time => Ok(()),
             Some(Err(error)) => Err(format!("wrong-error-kind: {}", describe(error))),
         }
     }
@@ -447,6 +447,7 @@ fn describe(error: &Error) -> String {
         Error::ResourceLimit(message) => ("resource-limit", message.clone()),
         Error::Sqlite(error) => ("sqlite-error", error.to_string()),
         Error::Data(message) => ("data-error", message.clone()),
+        Error::Argument(message) => ("argument-error", message.clone()),
         other => ("other-error", other.to_string()),
     };
     // Byte spans depend on the query text, so drop them to keep reasons

@@ -282,7 +282,7 @@ exhausted memory. `boolean_connective_chains_compile_to_linear_sql` in
 `tests/physical_plan.rs` is that mismatch minimized into a permanent local
 regression. The exclusion reasons also make several documented deviations
 visible as concrete scenarios: explicit-null properties are stored rather than
-dropped and list concatenation with `+` is unsupported. It also exposed a
+dropped. It also exposed a
 second silent defect: floats lost digits beyond fifteen significant figures
 twice on the way out, once when SQLite's `json()` rendered a REAL and once when
 `serde_json` parsed the text back without its `float_roundtrip` feature. Reals

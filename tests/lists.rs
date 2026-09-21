@@ -304,3 +304,69 @@ fn computed_list_and_map_literals_are_built_at_runtime() {
         "{plan}"
     );
 }
+
+#[test]
+fn plus_concatenates_strings_and_lists() {
+    let mut database = Database::in_memory().unwrap();
+    let row = single(
+        &mut database,
+        "RETURN 'ab' + 'c' AS a, 'nam' + 'e' AS b, [1, 2] + [3] AS c, [1] + 2 AS d, 1 + [2] AS e, \
+                [[], []] + [[]] AS f, [1] + null AS g, null + 'x' AS h, 'x' + 1 AS i, \
+                1 + 2 AS j, 1 + 2.5 AS k, [1] + [] AS l, [] + 's' AS m, [1] + [[2]] AS n, \
+                '' + '' AS o, size([1, 2] + [3, 4]) AS p, [1, 2] + [3] + 4 AS q",
+    );
+    assert_eq!(
+        row,
+        [
+            CypherValue::String("abc".to_owned()),
+            CypherValue::String("name".to_owned()),
+            list([int(1), int(2), int(3)]),
+            list([int(1), int(2)]),
+            list([int(1), int(2)]),
+            list([list([]), list([]), list([])]),
+            CypherValue::Null,
+            CypherValue::Null,
+            CypherValue::Null,
+            int(3),
+            CypherValue::Float(3.5),
+            list([int(1)]),
+            list([CypherValue::String("s".to_owned())]),
+            list([int(1), list([int(2)])]),
+            CypherValue::String(String::new()),
+            int(4),
+            list([int(1), int(2), int(3), int(4)]),
+        ]
+    );
+
+    database
+        .execute("CREATE (:N {name: 'Apa', list: [2, -2]}), (:N {name: 'Bo', list: [1]})")
+        .unwrap();
+    let result = database
+        .execute(
+            "MATCH (n:N) WITH n.name + '!' AS shout, n.list + [0] AS padded \
+             RETURN shout, padded, size(padded) AS s ORDER BY shout",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        [
+            vec![
+                CypherValue::String("Apa!".to_owned()),
+                list([int(2), int(-2), int(0)]),
+                int(3)
+            ],
+            vec![
+                CypherValue::String("Bo!".to_owned()),
+                list([int(1), int(0)]),
+                int(2)
+            ],
+        ]
+    );
+    let result = database
+        .execute(
+            "MATCH (n:N) WHERE n['nam' + 'e'] = 'Apa' \
+             UNWIND n.list + [7] AS v RETURN v ORDER BY v",
+        )
+        .unwrap();
+    assert_eq!(result.rows, [vec![int(-2)], vec![int(2)], vec![int(7)]]);
+}

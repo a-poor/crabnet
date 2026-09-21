@@ -237,6 +237,25 @@ pub(crate) enum Expr {
     /// A map literal with at least one computed entry; all-literal maps stay
     /// `Value`.
     Map(Vec<(String, Self)>),
+    /// `base[index]`: an integer index into a list or a string key of a map.
+    Index {
+        base: Box<Self>,
+        index: Box<Self>,
+    },
+    /// `entity[key]`: a property of a graph entity named at runtime.
+    DynamicProperty(SlotId, Box<Self>),
+    /// `list[lower..upper]` with either bound optional.
+    Slice {
+        base: Box<Self>,
+        lower: Option<Box<Self>>,
+        upper: Option<Box<Self>>,
+    },
+    /// `range(start, end[, step])`.
+    Range {
+        start: Box<Self>,
+        end: Box<Self>,
+        step: Option<Box<Self>>,
+    },
     /// `[variable IN list WHERE predicate | projection]`. The predicate and
     /// projection refer to the current element through `ListElement`; a
     /// missing projection yields the element itself.
@@ -264,6 +283,18 @@ impl Expr {
             Self::Size(operand) => operand.contains_aggregate(),
             Self::List(items) => items.iter().any(Self::contains_aggregate),
             Self::Map(entries) => entries.iter().any(|(_, value)| value.contains_aggregate()),
+            Self::Index { base, index } => base.contains_aggregate() || index.contains_aggregate(),
+            Self::DynamicProperty(_, key) => key.contains_aggregate(),
+            Self::Slice { base, lower, upper } => {
+                base.contains_aggregate()
+                    || lower.as_deref().is_some_and(Self::contains_aggregate)
+                    || upper.as_deref().is_some_and(Self::contains_aggregate)
+            }
+            Self::Range { start, end, step } => {
+                start.contains_aggregate()
+                    || end.contains_aggregate()
+                    || step.as_deref().is_some_and(Self::contains_aggregate)
+            }
             Self::ListComprehension {
                 list,
                 predicate,
@@ -295,6 +326,18 @@ impl Expr {
             Self::Size(operand) => operand.is_row_dependent(),
             Self::List(items) => items.iter().any(Self::is_row_dependent),
             Self::Map(entries) => entries.iter().any(|(_, value)| value.is_row_dependent()),
+            Self::Index { base, index } => base.is_row_dependent() || index.is_row_dependent(),
+            Self::DynamicProperty(_, _) => true,
+            Self::Slice { base, lower, upper } => {
+                base.is_row_dependent()
+                    || lower.as_deref().is_some_and(Self::is_row_dependent)
+                    || upper.as_deref().is_some_and(Self::is_row_dependent)
+            }
+            Self::Range { start, end, step } => {
+                start.is_row_dependent()
+                    || end.is_row_dependent()
+                    || step.as_deref().is_some_and(Self::is_row_dependent)
+            }
             Self::ListComprehension {
                 list,
                 predicate,
@@ -342,6 +385,31 @@ impl Expr {
             Self::Map(entries) => entries
                 .iter()
                 .all(|(_, value)| value.uses_only_grouped_values(grouping)),
+            Self::Index { base, index } => {
+                base.uses_only_grouped_values(grouping) && index.uses_only_grouped_values(grouping)
+            }
+            Self::DynamicProperty(slot, key) => {
+                key.uses_only_grouped_values(grouping)
+                    && grouping.iter().any(
+                        |expression| matches!(expression, Self::Entity(grouped) if grouped == slot),
+                    )
+            }
+            Self::Slice { base, lower, upper } => {
+                base.uses_only_grouped_values(grouping)
+                    && lower
+                        .as_deref()
+                        .is_none_or(|lower| lower.uses_only_grouped_values(grouping))
+                    && upper
+                        .as_deref()
+                        .is_none_or(|upper| upper.uses_only_grouped_values(grouping))
+            }
+            Self::Range { start, end, step } => {
+                start.uses_only_grouped_values(grouping)
+                    && end.uses_only_grouped_values(grouping)
+                    && step
+                        .as_deref()
+                        .is_none_or(|step| step.uses_only_grouped_values(grouping))
+            }
             Self::ListComprehension {
                 list,
                 predicate,

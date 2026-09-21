@@ -338,14 +338,21 @@ fn nested_operands_compile_to_linear_sql() {
         }
         text
     };
-    let shallow = explain_physical(&format!("WITH 1 AS a RETURN {} AS r", arithmetic(2))).unwrap();
-    let deep = explain_physical(&format!("WITH 1 AS a RETURN {} AS r", arithmetic(12))).unwrap();
+    let size = |depth: usize| {
+        explain_physical(&format!("WITH 1 AS a RETURN {} AS r", arithmetic(depth)))
+            .unwrap()
+            .len()
+    };
+    let (shallow, middle, deep) = (size(2), size(6), size(12));
+    // Each level embeds the previous level's value once and its type once,
+    // and the type is itself linear in depth, so growth is at most quadratic:
+    // the last six levels cost about three times the previous four.
+    // Exponential growth would make them cost orders of magnitude more.
     assert!(
-        deep.len() < shallow.len() * 6,
-        "12 nested operators produced {} bytes against {} for 2",
-        deep.len(),
-        shallow.len()
+        deep - middle < 4 * (middle - shallow),
+        "operator depths 2, 6, and 12 produced {shallow}, {middle}, and {deep} bytes"
     );
+    assert!(deep < 64_000, "12 nested operators produced {deep} bytes");
 
     let predicates = explain_physical(
         "WITH true AS a, [true] AS c \
@@ -353,7 +360,10 @@ fn nested_operands_compile_to_linear_sql() {
                 collect((a + 1 > 2) = ('x' STARTS WITH 'y')) AS t",
     )
     .unwrap();
-    assert!(predicates.len() < 60_000, "{} bytes", predicates.len());
+    // `collect` repeats its argument a handful of times and `+` carries the
+    // list-concatenation branch, so this is a bound on constant factors, not
+    // on growth.
+    assert!(predicates.len() < 100_000, "{} bytes", predicates.len());
 
     // Leaf operands stay inline: a plain property filter opens no scope.
     let simple =

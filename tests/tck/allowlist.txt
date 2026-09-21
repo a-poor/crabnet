@@ -353,11 +353,9 @@ clauses/return-orderby/ReturnOrderBy2.feature::[3] Sort on aggregated function
 clauses/return-orderby/ReturnOrderBy2.feature::[6] Count star should count everything in scope
 clauses/return-orderby/ReturnOrderBy2.feature::[7] Ordering with aggregation
 clauses/return-orderby/ReturnOrderBy2.feature::[9] Using aliased DISTINCT expression in ORDER BY
+clauses/return-orderby/ReturnOrderBy4.feature::[1] ORDER BY of a column introduced in RETURN should return salient results in ascending order
 clauses/return-orderby/ReturnOrderBy4.feature::[2] Handle projections with ORDER BY
 clauses/return-orderby/ReturnOrderBy5.feature::[1] Renaming columns before ORDER BY should return results in ascending order
-clauses/return-orderby/ReturnOrderBy6.feature::[1] Handle constants and parameters inside an order by item which contains an aggregation expression
-clauses/return-orderby/ReturnOrderBy6.feature::[2] Handle returned aliases inside an order by item which contains an aggregation expression
-clauses/return-orderby/ReturnOrderBy6.feature::[3] Handle returned property accesses inside an order by item which contains an aggregation expression
 clauses/return-orderby/ReturnOrderBy6.feature::[4] Fail if not returned variables are used inside an order by item which contains an aggregation expression
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[10] Fail when using non-constants in SKIP
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[11] Fail when using negative value in SKIP
@@ -395,6 +393,7 @@ clauses/return/Return2.feature::[3] Missing node property should become null
 clauses/return/Return2.feature::[4] Returning a relationship property value
 clauses/return/Return2.feature::[5] Missing relationship property should become null
 clauses/return/Return2.feature::[6] Adding a property and a literal in projection
+clauses/return/Return2.feature::[7] Adding list properties in projection
 clauses/return/Return2.feature::[9] Returning a projected map
 clauses/return/Return3.feature::[2] Returning multiple node property values
 clauses/return/Return4.feature::[10] Fail when returning multiple columns with same name
@@ -436,6 +435,9 @@ clauses/union/Union2.feature::[4] Should be able to create text output from unio
 clauses/union/Union2.feature::[5] Failing when UNION ALL has different columns
 clauses/unwind/Unwind1.feature::[10] Unwinding list with duplicates
 clauses/unwind/Unwind1.feature::[1] Unwinding a list
+clauses/unwind/Unwind1.feature::[2] Unwinding a range
+clauses/unwind/Unwind1.feature::[3] Unwinding a concatenation of lists
+clauses/unwind/Unwind1.feature::[4] Unwinding a collected unwound expression
 clauses/unwind/Unwind1.feature::[7] Double unwinding a list of lists
 clauses/unwind/Unwind1.feature::[8] Unwinding the empty list
 clauses/unwind/Unwind1.feature::[9] Unwinding null
@@ -466,6 +468,10 @@ clauses/with-orderBy/WithOrderBy1.feature::[32] Sort by a list variable projecte
 clauses/with-orderBy/WithOrderBy1.feature::[3] Sort integers in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[43] Sort by a variable that is only partially orderable on a non-distinct binding table::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[43] Sort by a variable that is only partially orderable on a non-distinct binding table::example 2
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 1
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 2
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 3
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 4
 clauses/with-orderBy/WithOrderBy1.feature::[46] Fail on sorting by an undefined variable #Example: <exampleName>::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[46] Fail on sorting by an undefined variable #Example: <exampleName>::example 10
 clauses/with-orderBy/WithOrderBy1.feature::[46] Fail on sorting by an undefined variable #Example: <exampleName>::example 2
@@ -481,10 +487,13 @@ clauses/with-orderBy/WithOrderBy1.feature::[5] Sort floats in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[6] Sort floats in descending order
 clauses/with-orderBy/WithOrderBy1.feature::[7] Sort strings in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[8] Sort strings in descending order
+clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 1
+clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 2
 clauses/with-orderBy/WithOrderBy2.feature::[1] Sort by a boolean expression in ascending order::example 1
 clauses/with-orderBy/WithOrderBy2.feature::[1] Sort by a boolean expression in ascending order::example 2
 clauses/with-orderBy/WithOrderBy2.feature::[1] Sort by a boolean expression in ascending order::example 3
 clauses/with-orderBy/WithOrderBy2.feature::[21] Sort by an expression that is only partially orderable on a non-distinct binding table::example 1
+clauses/with-orderBy/WithOrderBy2.feature::[21] Sort by an expression that is only partially orderable on a non-distinct binding table::example 2
 clauses/with-orderBy/WithOrderBy2.feature::[25] Fail on sorting by an aggregation::example 1
 clauses/with-orderBy/WithOrderBy2.feature::[25] Fail on sorting by an aggregation::example 10
 clauses/with-orderBy/WithOrderBy2.feature::[25] Fail on sorting by an aggregation::example 11
@@ -522,6 +531,14 @@ clauses/with-orderBy/WithOrderBy2.feature::[5] Sort by a float expression in asc
 clauses/with-orderBy/WithOrderBy2.feature::[5] Sort by a float expression in ascending order::example 3
 clauses/with-orderBy/WithOrderBy2.feature::[6] Sort by a float expression in descending order::example 1
 clauses/with-orderBy/WithOrderBy2.feature::[6] Sort by a float expression in descending order::example 2
+clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 1
+clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 2
+clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 3
+clauses/with-orderBy/WithOrderBy2.feature::[8] Sort by a string expression in descending order::example 1
+clauses/with-orderBy/WithOrderBy2.feature::[8] Sort by a string expression in descending order::example 2
+clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 1
+clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 2
+clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 3
 clauses/with-orderBy/WithOrderBy3.feature::[1] Sort by two expressions, both in ascending order::example 1
 clauses/with-orderBy/WithOrderBy3.feature::[1] Sort by two expressions, both in ascending order::example 2
 clauses/with-orderBy/WithOrderBy3.feature::[1] Sort by two expressions, both in ascending order::example 3
@@ -660,6 +677,7 @@ expressions/aggregation/Aggregation2.feature::[5] `max()` over mixed numeric val
 expressions/aggregation/Aggregation2.feature::[6] `min()` over mixed numeric values
 expressions/aggregation/Aggregation2.feature::[7] `max()` over strings
 expressions/aggregation/Aggregation2.feature::[8] `min()` over strings
+expressions/aggregation/Aggregation3.feature::[2] No overflow during summation
 expressions/aggregation/Aggregation8.feature::[1] Distinct on unbound node
 expressions/aggregation/Aggregation8.feature::[2] Distinct on null
 expressions/boolean/Boolean1.feature::[1] Conjunction of two truth values
@@ -739,12 +757,78 @@ expressions/graph/Graph6.feature::[3] Statically access a property of a null nod
 expressions/graph/Graph6.feature::[5] Statically access a property of a non-null relationship
 expressions/graph/Graph6.feature::[6] Statically access a property of a optional non-null relationship
 expressions/graph/Graph6.feature::[7] Statically access a property of a null relationship
+expressions/graph/Graph7.feature::[1] Execute n['name'] in read queries
+expressions/list/List1.feature::[1] Indexing into literal list
+expressions/list/List1.feature::[2] Indexing into nested literal lists
+expressions/list/List1.feature::[3] Use list lookup based on parameters when there is no type information
+expressions/list/List1.feature::[4] Use list lookup based on parameters when there is lhs type information
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 1
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 10
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 11
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 12
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 13
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 14
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 2
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 3
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 4
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 5
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 6
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 7
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 8
+expressions/list/List11.feature::[1] Create list from `range()` with default step::example 9
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 1
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 10
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 11
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 12
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 13
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 14
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 15
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 16
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 17
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 18
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 19
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 2
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 20
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 21
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 22
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 23
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 24
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 25
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 26
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 3
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 4
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 5
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 6
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 7
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 8
+expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 9
+expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 1
+expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 2
+expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 3
+expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 4
 expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension
+expressions/list/List2.feature::[10] List slice with parameterised range
+expressions/list/List2.feature::[11] List slice with parameterised invalid range
+expressions/list/List2.feature::[1] List slice
+expressions/list/List2.feature::[2] List slice with implicit end
+expressions/list/List2.feature::[3] List slice with implicit start
+expressions/list/List2.feature::[4] List slice with singleton range
+expressions/list/List2.feature::[5] List slice with empty range
+expressions/list/List2.feature::[6] List slice with negative range
+expressions/list/List2.feature::[7] List slice with invalid range
+expressions/list/List2.feature::[8] List slice with exceeding range
+expressions/list/List2.feature::[9] List slice with null range::example 1
+expressions/list/List2.feature::[9] List slice with null range::example 2
+expressions/list/List2.feature::[9] List slice with null range::example 3
+expressions/list/List2.feature::[9] List slice with null range::example 4
+expressions/list/List2.feature::[9] List slice with null range::example 5
 expressions/list/List3.feature::[1] Equality between list and literal should return false
 expressions/list/List3.feature::[2] Equality of lists of different length should return false despite nulls
 expressions/list/List3.feature::[3] Equality between different lists with null should return false
 expressions/list/List3.feature::[5] Equality of nested lists of different length should return false despite nulls
 expressions/list/List3.feature::[6] Equality between different nested lists with null should return false
+expressions/list/List4.feature::[1] Concatenating lists of same type
+expressions/list/List4.feature::[2] Concatenating a list with a scalar of same type
 expressions/list/List5.feature::[10] IN should return true when types of LHS and RHS match - list
 expressions/list/List5.feature::[11] IN should return false when order of elements in LHS list and RHS list don't match
 expressions/list/List5.feature::[12] IN with different length lists should return false
@@ -755,6 +839,7 @@ expressions/list/List5.feature::[16] IN should return true when LHS and RHS cont
 expressions/list/List5.feature::[17] IN should return true when LHS and RHS contain a nested list
 expressions/list/List5.feature::[18] IN should return false when LHS contains a nested list and type mismatch on RHS - singleton version
 expressions/list/List5.feature::[19] IN should return false when LHS contains a nested list and type mismatch on RHS
+expressions/list/List5.feature::[1] IN should work with nested list subscripting
 expressions/list/List5.feature::[20] IN should return null if LHS and RHS are null
 expressions/list/List5.feature::[22] IN should return null when LHS and RHS both ultimately contain null, even if LHS and RHS are of different types (nested list and flat list)
 expressions/list/List5.feature::[23] IN with different length lists should return false despite nulls
@@ -763,6 +848,7 @@ expressions/list/List5.feature::[25] IN should return null if comparison with nu
 expressions/list/List5.feature::[26] IN should return true if correct list found despite other lists having nulls
 expressions/list/List5.feature::[27] IN should return true if correct list found despite null being another element within containing list
 expressions/list/List5.feature::[28] IN should return false if no match can be found, despite nulls
+expressions/list/List5.feature::[2] IN should work with nested literal list subscripting
 expressions/list/List5.feature::[30] IN should return false if different length lists compared, even if the extra element is null
 expressions/list/List5.feature::[32] IN should return true with previous null match, list version
 expressions/list/List5.feature::[33] IN should return false if different length lists with nested elements compared, even if the extra element is null
@@ -771,14 +857,17 @@ expressions/list/List5.feature::[36] IN should return false for the empty list i
 expressions/list/List5.feature::[37] IN should work with an empty list in the presence of other list elements: matching
 expressions/list/List5.feature::[38] IN should work with an empty list in the presence of other list elements: not matching
 expressions/list/List5.feature::[39] IN should work with an empty list when comparing nested lists
+expressions/list/List5.feature::[3] IN should work with list slices
 expressions/list/List5.feature::[40] IN should return null if comparison with null is required for empty list
 expressions/list/List5.feature::[41] IN should return true when LHS and RHS contain nested list with multiple empty lists
+expressions/list/List5.feature::[4] IN should work with literal list slices
 expressions/list/List5.feature::[5] IN should return false when matching a number with a string
 expressions/list/List5.feature::[6] IN should return false when matching a number with a string - list version
 expressions/list/List5.feature::[7] IN should return false when types of LHS and RHS don't match - singleton list
 expressions/list/List5.feature::[8] IN should return false when types of LHS and RHS don't match - list
 expressions/list/List5.feature::[9] IN should return true when types of LHS and RHS match - singleton list
 expressions/list/List6.feature::[1] Return list size
+expressions/list/List6.feature::[3] Concatenating and returning the size of literal lists
 expressions/list/List6.feature::[4] `size()` on null list
 expressions/list/List6.feature::[5] Fail for `size()` on paths
 expressions/literals/Literals1.feature::[1] Return a boolean true lower case
@@ -914,6 +1003,7 @@ expressions/literals/Literals8.feature::[8] Return a map containing a integer
 expressions/literals/Literals8.feature::[9] Return a map containing a hexadecimal integer
 expressions/map/Map1.feature::[1] Statically access a field of a non-null map
 expressions/map/Map1.feature::[2] Statically access a field of a null map
+expressions/map/Map1.feature::[3] Statically access a field of a map resulting from an expression
 expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 1
 expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 2
 expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 3
@@ -924,6 +1014,16 @@ expressions/map/Map1.feature::[5] Statically access a field with a delimited ide
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 4
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 5
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 6
+expressions/map/Map2.feature::[1] Dynamically access a field based on parameters when there is no type information
+expressions/map/Map2.feature::[3] Dynamically access a field on null results in null
+expressions/map/Map2.feature::[4] Dynamically access a field with null results in null
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 1
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 2
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 3
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 4
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 5
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 6
+expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 7
 expressions/mathematical/Mathematical2.feature::[1] Allow addition
 expressions/mathematical/Mathematical3.feature::[1] Fail for invalid Unicode hyphen in subtraction
 expressions/mathematical/Mathematical8.feature::[1] Arithmetic precedence test
@@ -1044,6 +1144,11 @@ expressions/precedence/Precedence2.feature::[1] Numeric multiplicative operation
 expressions/precedence/Precedence2.feature::[1] Numeric multiplicative operations takes precedence over numeric additive operations::example 9
 expressions/precedence/Precedence2.feature::[5] Numeric unary negative takes precedence over numeric additive operations::example 1
 expressions/precedence/Precedence2.feature::[5] Numeric unary negative takes precedence over numeric additive operations::example 2
+expressions/precedence/Precedence3.feature::[1] List element access takes precedence over list appending
+expressions/precedence/Precedence3.feature::[2] List element access takes precedence over list concatenation
+expressions/precedence/Precedence3.feature::[3] List slicing takes precedence over list concatenation
+expressions/precedence/Precedence3.feature::[4] List appending takes precedence over list element containment
+expressions/precedence/Precedence3.feature::[5] List concatenation takes precedence over list element containment
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 1
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 2
 expressions/precedence/Precedence4.feature::[1] Null predicate takes precedence over comparison operator::example 1
