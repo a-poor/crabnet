@@ -184,60 +184,54 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
     }) {
         return lower_matched_mutation_query(source, clauses);
     }
-    let (match_clause, create_clause, return_clause) = match clauses.as_slice() {
-        [only] => match &only.kind {
-            ClauseKind::Create(create) => (None, Some(create), None),
-            ClauseKind::Return(return_clause) => (None, None, Some(return_clause)),
-            kind => return Err(unsupported(only.span, clause_name(kind))),
-        },
-        [first, second] => match (&first.kind, &second.kind) {
-            (ClauseKind::Match(match_clause), ClauseKind::Return(return_clause)) => {
-                (Some(match_clause), None, Some(return_clause))
-            }
-            (ClauseKind::Create(create), ClauseKind::Return(return_clause)) => {
-                (None, Some(create), Some(return_clause))
-            }
-            (ClauseKind::Match(match_clause), ClauseKind::Create(create)) => {
-                (Some(match_clause), Some(create), None)
-            }
-            (_, kind) => return Err(unsupported(second.span, clause_name(kind))),
-        },
-        [first, second, third] => match (&first.kind, &second.kind, &third.kind) {
-            (
-                ClauseKind::Match(match_clause),
-                ClauseKind::Create(create),
-                ClauseKind::Return(return_clause),
-            ) => (Some(match_clause), Some(create), Some(return_clause)),
-            (_, _, kind) => return Err(unsupported(third.span, clause_name(kind))),
-        },
-        [] => return Err(Error::EmptyQuery),
-        _ => {
-            let unsupported_clause = clauses
-                .iter()
-                .find(|clause| {
-                    !matches!(
-                        clause.kind,
-                        ClauseKind::Match(_) | ClauseKind::Create(_) | ClauseKind::Return(_)
-                    )
-                })
-                .unwrap_or(&clauses[1]);
-            return Err(unsupported(
-                unsupported_clause.span,
-                clause_name(&unsupported_clause.kind),
-            ));
+    // The remaining shape is `MATCH* CREATE* [RETURN]`: any number of
+    // leading MATCH clauses, then any number of CREATE clauses whose later
+    // patterns may reuse variables bound earlier, then an optional RETURN.
+    let mut match_clauses = Vec::new();
+    let mut create_clauses = Vec::new();
+    let mut return_clause = None;
+    for clause in clauses {
+        if return_clause.is_some() {
+            return Err(unsupported(clause.span, "clauses after RETURN"));
         }
-    };
+        match &clause.kind {
+            ClauseKind::Match(match_clause) if create_clauses.is_empty() => {
+                match_clauses.push(match_clause);
+            }
+            ClauseKind::Match(_) => {
+                return Err(unsupported(clause.span, "MATCH after a mutation clause"));
+            }
+            ClauseKind::Create(create) => create_clauses.push(create),
+            ClauseKind::Return(clause) => return_clause = Some(clause),
+            kind => return Err(unsupported(clause.span, clause_name(kind))),
+        }
+    }
+    if clauses.is_empty() {
+        return Err(Error::EmptyQuery);
+    }
+    if create_clauses.is_empty() && return_clause.is_none() {
+        let last = clauses.last().expect("non-empty clause list");
+        return Err(unsupported(last.span, clause_name(&last.kind)));
+    }
 
     let mut lowerer = Lowerer::new(source);
-    let input = match match_clause {
-        Some(match_clause) => Input::Match(lowerer.match_clause(match_clause)?),
-        None => Input::Unit,
+    let input = if match_clauses.is_empty() {
+        Input::Unit
+    } else {
+        let mut plan = MatchPlan::default();
+        for match_clause in match_clauses {
+            plan.operators
+                .extend(lowerer.match_clause(match_clause)?.operators);
+        }
+        Input::Match(plan)
     };
-    if let Some(create) = create_clause {
+    for create in &create_clauses {
         lowerer.create_clause(create)?;
     }
     let projection = return_clause
-        .map(|return_clause| lowerer.projection(&return_clause.projection, create_clause.is_some()))
+        .map(|return_clause| {
+            lowerer.projection(&return_clause.projection, !create_clauses.is_empty())
+        })
         .transpose()?;
 
     Ok(Query {

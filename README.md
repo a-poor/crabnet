@@ -48,8 +48,9 @@ The accepted statement shapes are:
 - standalone or chained `WITH ... RETURN ...`, optionally interleaved with
   `MATCH`, `OPTIONAL MATCH`, and `UNWIND` clauses
 - read-only branches joined by `UNION`, `UNION DISTINCT`, or `UNION ALL`
-- `CREATE ... [RETURN ...]`
-- `MATCH ... CREATE ... [RETURN ...]`
+- `CREATE ... [CREATE ...] [RETURN ...]`, with later clauses reusing earlier
+  bindings
+- `MATCH ... [MATCH ...] CREATE ... [CREATE ...] [RETURN ...]`
 - `MATCH ... SET/REMOVE ... [RETURN ...]`
 - `MATCH ... DELETE/DETACH DELETE ... [RETURN ...]`
 

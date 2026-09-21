@@ -6,6 +6,9 @@ clauses/create/Create1.feature::[13] Fail when creating a node that is already b
 clauses/create/Create1.feature::[14] Fail when creating a node with properties that is already bound
 clauses/create/Create1.feature::[15] Fail when adding a new label predicate on a node that is already bound 1
 clauses/create/Create1.feature::[16] Fail when adding new label predicate on a node that is already bound 2
+clauses/create/Create1.feature::[17] Fail when adding new label predicate on a node that is already bound 3
+clauses/create/Create1.feature::[18] Fail when adding new label predicate on a node that is already bound 4
+clauses/create/Create1.feature::[19] Fail when adding new label predicate on a node that is already bound 5
 clauses/create/Create1.feature::[1] Create a single node
 clauses/create/Create1.feature::[2] Create two nodes
 clauses/create/Create1.feature::[3] Create a single node with a label
@@ -24,17 +27,24 @@ clauses/create/Create2.feature::[18] Fail when creating a relationship without a
 clauses/create/Create2.feature::[1] Create two nodes and a single relationship in a single pattern
 clauses/create/Create2.feature::[23] Fail when creating a relationship that is already bound
 clauses/create/Create2.feature::[2] Create two nodes and a single relationship in separate patterns
+clauses/create/Create2.feature::[3] Create two nodes and a single relationship in separate clauses
 clauses/create/Create2.feature::[4] Create two nodes and a single relationship in the reverse direction
+clauses/create/Create2.feature::[5] Create a single relationship between two existing nodes
+clauses/create/Create2.feature::[6] Create a single relationship between two existing nodes in the reverse direction
 clauses/create/Create2.feature::[7] Create a single node and a single self loop in a single pattern
 clauses/create/Create2.feature::[8] Create a single node and a single self loop in separate patterns
+clauses/create/Create2.feature::[9] Create a single node and a single self loop in separate clauses
 clauses/create/Create3.feature::[1] MATCH-CREATE
 clauses/create/Create3.feature::[4] MATCH-CREATE: Newly-created nodes not visible to preceding MATCH
+clauses/create/Create4.feature::[1] Generate the movie graph
+clauses/create/Create4.feature::[2] Many CREATE clauses
 clauses/create/Create5.feature::[1] Create a pattern with multiple hops
 clauses/create/Create5.feature::[2] Create a pattern with multiple hops in the reverse direction
 clauses/create/Create5.feature::[3] Create a pattern with multiple hops in varying directions
 clauses/create/Create5.feature::[4] Create a pattern with multiple hops with multiple types and varying directions
 clauses/delete/Delete1.feature::[1] Delete nodes
 clauses/delete/Delete1.feature::[2] Detach delete node
+clauses/delete/Delete1.feature::[3] Detach deleting connected nodes and relationships
 clauses/delete/Delete1.feature::[8] Failing when deleting a label
 clauses/delete/Delete2.feature::[5] Failing when deleting a relationship type
 clauses/delete/Delete5.feature::[8] Failing when using undefined variable in DELETE
@@ -46,13 +56,20 @@ clauses/match-where/MatchWhere1.feature::[13] Filter path with false path length
 clauses/match-where/MatchWhere1.feature::[14] Fail when filtering path with property predicate
 clauses/match-where/MatchWhere1.feature::[15] Fail on aggregation in WHERE
 clauses/match-where/MatchWhere1.feature::[3] Filter node with property predicate on a single variable with multiple bindings
+clauses/match-where/MatchWhere1.feature::[4] Filter start node of relationship with property predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[5] Filter end node of relationship with property predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[6] Filter node with a parameter in a property predicate on multi variables with one binding
 clauses/match-where/MatchWhere1.feature::[7] Filter relationship with relationship type predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[8] Filter relationship with property predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[9] Filter relationship with a parameter in a property predicate on multi variables with one binding
+clauses/match-where/MatchWhere2.feature::[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere3.feature::[2] Join between node properties of disconnected nodes
 clauses/match-where/MatchWhere3.feature::[3] Join between node properties of adjacent nodes
+clauses/match-where/MatchWhere5.feature::[1] Filter out on null
+clauses/match-where/MatchWhere5.feature::[3] Filter out on null if the AND'd predicate evaluates to true
+clauses/match-where/MatchWhere5.feature::[4] Do not filter out on null if the OR'd predicate evaluates to true
+clauses/match-where/MatchWhere6.feature::[3] Filter node with property predicate on multi variables with multiple bindings after OPTIONAL MATCH
+clauses/match-where/MatchWhere6.feature::[4] Do not fail when predicates on optionally matched and missed nodes are invalid
 clauses/match-where/MatchWhere6.feature::[6] Join nodes on non-equality of properties – OPTIONAL MATCH and WHERE
 clauses/match-where/MatchWhere6.feature::[7] Join nodes on non-equality of properties – OPTIONAL MATCH on two relationships and WHERE
 clauses/match-where/MatchWhere6.feature::[8] Join nodes on non-equality of properties – Two OPTIONAL MATCH clauses and WHERE
@@ -194,6 +211,8 @@ clauses/match/Match2.feature::[13] Fail when matching a relationship variable bo
 clauses/match/Match2.feature::[13] Fail when matching a relationship variable bound to a value::example 8
 clauses/match/Match2.feature::[1] Match non-existent relationships returns empty
 clauses/match/Match2.feature::[2] Matching a relationship pattern using a label predicate on both sides
+clauses/match/Match2.feature::[3] Matching a self-loop with an undirected relationship pattern
+clauses/match/Match2.feature::[4] Matching a self-loop with a directed relationship pattern
 clauses/match/Match2.feature::[5] Match relationship with inline property value
 clauses/match/Match2.feature::[7] Matching twice with conflicting relationship types on same relationship
 clauses/match/Match2.feature::[9] Fail when a node has the same variable in a preceding MATCH::example 1
@@ -222,13 +241,20 @@ clauses/match/Match2.feature::[9] Fail when a node has the same variable in a pr
 clauses/match/Match2.feature::[9] Fail when a node has the same variable in a preceding MATCH::example 7
 clauses/match/Match2.feature::[9] Fail when a node has the same variable in a preceding MATCH::example 8
 clauses/match/Match2.feature::[9] Fail when a node has the same variable in a preceding MATCH::example 9
+clauses/match/Match3.feature::[10] Matching using self-referencing pattern returns no result
 clauses/match/Match3.feature::[11] Undirected match in self-relationship graph
 clauses/match/Match3.feature::[12] Undirected match of self-relationship in self-relationship graph
 clauses/match/Match3.feature::[13] Directed match on self-relationship graph
 clauses/match/Match3.feature::[14] Directed match of self-relationship on self-relationship graph
 clauses/match/Match3.feature::[15] Mixing directed and undirected pattern parts with self-relationship, simple
 clauses/match/Match3.feature::[16] Mixing directed and undirected pattern parts with self-relationship, undirected
+clauses/match/Match3.feature::[17] Handling cyclic patterns
+clauses/match/Match3.feature::[18] Handling cyclic patterns when separated into two parts
 clauses/match/Match3.feature::[1] Get neighbours
+clauses/match/Match3.feature::[20] Three bound nodes pointing to the same node
+clauses/match/Match3.feature::[21] Three bound nodes pointing to the same node with extra connections
+clauses/match/Match3.feature::[22] Returning bound nodes that are not part of the pattern
+clauses/match/Match3.feature::[23] Matching disconnected patterns
 clauses/match/Match3.feature::[24] Matching twice with duplicate relationship types on same relationship
 clauses/match/Match3.feature::[25] Matching twice with an additional node label
 clauses/match/Match3.feature::[27] Matching from null nodes should return no results owing to finding no matches
@@ -239,12 +265,48 @@ clauses/match/Match3.feature::[30] Fail when using a list or nodes as a node
 clauses/match/Match3.feature::[3] Undirected match on simple relationship graph
 clauses/match/Match3.feature::[4] Get two related nodes
 clauses/match/Match3.feature::[5] Return two subgraphs with bound undirected relationship
+clauses/match/Match3.feature::[6] Matching a relationship pattern using a label predicate
 clauses/match/Match3.feature::[9] Get related to related to
+clauses/match/Match4.feature::[10] Fail on negative bound
 clauses/match/Match4.feature::[1] Handling fixed-length variable length pattern
+clauses/match/Match4.feature::[2] Simple variable length pattern
+clauses/match/Match4.feature::[3] Zero-length variable length pattern in the middle of the pattern
+clauses/match/Match4.feature::[6] Matching variable length patterns from a bound node
+clauses/match/Match4.feature::[9] Fail when asterisk operator is missing
+clauses/match/Match5.feature::[10] Handling symmetrically bounded variable length match, bounds are two
+clauses/match/Match5.feature::[11] Handling upper and lower bounded variable length match, empty interval 1
+clauses/match/Match5.feature::[12] Handling upper and lower bounded variable length match, empty interval 2
+clauses/match/Match5.feature::[13] Handling upper bounded variable length match, empty interval
+clauses/match/Match5.feature::[14] Handling upper bounded variable length match 1
+clauses/match/Match5.feature::[15] Handling upper bounded variable length match 2
+clauses/match/Match5.feature::[16] Handling lower bounded variable length match 1
+clauses/match/Match5.feature::[17] Handling lower bounded variable length match 2
+clauses/match/Match5.feature::[18] Handling lower bounded variable length match 3
+clauses/match/Match5.feature::[19] Handling a variable length relationship and a standard relationship in chain, zero length 1
+clauses/match/Match5.feature::[1] Handling unbounded variable length match
+clauses/match/Match5.feature::[20] Handling a variable length relationship and a standard relationship in chain, zero length 2
+clauses/match/Match5.feature::[21] Handling a variable length relationship and a standard relationship in chain, single length 1
+clauses/match/Match5.feature::[22] Handling a variable length relationship and a standard relationship in chain, single length 2
+clauses/match/Match5.feature::[23] Handling a variable length relationship and a standard relationship in chain, longer 1
+clauses/match/Match5.feature::[24] Handling a variable length relationship and a standard relationship in chain, longer 2
+clauses/match/Match5.feature::[2] Handling explicitly unbounded variable length match
+clauses/match/Match5.feature::[3] Handling single bounded variable length match 1
+clauses/match/Match5.feature::[4] Handling single bounded variable length match 2
+clauses/match/Match5.feature::[5] Handling single bounded variable length match 3
+clauses/match/Match5.feature::[6] Handling upper and lower bounded variable length match 1
+clauses/match/Match5.feature::[7] Handling upper and lower bounded variable length match 2
+clauses/match/Match5.feature::[8] Handling symmetrically bounded variable length match, bounds are zero
+clauses/match/Match5.feature::[9] Handling symmetrically bounded variable length match, bounds are one
+clauses/match/Match6.feature::[10] Named path with alternating directed/undirected relationships
+clauses/match/Match6.feature::[11] Named path with multiple alternating directed/undirected relationships
+clauses/match/Match6.feature::[14] Named path with undirected fixed variable length pattern
 clauses/match/Match6.feature::[15] Variable-length named path
 clauses/match/Match6.feature::[16] Return a var length path
 clauses/match/Match6.feature::[17] Return a named var length path of length zero
+clauses/match/Match6.feature::[18] Undirected named path
+clauses/match/Match6.feature::[19] Variable length relationship without lower bound
 clauses/match/Match6.feature::[1] Zero-length named path
+clauses/match/Match6.feature::[20] Variable length relationship without bounds
 clauses/match/Match6.feature::[21] Fail when a node has the same variable in a preceding MATCH::example 1
 clauses/match/Match6.feature::[21] Fail when a node has the same variable in a preceding MATCH::example 10
 clauses/match/Match6.feature::[21] Fail when a node has the same variable in a preceding MATCH::example 11
@@ -324,16 +386,29 @@ clauses/match/Match6.feature::[25] Fail when matching a path variable bound to a
 clauses/match/Match6.feature::[25] Fail when matching a path variable bound to a value::example 8
 clauses/match/Match6.feature::[2] Return a simple path
 clauses/match/Match6.feature::[3] Return a three node path
+clauses/match/Match6.feature::[4] Respecting direction when matching non-existent path
 clauses/match/Match6.feature::[5] Path query should return results in written order
 clauses/match/Match6.feature::[6] Handling direction of named paths
+clauses/match/Match6.feature::[7] Respecting direction when matching existing path
+clauses/match/Match6.feature::[8] Respecting direction when matching non-existent path with multiple directions
 clauses/match/Match6.feature::[9] Longer path query should return results in written order
 clauses/match/Match7.feature::[10] Optionally matching from null nodes should return null
 clauses/match/Match7.feature::[1] Simple OPTIONAL MATCH on empty graph
+clauses/match/Match7.feature::[21] Handling optional matches between nulls
+clauses/match/Match7.feature::[24] Optionally matching self-loops
+clauses/match/Match7.feature::[26] Handling correlated optional matches; first does not match implies second does not match
+clauses/match/Match7.feature::[27] Handling optional matches between optionally matched entities
+clauses/match/Match7.feature::[28] Handling optional matches with inline label predicate
 clauses/match/Match7.feature::[2] OPTIONAL MATCH with previously bound nodes
+clauses/match/Match7.feature::[3] OPTIONAL MATCH and bound nodes
 clauses/match/Match7.feature::[4] Optionally matching relationship with bound nodes in reverse direction
 clauses/match/Match7.feature::[5] Optionally matching relationship with a relationship that is already bound
 clauses/match/Match7.feature::[6] Optionally matching relationship with a relationship and node that are both already bound
+clauses/match/Match7.feature::[7] MATCH with OPTIONAL MATCH in longer pattern
+clauses/match/Match7.feature::[8] Longer pattern with bound nodes without matches
+clauses/match/Match7.feature::[9] Longer pattern with bound nodes
 clauses/match/Match8.feature::[1] Pattern independent of bound variables results in cross product
+clauses/match/Match8.feature::[3] Matching and disregarding output, then matching again
 clauses/match/Match9.feature::[2] Return relationships by collecting them as a list - directed, one way
 clauses/match/Match9.feature::[3] Return relationships by collecting them as a list - undirected, starting from two extremes
 clauses/match/Match9.feature::[4] Return relationships by collecting them as a list - undirected, starting from one extreme
@@ -353,6 +428,7 @@ clauses/return-orderby/ReturnOrderBy2.feature::[3] Sort on aggregated function
 clauses/return-orderby/ReturnOrderBy2.feature::[6] Count star should count everything in scope
 clauses/return-orderby/ReturnOrderBy2.feature::[7] Ordering with aggregation
 clauses/return-orderby/ReturnOrderBy2.feature::[9] Using aliased DISTINCT expression in ORDER BY
+clauses/return-orderby/ReturnOrderBy3.feature::[1] Sort on aggregate function and normal property
 clauses/return-orderby/ReturnOrderBy4.feature::[1] ORDER BY of a column introduced in RETURN should return salient results in ascending order
 clauses/return-orderby/ReturnOrderBy4.feature::[2] Handle projections with ORDER BY
 clauses/return-orderby/ReturnOrderBy5.feature::[1] Renaming columns before ORDER BY should return results in ascending order
@@ -381,6 +457,7 @@ clauses/return-skip-limit/ReturnSkipLimit2.feature::[3] LIMIT 0 should return an
 clauses/return-skip-limit/ReturnSkipLimit2.feature::[4] Handle ORDER BY with LIMIT 1
 clauses/return-skip-limit/ReturnSkipLimit2.feature::[5] ORDER BY with LIMIT 0 should not generate errors
 clauses/return-skip-limit/ReturnSkipLimit2.feature::[7] Limit to more rows than actual results 1
+clauses/return-skip-limit/ReturnSkipLimit2.feature::[8] Limit to more rows than actual results 2
 clauses/return-skip-limit/ReturnSkipLimit2.feature::[9] Fail when using non-constants in LIMIT
 clauses/return-skip-limit/ReturnSkipLimit3.feature::[1] Get rows in the middle
 clauses/return-skip-limit/ReturnSkipLimit3.feature::[2] Get rows in the middle by param
@@ -396,6 +473,7 @@ clauses/return/Return2.feature::[6] Adding a property and a literal in projectio
 clauses/return/Return2.feature::[7] Adding list properties in projection
 clauses/return/Return2.feature::[9] Returning a projected map
 clauses/return/Return3.feature::[2] Returning multiple node property values
+clauses/return/Return3.feature::[3] Projecting nodes and relationships
 clauses/return/Return4.feature::[10] Fail when returning multiple columns with same name
 clauses/return/Return4.feature::[1] Honour the column name for RETURN items
 clauses/return/Return4.feature::[2] Support column renaming
@@ -407,10 +485,15 @@ clauses/return/Return5.feature::[1] DISTINCT inside aggregation should work with
 clauses/return/Return5.feature::[2] DISTINCT on nullable values
 clauses/return/Return5.feature::[3] DISTINCT inside aggregation should work with nested lists in maps
 clauses/return/Return5.feature::[4] DISTINCT inside aggregation should work with nested lists of maps in maps
+clauses/return/Return5.feature::[5] Aggregate on list values
+clauses/return/Return6.feature::[12] Counting matches per group
 clauses/return/Return6.feature::[14] Aggregates in aggregates
 clauses/return/Return6.feature::[15] Using `rand()` in aggregations
+clauses/return/Return6.feature::[16] Aggregation on complex expressions
 clauses/return/Return6.feature::[1] Return count aggregation over nodes
 clauses/return/Return6.feature::[3] Aggregating by a list property has a correct definition of equality
+clauses/return/Return6.feature::[7] Aggregate on property
+clauses/return/Return6.feature::[8] Handle aggregation on functions
 clauses/return/Return8.feature::[1] Return aggregation after With filtering
 clauses/set/Set1.feature::[11] Set multiple node properties
 clauses/set/Set1.feature::[1] Set a property
@@ -654,10 +737,16 @@ clauses/with-skip-limit/WithSkipLimit2.feature::[4] Ordering and limiting on agg
 clauses/with-skip-limit/WithSkipLimit3.feature::[1] Get rows in the middle
 clauses/with-skip-limit/WithSkipLimit3.feature::[2] Get rows in the middle by param
 clauses/with-where/WithWhere1.feature::[1] Filter node with property predicate on a single variable with multiple bindings
+clauses/with-where/WithWhere2.feature::[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
 clauses/with-where/WithWhere3.feature::[2] Join between node properties of disconnected nodes
 clauses/with-where/WithWhere3.feature::[3] Join between node properties of adjacent nodes
+clauses/with-where/WithWhere5.feature::[1] Filter out on null
+clauses/with-where/WithWhere5.feature::[3] Filter out on null if the AND'd predicate evaluates to true
+clauses/with-where/WithWhere5.feature::[4] Do not filter out on null if the OR'd predicate evaluates to true
+clauses/with-where/WithWhere6.feature::[1] Filter a single aggregate
 clauses/with/With1.feature::[3] Forwarding a relationship variable
 clauses/with/With1.feature::[4] Forwarding a path variable
+clauses/with/With1.feature::[6] Forwarding a node variable possibly null
 clauses/with/With2.feature::[2] Forwarding a nested map literal
 clauses/with/With3.feature::[1] Forwarding multiple node and relationship variables
 clauses/with/With4.feature::[1] Aliasing relationship variable
@@ -669,6 +758,7 @@ clauses/with/With6.feature::[2] Implicit grouping with single relationship varia
 clauses/with/With6.feature::[3] Implicit grouping with multiple node and relationship variables as grouping key and single aggregation
 clauses/with/With7.feature::[1] A simple pattern with one bound endpoint
 clauses/with/With7.feature::[2] Multiple WITHs using a predicate and aggregation
+expressions/aggregation/Aggregation1.feature::[1] Count only non-null values
 expressions/aggregation/Aggregation1.feature::[2] Counting loop relationships
 expressions/aggregation/Aggregation2.feature::[1] `max()` over integers
 expressions/aggregation/Aggregation2.feature::[2] `min()` over integers
@@ -678,6 +768,7 @@ expressions/aggregation/Aggregation2.feature::[5] `max()` over mixed numeric val
 expressions/aggregation/Aggregation2.feature::[6] `min()` over mixed numeric values
 expressions/aggregation/Aggregation2.feature::[7] `max()` over strings
 expressions/aggregation/Aggregation2.feature::[8] `min()` over strings
+expressions/aggregation/Aggregation3.feature::[1] Sum only non-null values
 expressions/aggregation/Aggregation3.feature::[2] No overflow during summation
 expressions/aggregation/Aggregation8.feature::[1] Distinct on unbound node
 expressions/aggregation/Aggregation8.feature::[2] Distinct on null
@@ -836,6 +927,7 @@ expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::ex
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 2
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 3
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 4
+expressions/list/List12.feature::[6] Using a list comprehension in a WHERE
 expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension
 expressions/list/List2.feature::[10] List slice with parameterised range
 expressions/list/List2.feature::[11] List slice with parameterised invalid range
@@ -1866,3 +1958,4 @@ useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[6] Counting 
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[7] Counting distinct undirected self-relationships in self-relationship graph
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[8] Directed match of a simple relationship, count
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[9] Counting directed self-relationships
+useCases/triadicSelection/TriadicSelection1.feature::[1] Handling triadic friend of a friend

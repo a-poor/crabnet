@@ -87,3 +87,60 @@ fn matched_property_and_delete_mutations_without_return_report_only_summaries() 
         .unwrap();
     assert_eq!(remaining.rows, [vec![json!("rust")], vec![json!("sqlite")]]);
 }
+
+#[test]
+fn consecutive_create_clauses_share_bindings_and_follow_multiple_matches() {
+    let mut database = Database::in_memory().unwrap();
+
+    // Later CREATE clauses reuse variables bound by earlier ones.
+    let seeded = database
+        .execute(
+            "CREATE (a:A {name: 'a'}), (b:B {name: 'b'}) \
+             CREATE (a)-[:T]->(b), (b)-[:T]->(:C {name: 'c'}) \
+             CREATE (a)-[:U]->(b)",
+        )
+        .unwrap();
+    assert_eq!(seeded.summary.nodes_created, 3);
+    assert_eq!(seeded.summary.relationships_created, 3);
+    let edges = database
+        .execute("MATCH (x)-[r]->(y) RETURN x.name AS x, type(r) AS t, y.name AS y ORDER BY t, x")
+        .unwrap();
+    assert_eq!(
+        edges.rows,
+        [
+            vec![json!("a"), json!("T"), json!("b")],
+            vec![json!("b"), json!("T"), json!("c")],
+            vec![json!("a"), json!("U"), json!("b")],
+        ]
+    );
+
+    // Independent CREATE clauses simply accumulate.
+    let repeated = database
+        .execute("CREATE (:N {num: 1}) CREATE (:N {num: 2}) CREATE (:N {num: 3}) RETURN 1 AS ok")
+        .unwrap();
+    assert_eq!(repeated.summary.nodes_created, 3);
+    assert_eq!(repeated.rows, [vec![json!(1)]]);
+
+    // Several MATCH clauses may precede the CREATE clauses and bind inputs.
+    let linked = database
+        .execute(
+            "MATCH (a:A) MATCH (c:C) \
+             CREATE (a)-[:V]->(m:M) \
+             CREATE (m)-[:V]->(c) \
+             RETURN m.name AS name",
+        )
+        .unwrap();
+    assert_eq!(linked.summary.nodes_created, 1);
+    assert_eq!(linked.summary.relationships_created, 2);
+    assert_eq!(linked.rows, [vec![json!(null)]]);
+    let path = database
+        .execute("MATCH (:A)-[:V]->(:M)-[:V]->(c:C) RETURN c.name AS name")
+        .unwrap();
+    assert_eq!(path.rows, [vec![json!("c")]]);
+
+    // MATCH after CREATE stays rejected.
+    let error = database
+        .execute("CREATE (:X) MATCH (n) RETURN n")
+        .unwrap_err();
+    assert!(matches!(error, Error::Unsupported(_)), "{error:?}");
+}
