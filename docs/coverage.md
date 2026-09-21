@@ -56,6 +56,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | `=`, `<>`, `<`, `<=`, `>`, `>=` | Covered | Equality is JSON-kind aware; ordering permits number/number, string/string, and boolean/boolean only. Null, missing, and incompatible ordering operands produce null; property-to-property cases are covered in `read_semantics.rs` and `arithmetic_and_distinct.rs` |
 | Boolean contexts, `AND`, `OR`, `NOT`, and parentheses | Covered | Only JSON booleans enter boolean contexts; other dynamic kinds become null instead of using SQLite truthiness. Three-valued behavior and the type gate are covered in `read_semantics.rs` |
 | `IS NULL`, `IS NOT NULL` | Covered | Missing and explicit JSON null both project as null; `= null` does not match |
+| Float transport precision | Covered | `floats_round_trip_through_sql_without_losing_significant_digits` pins literals, parameters, stored properties, arithmetic, and aggregates bit-for-bit past fifteen significant digits; the TCK long-float literal scenarios are allowlisted |
 | Numeric `+`, `-`, `*`, `/`, `%`, and unary `+`/`-` | Covered | Computed read predicates/projections preserve integer/float results and precedence; null, missing, and non-numeric dynamic operands produce null without coercion in `arithmetic_and_distinct.rs` |
 | Exponentiation (`^`) and concatenation (`\|\|`) | Rejected | Both parser operators fail with a structured planning error rather than being approximated |
 | `IN` | Covered | Typed scalar and structured membership, list parameters, empty lists, null members, and non-list RHS behavior are covered in `membership_and_string_predicates.rs` |
@@ -118,6 +119,6 @@ move the row into the matrix when green.
    following-label regression matrix.
 2. Burn down `tests/tck/exclusions.txt`: first the `result-mismatch` and
    `side-effects-mismatch` rows (list ordering and comparison, NaN equality,
-   `min`/`max` over mixed values, float digits beyond fifteen significant
-   figures, explicit-null properties), then the largest `unsupported` buckets.
+   `min`/`max` over mixed values, explicit-null properties), then the largest
+   `unsupported` buckets.
 3. Deterministic differential tests against a pinned reference engine.

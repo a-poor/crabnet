@@ -406,9 +406,14 @@ when released; it no longer blocks local hardening.
 Public default state-budget exhaustion, exact query-wide serialized-payload
 accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
-and the pinned openCypher TCK run is in place. The working order from here is
+the pinned openCypher TCK run is in place, and its first two wrong-answer rows
+(float transport precision) are fixed. The working order from here is
 to burn down `tests/tck/exclusions.txt` by category, starting with the
 `result-mismatch` and `side-effects-mismatch` rows because they are wrong
 answers rather than rejections, then the largest `unsupported` buckets, before
-adding deterministic differential cases. The
+adding deterministic differential cases. Every unsupported expression kind and
+operator is now named in its rejection, so the exclusions file ranks the gaps
+directly: quantified list predicates (`all`/`any`/`none`/`single`) are the
+largest by far, then qualified function calls, the `CREATE` clause sequences
+that gate setup for other features, and the temporal functions. The
 working loop is documented in [testing.md](testing.md).

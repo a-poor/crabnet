@@ -1841,6 +1841,7 @@ fn encoded_scalar(value: &str, value_type: &str) -> String {
          WHEN ({value_type}) = 'true' THEN 'true' \
          WHEN ({value_type}) = 'false' THEN 'false' \
          WHEN ({value_type}) = 'text' THEN json_quote(({value})) \
+         WHEN ({value_type}) = 'real' THEN crabnet_json_real(({value})) \
          ELSE json(({value})) END)"
     )
 }

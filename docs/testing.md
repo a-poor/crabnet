@@ -282,6 +282,17 @@ exhausted memory. `boolean_connective_chains_compile_to_linear_sql` in
 `tests/physical_plan.rs` is that mismatch minimized into a permanent local
 regression. The exclusion reasons also make several documented deviations
 visible as concrete scenarios: explicit-null properties are stored rather than
-dropped, floats lose digits beyond fifteen significant figures when they pass
-through SQLite JSON text, and list concatenation with `+` is unsupported.
-Concurrent external-writer behavior remains outside the test goal.
+dropped and list concatenation with `+` is unsupported. It also exposed a
+second silent defect: floats lost digits beyond fifteen significant figures
+twice on the way out, once when SQLite's `json()` rendered a REAL and once when
+`serde_json` parsed the text back without its `float_roundtrip` feature. Reals
+now leave SQL through a Rust shortest-round-trip formatter and
+`floats_round_trip_through_sql_without_losing_significant_digits` in
+`tests/arithmetic_and_distinct.rs` pins literals, parameters, stored
+properties, arithmetic, and aggregates bit-for-bit. Because the exclusion
+reason is the engine's own message, rejections must name the feature: the
+lowering names every unsupported expression kind and operator rather than
+falling back to a generic `expression` bucket, which is what lets
+`cut -f2 tests/tck/exclusions.txt | sort | uniq -c | sort -rn` serve as the
+ranked backlog. Concurrent external-writer behavior remains outside the test
+goal.

@@ -1311,7 +1311,29 @@ fn register_functions(connection: &Connection) -> Result<()> {
             Ok(semantic_json_key(&value))
         },
     )?;
+    // SQLite renders REAL values into JSON text with fifteen significant
+    // digits, which silently perturbs any float that needs more. Every scalar
+    // leaves SQL as JSON text, so the encoder routes reals through this
+    // shortest round-trip formatter instead of `json()`.
+    connection.create_scalar_function(
+        "crabnet_json_real",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| Ok(json_real_text(context.get::<f64>(0)?)),
+    )?;
     Ok(())
+}
+
+/// Formats a float as the shortest JSON number text that parses back to the
+/// same `f64`. Non-finite values mirror SQLite's own `json()` spelling so the
+/// transport stays parseable.
+fn json_real_text(value: f64) -> String {
+    match serde_json::Number::from_f64(value) {
+        Some(number) => number.to_string(),
+        None if value.is_nan() => "null".into(),
+        None if value.is_sign_negative() => "-9.0e999".into(),
+        None => "9.0e999".into(),
+    }
 }
 
 /// Produces a stable, recursively typed key for the JSON-backed part of the

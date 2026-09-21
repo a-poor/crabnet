@@ -818,6 +818,7 @@ expressions/literals/Literals4.feature::[7] Return a long negative octal integer
 expressions/literals/Literals4.feature::[8] Return the smallest octal integer
 expressions/literals/Literals4.feature::[9] Fail on a too large octal integer
 expressions/literals/Literals5.feature::[10] Return a negative zero float without integer digits
+expressions/literals/Literals5.feature::[11] Return a very long negative float
 expressions/literals/Literals5.feature::[12] Return a very long negative float without integer digits
 expressions/literals/Literals5.feature::[13] Return a positive float with positive lower case exponent
 expressions/literals/Literals5.feature::[14] Return a positive float with positive upper case exponent
@@ -838,6 +839,7 @@ expressions/literals/Literals5.feature::[27] Fail when float value is too large
 expressions/literals/Literals5.feature::[2] Return a short positive float without integer digits
 expressions/literals/Literals5.feature::[3] Return a long positive float
 expressions/literals/Literals5.feature::[4] Return a long positive float without integer digits
+expressions/literals/Literals5.feature::[5] Return a very long positive float
 expressions/literals/Literals5.feature::[6] Return a very long positive float without integer digits
 expressions/literals/Literals5.feature::[7] Return a positive zero float
 expressions/literals/Literals5.feature::[8] Return a positive zero float without integer digits

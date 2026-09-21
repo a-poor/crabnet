@@ -1808,6 +1808,12 @@ impl<'source> Lowerer<'source> {
                     BinaryOperator::Multiply => BinaryOp::Multiply,
                     BinaryOperator::Divide => BinaryOp::Divide,
                     BinaryOperator::Remainder => BinaryOp::Remainder,
+                    BinaryOperator::Xor => return Err(unsupported(operator.span, "XOR")),
+                    BinaryOperator::RegexMatch => {
+                        return Err(unsupported(operator.span, "regular-expression match `=~`"));
+                    }
+                    BinaryOperator::Power => return Err(unsupported(operator.span, "`^`")),
+                    BinaryOperator::Concat => return Err(unsupported(operator.span, "`||`")),
                     _ => return Err(unsupported(operator.span, "binary operator")),
                 };
                 Ok(Expr::Binary {
@@ -1902,6 +1908,29 @@ impl<'source> Lowerer<'source> {
                     )),
                 }
             }
+            // Name every remaining expression kind so unsupported-feature
+            // reports rank real gaps instead of one opaque bucket.
+            ExprKind::MapProjection(_) => Err(unsupported(expression.span, "map projection")),
+            ExprKind::DynamicProperty { .. } => {
+                Err(unsupported(expression.span, "dynamic property access"))
+            }
+            ExprKind::Index { .. } => Err(unsupported(expression.span, "list or map indexing")),
+            ExprKind::Slice { .. } => Err(unsupported(expression.span, "list slicing")),
+            ExprKind::Case(_) => Err(unsupported(expression.span, "CASE expression")),
+            ExprKind::ListComprehension(_) => {
+                Err(unsupported(expression.span, "list comprehension"))
+            }
+            ExprKind::PatternComprehension(_) => {
+                Err(unsupported(expression.span, "pattern comprehension"))
+            }
+            ExprKind::Reduce(_) => Err(unsupported(expression.span, "reduce expression")),
+            ExprKind::QuantifiedPredicate(_) => {
+                Err(unsupported(expression.span, "quantified list predicate"))
+            }
+            ExprKind::Subquery(_) => Err(unsupported(expression.span, "subquery expression")),
+            ExprKind::Pattern(_) => Err(unsupported(expression.span, "pattern predicate")),
+            ExprKind::Wildcard => Err(unsupported(expression.span, "`*` in an expression")),
+            ExprKind::Error(_) => Err(unsupported(expression.span, "malformed expression")),
             _ => Err(unsupported(expression.span, "expression")),
         }
     }

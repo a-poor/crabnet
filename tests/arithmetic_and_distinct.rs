@@ -491,3 +491,79 @@ fn property_to_property_ordering_is_typed_and_null_when_incomparable() {
         );
     }
 }
+
+#[test]
+fn floats_round_trip_through_sql_without_losing_significant_digits() {
+    let mut database = Database::in_memory().unwrap();
+    let long = 1.263_541_865_238_126_4e305_f64;
+    let small = 1e-305_f64;
+    let dense = 123_456_789.123_456_79_f64;
+
+    let result = database
+        .execute_with(
+            "RETURN 1.2635418652381264e305 AS a, 1e-305 AS b, \
+             123456789.123456789 AS c, 0.1 + 0.2 AS d, 100.0 AS e",
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        vec![vec![
+            CypherValue::Float(long),
+            CypherValue::Float(small),
+            CypherValue::Float(dense),
+            CypherValue::Float(0.1 + 0.2),
+            CypherValue::Float(100.0),
+        ]]
+    );
+
+    // Parameters, stored properties, and SQL-computed aggregates all cross
+    // the same real-to-JSON boundary.
+    let created = database
+        .execute_with(
+            "CREATE (n:N {stored: $value, sum: 0.30000000000000004}) \
+             RETURN n.stored AS stored",
+            &parameters([("value", json!(dense))]),
+        )
+        .unwrap();
+    assert_eq!(created.rows, vec![vec![CypherValue::Float(dense)]]);
+    let reread = database
+        .execute(
+            "MATCH (n:N) RETURN n.stored AS stored, n.sum = 0.1 + 0.2 AS same, \
+             n.sum / 3 AS third",
+        )
+        .unwrap();
+    assert_eq!(
+        reread.rows,
+        vec![vec![
+            CypherValue::Float(dense),
+            CypherValue::Boolean(true),
+            CypherValue::Float(0.30000000000000004 / 3.0),
+        ]]
+    );
+    let aggregated = database
+        .execute_with(
+            "UNWIND [0.1, 0.2] AS x \
+             RETURN max(x + 1.2635418652381264e305) AS largest, sum(x) AS small",
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        aggregated.rows,
+        vec![vec![
+            CypherValue::Float(long),
+            CypherValue::Float(0.1 + 0.2)
+        ]]
+    );
+    let sorted = database
+        .execute_with(
+            "UNWIND [1.0000000000000002, 1.0, 1.0000000000000004] AS x \
+             RETURN x ORDER BY x DESC LIMIT 1",
+            &Default::default(),
+        )
+        .unwrap();
+    assert_eq!(
+        sorted.rows,
+        vec![vec![CypherValue::Float(1.000_000_000_000_000_4)]]
+    );
+}

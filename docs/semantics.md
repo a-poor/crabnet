@@ -199,9 +199,13 @@ therefore distinct from ordinary property maps at the API boundary.
 Node and relationship `props` columns must contain JSON objects. Lists and maps
 may be nested property values; conversion to result cells recursively preserves
 their Cypher value kinds. Integers outside SQLite's signed 64-bit range and
-non-finite floats are rejected. Float zero is canonicalized to positive zero at
-the public `CypherValue` boundary so a value returned through a whole entity,
-direct property projection, or hydrated path has the same representation.
+non-finite floats are rejected. Floats keep their exact `f64` value across
+every transport: SQLite's own JSON rendering of a REAL stops at fifteen
+significant digits, so reals leave SQL through a registered shortest
+round-trip formatter, and result decoding parses JSON floats exactly. Float
+zero is canonicalized to positive zero at the public `CypherValue` boundary so
+a value returned through a whole entity, direct property projection, or
+hydrated path has the same representation.
 
 A standalone literal or named JSON value may contain at most 100 nested
 list/map containers. When an object supplies a complete stored property map,
