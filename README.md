@@ -96,6 +96,9 @@ Within those shapes, the first iteration supports:
   `all`, `any`, `none`, and `single`
 - `.key` access on map values: projected maps, parameters, nested properties,
   and quantified list elements
+- list comprehensions `[x IN list WHERE predicate | projection]`, `size()` of
+  lists and strings, and list and map literals with computed elements such as
+  `[n.a, n.b + 1]` or `{key: n.a}`
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
   including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
   `elementId`, `labels`, and `type`

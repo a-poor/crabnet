@@ -235,6 +235,7 @@ clauses/match/Match3.feature::[27] Matching from null nodes should return no res
 clauses/match/Match3.feature::[28] Matching from null nodes should return no results owing to matches being filtered out
 clauses/match/Match3.feature::[29] Fail when re-using a relationship in the same pattern
 clauses/match/Match3.feature::[2] Directed match of a simple relationship
+clauses/match/Match3.feature::[30] Fail when using a list or nodes as a node
 clauses/match/Match3.feature::[3] Undirected match on simple relationship graph
 clauses/match/Match3.feature::[4] Get two related nodes
 clauses/match/Match3.feature::[5] Return two subgraphs with bound undirected relationship
@@ -403,7 +404,10 @@ clauses/return/Return4.feature::[3] Aliasing expressions
 clauses/return/Return4.feature::[4] Keeping used expression 1
 clauses/return/Return4.feature::[5] Keeping used expression 2
 clauses/return/Return4.feature::[7] Keeping used expression 4
+clauses/return/Return5.feature::[1] DISTINCT inside aggregation should work with lists in maps
 clauses/return/Return5.feature::[2] DISTINCT on nullable values
+clauses/return/Return5.feature::[3] DISTINCT inside aggregation should work with nested lists in maps
+clauses/return/Return5.feature::[4] DISTINCT inside aggregation should work with nested lists of maps in maps
 clauses/return/Return6.feature::[14] Aggregates in aggregates
 clauses/return/Return6.feature::[1] Return count aggregation over nodes
 clauses/return/Return6.feature::[3] Aggregating by a list property has a correct definition of equality
@@ -723,6 +727,11 @@ expressions/graph/Graph3.feature::[5] Using `labels()` in return clauses
 expressions/graph/Graph4.feature::[1] `type()`
 expressions/graph/Graph4.feature::[2] `type()` on two relationships
 expressions/graph/Graph4.feature::[4] `type()` on mixed null and non-null relationships
+expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 1
+expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 2
+expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 3
+expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 4
+expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 5
 expressions/graph/Graph4.feature::[7] Failing when using `type()` on a node
 expressions/graph/Graph6.feature::[1] Statically access a property of a non-null node
 expressions/graph/Graph6.feature::[2] Statically access a property of a optional non-null node
@@ -730,6 +739,7 @@ expressions/graph/Graph6.feature::[3] Statically access a property of a null nod
 expressions/graph/Graph6.feature::[5] Statically access a property of a non-null relationship
 expressions/graph/Graph6.feature::[6] Statically access a property of a optional non-null relationship
 expressions/graph/Graph6.feature::[7] Statically access a property of a null relationship
+expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension
 expressions/list/List3.feature::[1] Equality between list and literal should return false
 expressions/list/List3.feature::[2] Equality of lists of different length should return false despite nulls
 expressions/list/List3.feature::[3] Equality between different lists with null should return false
@@ -768,6 +778,9 @@ expressions/list/List5.feature::[6] IN should return false when matching a numbe
 expressions/list/List5.feature::[7] IN should return false when types of LHS and RHS don't match - singleton list
 expressions/list/List5.feature::[8] IN should return false when types of LHS and RHS don't match - list
 expressions/list/List5.feature::[9] IN should return true when types of LHS and RHS match - singleton list
+expressions/list/List6.feature::[1] Return list size
+expressions/list/List6.feature::[4] `size()` on null list
+expressions/list/List6.feature::[5] Fail for `size()` on paths
 expressions/literals/Literals1.feature::[1] Return a boolean true lower case
 expressions/literals/Literals1.feature::[2] Return a boolean true upper case
 expressions/literals/Literals1.feature::[3] Return a boolean false lower case
@@ -885,6 +898,7 @@ expressions/literals/Literals8.feature::[19] Fail on a map containing key starti
 expressions/literals/Literals8.feature::[1] Return an empty map
 expressions/literals/Literals8.feature::[20] Fail on a map containing key with symbol
 expressions/literals/Literals8.feature::[21] Fail on a map containing key with dot
+expressions/literals/Literals8.feature::[22] Fail on a map containing unquoted string
 expressions/literals/Literals8.feature::[23] Fail on a map containing only a comma
 expressions/literals/Literals8.feature::[24] Fail on a map containing a value without key
 expressions/literals/Literals8.feature::[25] Fail on a map containing a list without key
@@ -1115,6 +1129,24 @@ expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal 
 expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 7
 expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 8
 expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 9
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 1
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 2
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 3
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 4
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 5
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 6
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 7
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 8
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 9
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 1
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 2
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 3
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 4
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 5
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 6
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 7
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 8
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 9
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 1
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 2
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 3
@@ -1124,6 +1156,7 @@ expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal 
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 7
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 8
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 9
+expressions/quantifier/Quantifier10.feature::[3] Single quantifier is always true if the predicate is statically true and the list has exactly one non-null element
 expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 1
 expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 2
 expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 3
@@ -1198,6 +1231,24 @@ expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list litera
 expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 7
 expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 8
 expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 9
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 1
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 2
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 3
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 4
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 5
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 6
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 7
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 8
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 9
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 1
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 2
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 3
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 4
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 5
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 6
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 7
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 8
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 9
 expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 1
 expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 2
 expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 3
@@ -1280,6 +1331,24 @@ expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal c
 expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 7
 expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 8
 expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 9
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 1
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 2
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 3
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 4
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 5
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 6
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 7
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 8
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 9
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 1
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 2
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 3
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 4
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 5
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 6
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 7
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 8
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 9
 expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 1
 expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 2
 expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 3
@@ -1362,6 +1431,24 @@ expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal c
 expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 7
 expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 8
 expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 9
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 1
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 2
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 3
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 4
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 5
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 6
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 7
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 8
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 9
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 1
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 2
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 3
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 4
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 5
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 6
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 7
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 8
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 9
 expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 1
 expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 2
 expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 3
@@ -1396,6 +1483,11 @@ expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all
 expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 3
 expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 4
 expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 1
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 2
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 3
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 4
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 5
 expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 1
 expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 2
 expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 3
@@ -1412,6 +1504,11 @@ expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itsel
 expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 6
 expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 7
 expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 8
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 1
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 2
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 3
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 4
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 5
 expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 1
 expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 2
 expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 3
@@ -1443,6 +1540,11 @@ expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the bool
 expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 3
 expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 4
 expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 1
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 2
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 3
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 4
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 5
 expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 1
 expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 2
 expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 3
@@ -1468,6 +1570,11 @@ expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the bool
 expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 3
 expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 4
 expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 1
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 2
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5
 expressions/string/String10.feature::[1] Finding exact matches with non-proper substring
 expressions/string/String10.feature::[2] Finding substring of string
 expressions/string/String10.feature::[3] Finding the empty substring
@@ -1497,6 +1604,18 @@ expressions/string/String9.feature::[6] No string ends with null
 expressions/string/String9.feature::[7] No string does not end with null
 expressions/string/String9.feature::[8] Handling non-string operands for ENDS WITH
 expressions/string/String9.feature::[9] NOT with ENDS WITH
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 4
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 5
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 6
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 3
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 4
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 5
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 4
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 5
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 6
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 3
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 4
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 5
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[10] Mixing directed and undirected pattern parts with self-relationship, count
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[11] Mixing directed and undirected pattern parts with self-relationship, undirected count
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[1] Undirected match in self-relationship graph, count

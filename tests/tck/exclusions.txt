@@ -113,7 +113,7 @@ clauses/delete/Delete4.feature::[2] Undirected variable length expand followed b
 clauses/delete/Delete4.feature::[3] Create and delete in same query	unsupported: this CREATE clause sequence
 clauses/delete/Delete5.feature::[1] Delete node from a list	setup-failed: unsupported: this CREATE clause sequence
 clauses/delete/Delete5.feature::[2] Delete relationship from a list	setup-failed: unsupported: this CREATE clause sequence
-clauses/delete/Delete5.feature::[3] Delete nodes from a map	unsupported: non-literal stored value expression
+clauses/delete/Delete5.feature::[3] Delete nodes from a map	semantic-error: graph variable `u` is not a scalar expression
 clauses/delete/Delete5.feature::[4] Delete relationships from a map	setup-failed: unsupported: this CREATE clause sequence
 clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	setup-failed: unsupported: this CREATE clause sequence
 clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	setup-failed: unsupported: this CREATE clause sequence
@@ -164,7 +164,6 @@ clauses/match/Match3.feature::[21] Three bound nodes pointing to the same node w
 clauses/match/Match3.feature::[22] Returning bound nodes that are not part of the pattern	setup-failed: unsupported: this CREATE clause sequence
 clauses/match/Match3.feature::[23] Matching disconnected patterns	setup-failed: unsupported: this CREATE clause sequence
 clauses/match/Match3.feature::[26] Matching twice with a duplicate predicate	setup-failed: unsupported: multiple or boolean node labels
-clauses/match/Match3.feature::[30] Fail when using a list or nodes as a node	wrong-error-kind: unsupported: non-literal stored value expression
 clauses/match/Match3.feature::[6] Matching a relationship pattern using a label predicate	setup-failed: unsupported: this CREATE clause sequence
 clauses/match/Match3.feature::[7] Matching nodes with many labels	setup-failed: unsupported: this CREATE clause sequence
 clauses/match/Match3.feature::[8] Matching using relationship predicate with multiples of the same type	setup-failed: unsupported: this CREATE clause sequence
@@ -326,12 +325,12 @@ clauses/merge/Merge9.feature::[2] UNWIND with multiple MERGE	unsupported: MERGE
 clauses/merge/Merge9.feature::[3] Mixing MERGE with CREATE	unsupported: MERGE
 clauses/merge/Merge9.feature::[4] MERGE after WITH with predicate and WITH with aggregation	unsupported: WITH DISTINCT
 clauses/remove/Remove1.feature::[1] Remove a single node property	unsupported: computed projection after a mutation
-clauses/remove/Remove1.feature::[2] Remove multiple node properties	unsupported: function `size`
+clauses/remove/Remove1.feature::[2] Remove multiple node properties	unsupported: function `keys`
 clauses/remove/Remove1.feature::[3] Remove a single relationship property	unsupported: computed projection after a mutation
-clauses/remove/Remove1.feature::[4] Remove multiple relationship properties	unsupported: function `size`
+clauses/remove/Remove1.feature::[4] Remove multiple relationship properties	unsupported: function `keys`
 clauses/remove/Remove1.feature::[5] Ignore null when removing property from a node	unsupported: REMOVE
 clauses/remove/Remove1.feature::[6] Ignore null when removing property from a relationship	unsupported: REMOVE
-clauses/remove/Remove1.feature::[7] Remove a missing node property	unsupported: function `size`
+clauses/remove/Remove1.feature::[7] Remove a missing node property	unsupported: function `keys`
 clauses/remove/Remove2.feature::[1] Remove a single label from a node with a single label	unsupported: removing labels
 clauses/remove/Remove2.feature::[2] Remove a single label from a node with two labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/remove/Remove2.feature::[3] Remove two labels from a node with three labels	setup-failed: unsupported: multiple or boolean node labels
@@ -359,8 +358,8 @@ clauses/remove/Remove3.feature::[7] Aggregating in `WITH` after removing a prope
 clauses/remove/Remove3.feature::[8] Limiting to zero results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[9] Skipping all results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/return-orderby/ReturnOrderBy1.feature::[10] ORDER BY DESC should order lists in the expected order	result-mismatch: row values differ
-clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	unsupported: non-literal stored value expression
-clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	unsupported: non-literal stored value expression
+clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
+clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
 clauses/return-orderby/ReturnOrderBy1.feature::[9] ORDER BY should order lists in the expected order	result-mismatch: row values differ
 clauses/return-orderby/ReturnOrderBy2.feature::[10] Returned columns do not change from using ORDER BY	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[11] Aggregates ordered by arithmetics	unsupported: aggregate calls nested in projection expressions
@@ -391,9 +390,6 @@ clauses/return/Return4.feature::[11] Reusing variable names in RETURN	setup-fail
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
 clauses/return/Return4.feature::[8] Support column renaming for aggregations	setup-failed: unsupported: function `range`
 clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map	unsupported: function `coalesce`
-clauses/return/Return5.feature::[1] DISTINCT inside aggregation should work with lists in maps	unsupported: non-literal stored value expression
-clauses/return/Return5.feature::[3] DISTINCT inside aggregation should work with nested lists in maps	unsupported: non-literal stored value expression
-clauses/return/Return5.feature::[4] DISTINCT inside aggregation should work with nested lists of maps in maps	unsupported: non-literal stored value expression
 clauses/return/Return5.feature::[5] Aggregate on list values	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[10] Multiple aggregates on same variable	unsupported: whole entities in aggregates other than count()
 clauses/return/Return6.feature::[11] Counting matches	setup-failed: unsupported: function `range`
@@ -409,7 +405,7 @@ clauses/return/Return6.feature::[21] Fail if more complex expressions, even if r
 clauses/return/Return6.feature::[2] Projecting an arithmetic expression with aggregation	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	setup-failed: unsupported: function `range`
 clauses/return/Return6.feature::[5] Aggregates inside normal functions	setup-failed: unsupported: function `range`
-clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions	unsupported: non-literal stored value expression
+clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[7] Aggregate on property	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[8] Handle aggregation on functions	setup-failed: unsupported: this CREATE clause sequence
 clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: aggregate calls nested in projection expressions
@@ -419,7 +415,7 @@ clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property
 clauses/set/Set1.feature::[2] Set a property to an expression	unsupported: non-literal stored value expression
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
-clauses/set/Set1.feature::[5] Adding a list property	unsupported: list comprehension
+clauses/set/Set1.feature::[5] Adding a list property	unsupported: computed projection after a mutation
 clauses/set/Set1.feature::[6] Concatenate elements onto a list property	unsupported: this CREATE clause sequence
 clauses/set/Set1.feature::[7] Concatenate elements in reverse onto a list property	unsupported: this CREATE clause sequence
 clauses/set/Set1.feature::[8] Ignore null when setting property	unsupported: SET
@@ -468,18 +464,18 @@ clauses/unwind/Unwind1.feature::[4] Unwinding a collected unwound expression	uns
 clauses/unwind/Unwind1.feature::[5] Unwinding a collected expression	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[6] Creating nodes from an unwound parameter list	unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy1.feature::[10] Sort lists in descending order	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy1.feature::[11] Sort dates in ascending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[12] Sort dates in descending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[13] Sort local times in ascending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[14] Sort local times in descending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[15] Sort times in ascending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[16] Sort times in descending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[17] Sort local date times in ascending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[18] Sort local date times in descending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[19] Sort date times in ascending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[20] Sort date times in descending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[21] Sort distinct types in ascending order	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[22] Sort distinct types in descending order	unsupported: non-literal stored value expression
+clauses/with-orderBy/WithOrderBy1.feature::[11] Sort dates in ascending order	unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[12] Sort dates in descending order	unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[13] Sort local times in ascending order	unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[14] Sort local times in descending order	unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[15] Sort times in ascending order	unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[16] Sort times in descending order	unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[17] Sort local date times in ascending order	unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[18] Sort local date times in descending order	unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[19] Sort date times in ascending order	unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[20] Sort date times in descending order	unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[21] Sort distinct types in ascending order	semantic-error: graph variable `n` is not a scalar expression
+clauses/with-orderBy/WithOrderBy1.feature::[22] Sort distinct types in descending order	semantic-error: graph variable `n` is not a scalar expression
 clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 1	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 2	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 3	result-mismatch: row values differ
@@ -510,19 +506,19 @@ clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable pro
 clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 1	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 2	unsupported: WITH DISTINCT
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 1	unsupported: function `size`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 10	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 2	unsupported: function `size`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 3	unsupported: function `size`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 4	unsupported: function `size`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 5	unsupported: function `size`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 6	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 7	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 8	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 9	unsupported: non-literal stored value expression
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 1	unsupported: function `range`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 10	unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 2	unsupported: function `range`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 3	unsupported: function `range`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 4	unsupported: function `range`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 5	unsupported: function `range`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 6	unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 7	unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 8	unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 9	unsupported: function `localdatetime`
 clauses/with-orderBy/WithOrderBy1.feature::[9] Sort lists in ascending order	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 1	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 2	unsupported: non-literal stored value expression
+clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 1	unsupported: list or map indexing
+clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 2	unsupported: list or map indexing
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
@@ -560,9 +556,9 @@ clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in as
 clauses/with-orderBy/WithOrderBy2.feature::[7] Sort by a string expression in ascending order::example 3	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy2.feature::[8] Sort by a string expression in descending order::example 1	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy2.feature::[8] Sort by a string expression in descending order::example 2	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 1	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 2	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 3	unsupported: non-literal stored value expression
+clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 1	unsupported: list or map indexing
+clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 2	unsupported: list or map indexing
+clauses/with-orderBy/WithOrderBy2.feature::[9] Sort by a list expression in ascending order::example 3	unsupported: list or map indexing
 clauses/with-orderBy/WithOrderBy4.feature::[11] Sort by an aggregate projection	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy4.feature::[16] Handle constants and parameters inside an order by item which contains an aggregation expression	semantic-error: unknown variable `person`
 clauses/with-orderBy/WithOrderBy4.feature::[17] Handle projected variables inside an order by item which contains an aggregation expression	semantic-error: unknown variable `you`
@@ -772,10 +768,10 @@ expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 3	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 4	result-mismatch: row values differ
-expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 1	unsupported: non-literal stored value expression
-expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 2	unsupported: non-literal stored value expression
-expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 3	unsupported: non-literal stored value expression
-expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 4	unsupported: non-literal stored value expression
+expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 1	semantic-error: graph variable `n` is not a scalar expression
+expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 2	semantic-error: graph variable `n` is not a scalar expression
+expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 3	semantic-error: graph variable `n` is not a scalar expression
+expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 4	semantic-error: graph variable `n` is not a scalar expression
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 5	result-mismatch: row values differ
@@ -821,12 +817,7 @@ expressions/graph/Graph3.feature::[7] `labels()` on null node	semantic-error: gr
 expressions/graph/Graph3.feature::[8] `labels()` failing on a path	setup-failed: unsupported: multiple or boolean node labels
 expressions/graph/Graph3.feature::[9] `labels()` failing on invalid arguments	setup-failed: unsupported: multiple or boolean node labels
 expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-error: graph function argument must be a variable
-expressions/graph/Graph4.feature::[5] `type()` handling Any type	unsupported: non-literal stored value expression
-expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 1	wrong-error-kind: unsupported: list comprehension
-expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 2	wrong-error-kind: unsupported: list comprehension
-expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 3	wrong-error-kind: unsupported: list comprehension
-expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 4	wrong-error-kind: unsupported: list comprehension
-expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 5	wrong-error-kind: unsupported: list comprehension
+expressions/graph/Graph4.feature::[5] `type()` handling Any type	semantic-error: graph variable `r` is not a scalar expression
 expressions/graph/Graph5.feature::[1] Single-labels expression on nodes	setup-failed: unsupported: multiple or boolean node labels
 expressions/graph/Graph5.feature::[2] Single-labels expression on relationships	unsupported: IS predicate
 expressions/graph/Graph5.feature::[3] Conjunctive labels expression on nodes	setup-failed: unsupported: multiple or boolean node labels
@@ -836,8 +827,8 @@ expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes wit
 expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 4	setup-failed: unsupported: multiple or boolean node labels
 expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 5	setup-failed: unsupported: multiple or boolean node labels
 expressions/graph/Graph5.feature::[5] Label expression on null	unsupported: IS predicate
-expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	unsupported: non-literal stored value expression
-expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	unsupported: non-literal stored value expression
+expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	semantic-error: graph variable `n` is not a scalar expression
+expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	semantic-error: graph variable `r` is not a scalar expression
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 1	expected-error-not-raised
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 2	expected-error-not-raised
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 3	expected-error-not-raised
@@ -954,11 +945,10 @@ expressions/list/List11.feature::[5] Fail on invalid argument types for `range()
 expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 9	wrong-error-kind: unsupported: function `range`
 expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: whole entities in aggregates other than count()
-expressions/list/List12.feature::[3] Size of list comprehension	unsupported: function `size`
+expressions/list/List12.feature::[3] Size of list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[4] Returning a list comprehension	setup-failed: unsupported: this CREATE clause sequence
 expressions/list/List12.feature::[5] Using a list comprehension in a WITH	setup-failed: unsupported: this CREATE clause sequence
 expressions/list/List12.feature::[6] Using a list comprehension in a WHERE	setup-failed: unsupported: this CREATE clause sequence
-expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension	wrong-error-kind: unsupported: list comprehension
 expressions/list/List2.feature::[10] List slice with parameterised range	unsupported: list slicing
 expressions/list/List2.feature::[11] List slice with parameterised invalid range	unsupported: list slicing
 expressions/list/List2.feature::[1] List slice	unsupported: list slicing
@@ -991,25 +981,21 @@ expressions/list/List5.feature::[42] Failing when using IN on a non-list literal
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 4	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 5	expected-error-not-raised
 expressions/list/List5.feature::[4] IN should work with literal list slices	unsupported: list slicing
-expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: function `size`
-expressions/list/List6.feature::[1] Return list size	unsupported: function `size`
-expressions/list/List6.feature::[2] Setting and returning the size of a list property	unsupported: function `size`
-expressions/list/List6.feature::[3] Concatenating and returning the size of literal lists	unsupported: function `size`
-expressions/list/List6.feature::[4] `size()` on null list	unsupported: function `size`
-expressions/list/List6.feature::[5] Fail for `size()` on paths	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 4	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 5	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 6	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 7	wrong-error-kind: unsupported: function `size`
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 8	wrong-error-kind: unsupported: function `size`
+expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
+expressions/list/List6.feature::[2] Setting and returning the size of a list property	unsupported: computed projection after a mutation
+expressions/list/List6.feature::[3] Concatenating and returning the size of literal lists	result-mismatch: row values differ
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 4	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 5	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 6	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 7	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 8	wrong-error-kind: unsupported: pattern predicate
 expressions/list/List6.feature::[7] Using size of pattern comprehension to test existence	setup-failed: unsupported: this CREATE clause sequence
-expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: function `size`
-expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: function `size`
+expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: pattern comprehension
+expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: pattern comprehension
 expressions/list/List9.feature::[1] Returning nested expressions based on list property	unsupported: function `tail`
-expressions/literals/Literals8.feature::[22] Fail on a map containing unquoted string	wrong-error-kind: unsupported: non-literal stored value expression
 expressions/map/Map1.feature::[3] Statically access a field of a map resulting from an expression	unsupported: list or map indexing
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 1	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 2	expected-error-not-raised
@@ -1126,68 +1112,49 @@ expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence 
 expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
 expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
 expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 9	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
-expressions/quantifier/Quantifier10.feature::[1] Single quantifier is always false if the predicate is statically false and the list is not empty	unsupported: list comprehension
-expressions/quantifier/Quantifier10.feature::[2] Single quantifier is always false if the predicate is statically true and the list has more than one element	unsupported: list comprehension
-expressions/quantifier/Quantifier10.feature::[3] Single quantifier is always true if the predicate is statically true and the list has exactly one non-null element	unsupported: non-literal stored value expression
+expressions/quantifier/Quantifier10.feature::[1] Single quantifier is always false if the predicate is statically false and the list is not empty	unsupported: function `rand`
+expressions/quantifier/Quantifier10.feature::[2] Single quantifier is always false if the predicate is statically true and the list has more than one element	unsupported: function `rand`
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 1	unsupported: CASE expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 2	unsupported: CASE expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 3	unsupported: CASE expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 4	unsupported: CASE expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 5	unsupported: CASE expression
-expressions/quantifier/Quantifier11.feature::[1] Any quantifier is always false if the predicate is statically false and the list is not empty	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[2] Any quantifier is always true if the predicate is statically true and the list is not empty	unsupported: list comprehension
+expressions/quantifier/Quantifier11.feature::[1] Any quantifier is always false if the predicate is statically false and the list is not empty	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[2] Any quantifier is always true if the predicate is statically true and the list is not empty	unsupported: function `rand`
 expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 1	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 2	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 3	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 4	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 5	unsupported: CASE expression
-expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 1	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 2	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 3	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 4	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 5	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 1	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 2	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 3	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 4	unsupported: list comprehension
-expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 5	unsupported: list comprehension
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 1	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 2	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 3	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 4	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 5	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 1	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 2	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 3	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 4	unsupported: function `rand`
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 5	unsupported: function `rand`
 expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 1	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 2	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 3	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 4	unsupported: CASE expression
 expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 5	unsupported: CASE expression
-expressions/quantifier/Quantifier12.feature::[1] All quantifier is always false if the predicate is statically false and the list is not empty	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[2] All quantifier is always true if the predicate is statically true and the list is not empty	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 1	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 2	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 3	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 4	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 5	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 1	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 2	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 3	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 4	unsupported: list comprehension
-expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 5	unsupported: list comprehension
+expressions/quantifier/Quantifier12.feature::[1] All quantifier is always false if the predicate is statically false and the list is not empty	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[2] All quantifier is always true if the predicate is statically true and the list is not empty	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 1	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 2	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 3	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 4	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 5	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 1	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 2	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 3	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 4	unsupported: function `rand`
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 5	unsupported: function `rand`
 expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 1	unsupported: CASE expression
 expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 2	unsupported: CASE expression
 expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3	unsupported: CASE expression
@@ -1196,106 +1163,32 @@ expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal 
 expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
 expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
 expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 9	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
 expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
 expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 9	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
 expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
 expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 9	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 6	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 7	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 8	unsupported: function `size`
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 3	unsupported: function `abs`
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 5	unsupported: function `size`
 expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 7	unsupported: function `abs`
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 1	unsupported: function `size`
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 2	unsupported: function `size`
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3	unsupported: function `size`
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4	unsupported: function `size`
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5	unsupported: function `size`
-expressions/quantifier/Quantifier9.feature::[1] None quantifier is always true if the predicate is statically false and the list is not empty	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[2] None quantifier is always false if the predicate is statically true and the list is not empty	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 1	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 2	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 3	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 4	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 5	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 1	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 2	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 3	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 4	unsupported: list comprehension
-expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 5	unsupported: list comprehension
+expressions/quantifier/Quantifier9.feature::[1] None quantifier is always true if the predicate is statically false and the list is not empty	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[2] None quantifier is always false if the predicate is statically true and the list is not empty	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 1	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 2	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 3	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 4	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 5	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 1	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 2	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 3	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 4	unsupported: function `rand`
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 5	unsupported: function `rand`
 expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 1	unsupported: CASE expression
 expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 2	unsupported: CASE expression
 expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 3	unsupported: CASE expression
@@ -2312,46 +2205,34 @@ expressions/typeConversion/TypeConversion1.feature::[1] `toBoolean()` on boolean
 expressions/typeConversion/TypeConversion1.feature::[2] `toBoolean()` on valid literal string	unsupported: function `toboolean`
 expressions/typeConversion/TypeConversion1.feature::[3] `toBoolean()` on variables with valid string values	unsupported: function `toboolean`
 expressions/typeConversion/TypeConversion1.feature::[4] `toBoolean()` on invalid strings	unsupported: function `toboolean`
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 5	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 6	wrong-error-kind: unsupported: list comprehension
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: function `toboolean`
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: function `toboolean`
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 3	wrong-error-kind: unsupported: function `toboolean`
 expressions/typeConversion/TypeConversion2.feature::[1] `toInteger()` on float	unsupported: function `tointeger`
 expressions/typeConversion/TypeConversion2.feature::[2] `toInteger()` returning null on non-numerical string	unsupported: function `tointeger`
-expressions/typeConversion/TypeConversion2.feature::[3] `toInteger()` handling mixed number types	unsupported: list comprehension
-expressions/typeConversion/TypeConversion2.feature::[4] `toInteger()` handling Any type	unsupported: list comprehension
-expressions/typeConversion/TypeConversion2.feature::[5] `toInteger()` on a list of strings	unsupported: list comprehension
+expressions/typeConversion/TypeConversion2.feature::[3] `toInteger()` handling mixed number types	unsupported: function `tointeger`
+expressions/typeConversion/TypeConversion2.feature::[4] `toInteger()` handling Any type	unsupported: function `tointeger`
+expressions/typeConversion/TypeConversion2.feature::[5] `toInteger()` on a list of strings	unsupported: function `tointeger`
 expressions/typeConversion/TypeConversion2.feature::[6] `toInteger()` on a complex-typed expression	unsupported: function `tointeger`
 expressions/typeConversion/TypeConversion2.feature::[7] `toInteger()` on node property	unsupported: WITH *
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 5	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[1] `toFloat()` on mixed number types	unsupported: list comprehension
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: function `tointeger`
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: function `tointeger`
+expressions/typeConversion/TypeConversion3.feature::[1] `toFloat()` on mixed number types	unsupported: function `tofloat`
 expressions/typeConversion/TypeConversion3.feature::[2] `toFloat()` returning null on non-numerical string	unsupported: function `tofloat`
-expressions/typeConversion/TypeConversion3.feature::[3] `toFloat()` handling Any type	unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[4] `toFloat()` on a list of strings	unsupported: list comprehension
+expressions/typeConversion/TypeConversion3.feature::[3] `toFloat()` handling Any type	unsupported: function `tofloat`
+expressions/typeConversion/TypeConversion3.feature::[4] `toFloat()` on a list of strings	unsupported: function `tofloat`
 expressions/typeConversion/TypeConversion3.feature::[5] `toFloat()` on node property	unsupported: WITH *
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 5	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 6	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 3	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 4	wrong-error-kind: unsupported: list comprehension
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 5	wrong-error-kind: unsupported: list comprehension
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: function `tofloat`
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: function `tofloat`
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 3	wrong-error-kind: unsupported: function `tofloat`
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 1	wrong-error-kind: unsupported: function `tostring`
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 2	wrong-error-kind: unsupported: function `tostring`
 expressions/typeConversion/TypeConversion4.feature::[1] `toString()` handling integer literal	unsupported: function `tostring`
 expressions/typeConversion/TypeConversion4.feature::[2] `toString()` handling boolean literal	unsupported: function `tostring`
 expressions/typeConversion/TypeConversion4.feature::[3] `toString()` handling inlined boolean	unsupported: function `tostring`
 expressions/typeConversion/TypeConversion4.feature::[4] `toString()` handling boolean properties	unsupported: function `tostring`
-expressions/typeConversion/TypeConversion4.feature::[5] `toString()` should work on Any type	unsupported: list comprehension
-expressions/typeConversion/TypeConversion4.feature::[6] `toString()` on a list of integers	unsupported: list comprehension
+expressions/typeConversion/TypeConversion4.feature::[5] `toString()` should work on Any type	unsupported: function `tostring`
+expressions/typeConversion/TypeConversion4.feature::[6] `toString()` on a list of integers	unsupported: function `tostring`
 expressions/typeConversion/TypeConversion4.feature::[7] `toString()` on node property	unsupported: WITH *
 expressions/typeConversion/TypeConversion4.feature::[8] `toString()` should accept potentially correct types 1	unsupported: function `coalesce`
 expressions/typeConversion/TypeConversion4.feature::[9] `toString()` should accept potentially correct types 2	unsupported: function `tostring`

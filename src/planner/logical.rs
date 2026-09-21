@@ -229,6 +229,23 @@ pub(crate) enum Expr {
         base: Box<Self>,
         key: String,
     },
+    /// `size(list)` or `size(string)`.
+    Size(Box<Self>),
+    /// A list literal with at least one computed element; all-literal lists
+    /// stay `Value`.
+    List(Vec<Self>),
+    /// A map literal with at least one computed entry; all-literal maps stay
+    /// `Value`.
+    Map(Vec<(String, Self)>),
+    /// `[variable IN list WHERE predicate | projection]`. The predicate and
+    /// projection refer to the current element through `ListElement`; a
+    /// missing projection yields the element itself.
+    ListComprehension {
+        variable: ListVariableId,
+        list: Box<Self>,
+        predicate: Option<Box<Self>>,
+        projection: Option<Box<Self>>,
+    },
 }
 
 impl Expr {
@@ -244,6 +261,19 @@ impl Expr {
                 list, predicate, ..
             } => list.contains_aggregate() || predicate.contains_aggregate(),
             Self::MapProperty { base, .. } => base.contains_aggregate(),
+            Self::Size(operand) => operand.contains_aggregate(),
+            Self::List(items) => items.iter().any(Self::contains_aggregate),
+            Self::Map(entries) => entries.iter().any(|(_, value)| value.contains_aggregate()),
+            Self::ListComprehension {
+                list,
+                predicate,
+                projection,
+                ..
+            } => {
+                list.contains_aggregate()
+                    || predicate.as_deref().is_some_and(Self::contains_aggregate)
+                    || projection.as_deref().is_some_and(Self::contains_aggregate)
+            }
             _ => false,
         }
     }
@@ -262,6 +292,19 @@ impl Expr {
             // quantifier reports its own row dependence through its operands.
             Self::ListElement(_) => false,
             Self::MapProperty { base, .. } => base.is_row_dependent(),
+            Self::Size(operand) => operand.is_row_dependent(),
+            Self::List(items) => items.iter().any(Self::is_row_dependent),
+            Self::Map(entries) => entries.iter().any(|(_, value)| value.is_row_dependent()),
+            Self::ListComprehension {
+                list,
+                predicate,
+                projection,
+                ..
+            } => {
+                list.is_row_dependent()
+                    || predicate.as_deref().is_some_and(Self::is_row_dependent)
+                    || projection.as_deref().is_some_and(Self::is_row_dependent)
+            }
             Self::Entity(_)
             | Self::Scalar(_)
             | Self::Path(_)
@@ -292,6 +335,27 @@ impl Expr {
             }
             Self::ListElement(_) => true,
             Self::MapProperty { base, .. } => base.uses_only_grouped_values(grouping),
+            Self::Size(operand) => operand.uses_only_grouped_values(grouping),
+            Self::List(items) => items
+                .iter()
+                .all(|item| item.uses_only_grouped_values(grouping)),
+            Self::Map(entries) => entries
+                .iter()
+                .all(|(_, value)| value.uses_only_grouped_values(grouping)),
+            Self::ListComprehension {
+                list,
+                predicate,
+                projection,
+                ..
+            } => {
+                list.uses_only_grouped_values(grouping)
+                    && predicate
+                        .as_deref()
+                        .is_none_or(|predicate| predicate.uses_only_grouped_values(grouping))
+                    && projection
+                        .as_deref()
+                        .is_none_or(|projection| projection.uses_only_grouped_values(grouping))
+            }
             Self::Property(slot, _)
             | Self::ElementId(slot)
             | Self::Labels(slot)

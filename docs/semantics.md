@@ -330,6 +330,32 @@ also produces null; Cypher raises a type error. Keys are case-sensitive and
 may be escaped identifiers. Graph entities keep their own property semantics,
 and property access on a path variable is a semantic error.
 
+## List comprehensions, `size()`, and computed collections
+
+`[x IN list WHERE predicate | projection]` evaluates the predicate once per
+element, keeps the elements whose outcome is true (a null outcome drops the
+element, as in `WHERE`), and collects their projections in list order. Either
+part may be omitted: without `WHERE` every element is kept, and without a
+projection the element itself is collected. The bound variable shadows outer
+bindings inside the predicate and projection only; the list is evaluated in
+the enclosing scope. Comprehensions nest, may mention outer scalars,
+properties, and parameters, and are ordinary list values afterwards, so they
+compose with `size`, quantifiers, `IN`, `UNWIND`, and equality. Aggregates are
+rejected inside either part. A null or non-list operand produces null; Cypher
+raises a type error for a non-list. Lists of graph entities are not scalar
+values, so comprehensions over them are rejected.
+
+`size(list)` is the element count and `size(string)` the character count.
+`size(null)` is null, and so is `size` of any other kind of value, where Cypher
+raises a type error. `size` of a path or graph entity is a semantic error;
+paths use `length`.
+
+A list or map literal whose elements are all literals or parameters is bound
+as a single value. A literal with a computed element, such as `[n.a, n.b + 1]`
+or `{key: n.a}`, is built per row instead; null elements are kept, including
+null map values, which differs from stored properties where explicit nulls
+are dropped. Both forms compare, group, and order identically.
+
 ## Numeric arithmetic and computed projections
 
 Read predicates and projections support binary `+`, `-`, `*`, `/`, and `%`,

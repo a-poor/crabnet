@@ -1542,6 +1542,10 @@ impl<'source> Lowerer<'source> {
                         | Expr::IsNull { .. }
                         | Expr::Quantified { .. }
                         | Expr::MapProperty { .. }
+                        | Expr::Size(_)
+                        | Expr::List(_)
+                        | Expr::Map(_)
+                        | Expr::ListComprehension { .. }
                 )
             {
                 return Err(unsupported(
@@ -1757,10 +1761,43 @@ impl<'source> Lowerer<'source> {
             return input_value(expression).map(Expr::Value);
         }
         match &expression.kind {
-            ExprKind::Literal(_)
-            | ExprKind::Parameter(_)
-            | ExprKind::List(_)
-            | ExprKind::Map(_) => input_value(expression).map(Expr::Value),
+            ExprKind::Literal(_) | ExprKind::Parameter(_) => {
+                input_value(expression).map(Expr::Value)
+            }
+            ExprKind::List(items) => match input_value(expression) {
+                Ok(value) => Ok(Expr::Value(value)),
+                // A computed element makes the whole list a runtime value.
+                Err(Error::Unsupported(_)) => items
+                    .iter()
+                    .map(|item| {
+                        self.scalar_expression_with_aliases_at_depth(
+                            item,
+                            aliases,
+                            expression_depth + 1,
+                        )
+                    })
+                    .collect::<Result<Vec<_>>>()
+                    .map(Expr::List),
+                Err(error) => Err(error),
+            },
+            ExprKind::Map(entries) => match input_value(expression) {
+                Ok(value) => Ok(Expr::Value(value)),
+                Err(Error::Unsupported(_)) => entries
+                    .iter()
+                    .map(|entry| {
+                        Ok((
+                            entry.key.kind.text.clone(),
+                            self.scalar_expression_with_aliases_at_depth(
+                                &entry.value,
+                                aliases,
+                                expression_depth + 1,
+                            )?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>>>()
+                    .map(Expr::Map),
+                Err(error) => Err(error),
+            },
             ExprKind::Property {
                 expression: base,
                 key,
@@ -1897,8 +1934,46 @@ impl<'source> Lowerer<'source> {
             ExprKind::Index { .. } => Err(unsupported(expression.span, "list or map indexing")),
             ExprKind::Slice { .. } => Err(unsupported(expression.span, "list slicing")),
             ExprKind::Case(_) => Err(unsupported(expression.span, "CASE expression")),
-            ExprKind::ListComprehension(_) => {
-                Err(unsupported(expression.span, "list comprehension"))
+            ExprKind::ListComprehension(comprehension) => {
+                // As with quantifiers, the list is evaluated in the enclosing
+                // scope while the predicate and projection see the bound
+                // variable, which shadows any outer binding of the same name.
+                let list = self.scalar_expression_with_aliases_at_depth(
+                    &comprehension.list,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let variable = self.allocate_list_variable();
+                let mut inner = aliases.clone();
+                inner.insert(
+                    comprehension.variable.kind.text.clone(),
+                    Expr::ListElement(variable),
+                );
+                let lower_inner = |part: &Option<Box<AstExpr>>| -> Result<Option<Box<Expr>>> {
+                    let Some(part) = part else {
+                        return Ok(None);
+                    };
+                    let lowered = self.scalar_expression_with_aliases_at_depth(
+                        part,
+                        &inner,
+                        expression_depth + 1,
+                    )?;
+                    if lowered.contains_aggregate() {
+                        return Err(semantic(
+                            part.span,
+                            "aggregate calls are not allowed inside a list comprehension",
+                        ));
+                    }
+                    Ok(Some(Box::new(lowered)))
+                };
+                let predicate = lower_inner(&comprehension.predicate)?;
+                let projection = lower_inner(&comprehension.projection)?;
+                Ok(Expr::ListComprehension {
+                    variable,
+                    list: Box::new(list),
+                    predicate,
+                    projection,
+                })
             }
             ExprKind::PatternComprehension(_) => {
                 Err(unsupported(expression.span, "pattern comprehension"))
@@ -1994,6 +2069,27 @@ impl<'source> Lowerer<'source> {
             }
             "length" => {
                 self.path_function_expression(function, PathFunctionKind::Length, span, aliases)
+            }
+            "size" => {
+                let [argument] = function.arguments.as_slice() else {
+                    return Err(semantic(span, "size() requires exactly one argument"));
+                };
+                let argument = self.output_expression_with_aliases(argument, aliases)?;
+                match argument {
+                    Expr::Path(_) => Err(semantic(
+                        span,
+                        "size() requires a list or string, not a path; use length()",
+                    )),
+                    Expr::Entity(_) => Err(semantic(
+                        span,
+                        "size() requires a list or string, not a graph entity",
+                    )),
+                    Expr::PathFunction {
+                        kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+                        ..
+                    } => Err(unsupported(span, "size() of a path collection")),
+                    argument => Ok(Expr::Size(Box::new(argument))),
+                }
             }
             "nodes" => {
                 self.path_function_expression(function, PathFunctionKind::Nodes, span, aliases)

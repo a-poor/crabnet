@@ -350,6 +350,8 @@ enum ScalarType {
     Boolean,
     /// A SQL number (or null) whose type name follows from its value.
     Numeric,
+    /// JSON array text (or null) whose type name follows from its value.
+    Array,
 }
 
 impl Scalar {
@@ -374,6 +376,13 @@ impl Scalar {
         }
     }
 
+    fn array(value: String) -> Self {
+        Self {
+            value,
+            kind: ScalarType::Array,
+        }
+    }
+
     /// The type SQL, given SQL that yields this scalar's value. Derived
     /// kinds are computed from `value` rather than from the scalar's own
     /// value text, so a scope can compute the value once and type it by name.
@@ -382,6 +391,9 @@ impl Scalar {
             ScalarType::Sql(sql) => sql.clone(),
             ScalarType::Boolean => boolean_type(value),
             ScalarType::Numeric => numeric_type(value),
+            ScalarType::Array => {
+                format!("(CASE WHEN ({value}) IS NULL THEN 'null' ELSE 'array' END)")
+            }
         }
     }
 
@@ -1772,7 +1784,94 @@ impl Compiler {
                         variable.0
                     ))
                 }),
+            Expr::Size(operand) => self
+                .scoped(&[operand], |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    // Lists count elements and strings count characters;
+                    // null and every other kind read as null.
+                    Ok(format!(
+                        "(CASE WHEN ({value_type}) = 'array' THEN json_array_length(({value})) \
+                          WHEN ({value_type}) = 'text' THEN length(({value})) END)"
+                    ))
+                })
+                .map(Scalar::numeric),
+            Expr::ListComprehension {
+                variable,
+                list,
+                predicate,
+                projection,
+            } => self
+                .list_comprehension(*variable, list, predicate.as_deref(), projection.as_deref())
+                .map(Scalar::array),
+            Expr::List(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| Ok(format!("json({})", self.encoded_expression(item)?)))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Scalar::sql(
+                    format!("json_array({})", items.join(", ")),
+                    "'array'",
+                ))
+            }
+            Expr::Map(entries) => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        let key = self.push_binding(SqlParameter::Text(key.clone()));
+                        Ok(format!("{key}, json({})", self.encoded_expression(value)?))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Scalar::sql(
+                    format!("json_object({})", entries.join(", ")),
+                    "'object'",
+                ))
+            }
         }
+    }
+
+    /// Compiles `[x IN list WHERE predicate | projection]` to a correlated
+    /// `json_each` scan that keeps the elements whose predicate is true and
+    /// collects their projections, in list order, back into a JSON array.
+    fn list_comprehension(
+        &mut self,
+        variable: ListVariableId,
+        list: &Expr,
+        predicate: Option<&Expr>,
+        projection: Option<&Expr>,
+    ) -> Result<String> {
+        self.scoped(&[list], |this, parts| {
+            let (list_value, list_type) = &parts[0];
+            let alias = format!("q{}", variable.0);
+            let previous = this.list_elements.insert(
+                variable,
+                (format!("{alias}.value"), format!("{alias}.type")),
+            );
+            let compiled = (|| {
+                let filter = match predicate {
+                    Some(predicate) => format!(" WHERE ({})", this.boolean_expression(predicate)?),
+                    None => String::new(),
+                };
+                let element = match projection {
+                    Some(projection) => this.encoded_expression(projection)?,
+                    None => encoded_scalar(&format!("{alias}.value"), &format!("{alias}.type")),
+                };
+                Ok::<_, Error>((filter, element))
+            })();
+            match previous {
+                Some(previous) => {
+                    this.list_elements.insert(variable, previous);
+                }
+                None => {
+                    this.list_elements.remove(&variable);
+                }
+            }
+            let (filter, element) = compiled?;
+            Ok(format!(
+                "(CASE WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL \
+                 ELSE (SELECT json_group_array(json({element}) ORDER BY {alias}.key) \
+                       FROM json_each({list_value}) AS {alias}{filter}) END)"
+            ))
+        })
     }
 
     fn aggregate_parts(

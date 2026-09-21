@@ -562,6 +562,41 @@ fn render_expr(expression: &Expr) -> String {
             render_expr(predicate)
         ),
         Expr::ListElement(variable) => format!("#l{}", variable.0),
+        Expr::Size(operand) => format!("size({})", render_expr(operand)),
+        Expr::List(items) => format!(
+            "list[{}]",
+            items.iter().map(render_expr).collect::<Vec<_>>().join(", ")
+        ),
+        Expr::Map(entries) => {
+            let mut entries = entries.iter().collect::<Vec<_>>();
+            entries.sort_by(|left, right| left.0.cmp(&right.0));
+            format!(
+                "map{{{}}}",
+                entries
+                    .into_iter()
+                    .map(|(key, value)| format!("{}: {}", quote(key), render_expr(value)))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+        Expr::ListComprehension {
+            variable,
+            list,
+            predicate,
+            projection,
+        } => format!(
+            "[#l{} in {}{}{}]",
+            variable.0,
+            render_expr(list),
+            predicate
+                .as_deref()
+                .map(|predicate| format!(" where {}", render_expr(predicate)))
+                .unwrap_or_default(),
+            projection
+                .as_deref()
+                .map(|projection| format!(" | {}", render_expr(projection)))
+                .unwrap_or_default(),
+        ),
         Expr::MapProperty { base, key } => {
             format!("map-property({}, {})", render_expr(base), quote(key))
         }
