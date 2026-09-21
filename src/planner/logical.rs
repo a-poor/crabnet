@@ -320,6 +320,13 @@ pub(crate) enum MatchOperator {
         start: SlotId,
         segments: Vec<PathSegment>,
     },
+    /// The traversal's ordered relationship sequence must equal the
+    /// relationship list already bound to `path`, element by element. The
+    /// traversal keeps its own direction, bounds, type, and property filters.
+    MatchRelationshipList {
+        traversal: TraversalId,
+        path: PathId,
+    },
     Filter(Expr),
 }
 

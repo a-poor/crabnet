@@ -504,6 +504,9 @@ impl Compiler {
                     start,
                     segments,
                 } => self.compile_path_binding(*path, *start, segments)?,
+                MatchOperator::MatchRelationshipList { traversal, path } => {
+                    self.compile_relationship_list_match(*traversal, *path)?;
+                }
                 MatchOperator::Filter(expression) => {
                     let predicate = self.predicate_expression(expression)?;
                     self.filters.push(format!("({predicate})"));
@@ -563,6 +566,31 @@ impl Compiler {
             encoded_segments.join(", ")
         );
         self.paths.insert(path, encoded);
+        Ok(())
+    }
+
+    // The traversal's `used_edges` array must equal the bound list's
+    // relationship IDs position by position. The bound list is the
+    // concatenation of every segment's relationships in the path identity, so
+    // a list projected from a multi-segment `relationships(path)` compares as
+    // one sequence. Both sides are compared through `json_each` rather than as
+    // JSON text because the CTE, the Rust producers, and stored path identities
+    // may escape the same IDs differently.
+    fn compile_relationship_list_match(
+        &mut self,
+        traversal: TraversalId,
+        path: PathId,
+    ) -> Result<()> {
+        let matched = self.traversal_edges(traversal)?.to_owned();
+        let source = self.path_source(path)?.to_owned();
+        let bound = format!(
+            "(SELECT json_group_array(bound_edge.value                 ORDER BY bound_segment.key, bound_edge.key)               FROM json_each({source}, '$.segments') AS bound_segment,                    json_each(bound_segment.value, '$.relationships') AS bound_edge)"
+        );
+        let matched_member = format!("rematch_{}_edge", traversal.0);
+        let bound_member = format!("rematch_{}_bound", traversal.0);
+        self.filters.push(format!(
+            "json_array_length({matched}) = json_array_length({bound})              AND NOT EXISTS (SELECT 1 FROM json_each({matched}) AS {matched_member}                              JOIN json_each({bound}) AS {bound_member}                                ON {matched_member}.key = {bound_member}.key                              WHERE {matched_member}.value IS NOT {bound_member}.value)"
+        ));
         Ok(())
     }
 

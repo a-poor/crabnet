@@ -1619,6 +1619,27 @@ mod tests {
                 1,
                 1,
             ),
+            (
+                "same-clause-relationship-list-rematch",
+                r#"MATCH (start:Start {name: $name})-[rels:LINK*1..2]->(end),
+                         (start)-[rels:LINK*1..2]->(other)
+                   RETURN end, other"#,
+                Parameters::from([("name".to_owned(), json!("seed"))]),
+                1,
+                0,
+            ),
+            (
+                "prebound-relationship-list-rematch-through-with",
+                r#"MATCH (:Start {name: $name})-[rels:LINK*1..2]->() WITH rels
+                   MATCH (x)-[rels:LINK* {enabled: $enabled}]->(y)
+                   RETURN x, y"#,
+                Parameters::from([
+                    ("name".to_owned(), json!("seed")),
+                    ("enabled".to_owned(), json!(true)),
+                ]),
+                1,
+                1,
+            ),
         ];
 
         let mut prepared_node_domains = 0;

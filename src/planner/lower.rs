@@ -518,6 +518,18 @@ impl<'source> Lowerer<'source> {
                 });
             }
         }
+        // A traversal re-matched against a relationship list bound earlier in
+        // this same clause denotes the same relationships, so it does not take
+        // part in relationship uniqueness; the original binding already does.
+        // A list bound by an earlier clause has no other occurrence here, so
+        // its re-match stays in the uniqueness set like any other traversal.
+        let same_clause_rematches = same_clause_rematches(&plan);
+        relationships.retain(|relationship| {
+            !matches!(
+                relationship,
+                RelationshipUse::Traversal(traversal) if same_clause_rematches.contains(traversal)
+            )
+        });
         if relationships.len() > 1 {
             plan.operators
                 .push(MatchOperator::DistinctRelationships(relationships));
@@ -651,17 +663,13 @@ impl<'source> Lowerer<'source> {
                         },
                     };
                     plan.operators.push(expansion);
-                    if let Some(path) = relationship_list {
-                        plan.operators.push(MatchOperator::BindPath {
-                            path,
-                            start: left,
-                            segments: vec![PathSegment {
-                                left,
-                                relationship: RelationshipUse::Traversal(traversal),
-                                right,
-                            }],
-                        });
-                    }
+                    Self::bind_relationship_list_result(
+                        plan,
+                        relationship_list,
+                        traversal,
+                        left,
+                        right,
+                    );
                     (right, RelationshipUse::Traversal(traversal))
                 }
             };
@@ -790,13 +798,7 @@ impl<'source> Lowerer<'source> {
             relationship: RelationshipUse::Traversal(traversal),
             right,
         };
-        if let Some(path) = relationship_list {
-            plan.operators.push(MatchOperator::BindPath {
-                path,
-                start: left,
-                segments: vec![segment],
-            });
-        }
+        Self::bind_relationship_list_result(plan, relationship_list, traversal, left, right);
 
         Ok(MatchedPath {
             start: left,
@@ -804,19 +806,46 @@ impl<'source> Lowerer<'source> {
         })
     }
 
-    fn bind_relationship_list(&mut self, variable: &open_cypher::ast::Name) -> Result<PathId> {
+    // A fresh relationship variable binds the traversal as a new list; a
+    // pre-bound one constrains the traversal to that exact sequence instead.
+    fn bind_relationship_list_result(
+        plan: &mut MatchPlan,
+        binding: Option<RelationshipListBinding>,
+        traversal: TraversalId,
+        left: SlotId,
+        right: SlotId,
+    ) {
+        match binding {
+            Some(RelationshipListBinding::Fresh(path)) => {
+                plan.operators.push(MatchOperator::BindPath {
+                    path,
+                    start: left,
+                    segments: vec![PathSegment {
+                        left,
+                        relationship: RelationshipUse::Traversal(traversal),
+                        right,
+                    }],
+                });
+            }
+            Some(RelationshipListBinding::Prebound(path)) => {
+                plan.operators
+                    .push(MatchOperator::MatchRelationshipList { traversal, path });
+            }
+            None => {}
+        }
+    }
+
+    fn bind_relationship_list(
+        &mut self,
+        variable: &open_cypher::ast::Name,
+    ) -> Result<RelationshipListBinding> {
         let name = &variable.kind.text;
         if let Some(symbol) = self.symbols.get(name).copied() {
             return match symbol {
                 Symbol::PathCollection {
                     kind: PathCollectionKind::Relationships,
-                    ..
-                } => Err(unsupported(
-                    variable.span,
-                    format!(
-                        "matching pre-bound relationship list `{name}` in a variable-length pattern"
-                    ),
-                )),
+                    path,
+                } => Ok(RelationshipListBinding::Prebound(path)),
                 Symbol::Entity(_)
                 | Symbol::Scalar(_)
                 | Symbol::Path(_)
@@ -838,7 +867,7 @@ impl<'source> Lowerer<'source> {
                 kind: PathCollectionKind::Relationships,
             },
         );
-        Ok(path)
+        Ok(RelationshipListBinding::Fresh(path))
     }
 
     fn match_node(
@@ -2444,6 +2473,36 @@ fn function_name(function: &FunctionInvocation, span: Span) -> Result<String> {
         return Err(unsupported(span, "qualified function call"));
     }
     Ok(function.name.parts[0].kind.text.to_ascii_lowercase())
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RelationshipListBinding {
+    Fresh(PathId),
+    Prebound(PathId),
+}
+
+// Traversals in `plan` that re-match a relationship list which `plan` itself
+// binds.
+fn same_clause_rematches(plan: &MatchPlan) -> Vec<TraversalId> {
+    let bound_here = plan
+        .operators
+        .iter()
+        .filter_map(|operator| match operator {
+            MatchOperator::BindPath { path, .. } => Some(*path),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    plan.operators
+        .iter()
+        .filter_map(|operator| match operator {
+            MatchOperator::MatchRelationshipList { traversal, path }
+                if bound_here.contains(path) =>
+            {
+                Some(*traversal)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn path_collection_kind(kind: PathFunctionKind) -> Option<PathCollectionKind> {

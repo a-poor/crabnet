@@ -100,8 +100,9 @@ end-to-end result test for user-visible semantics.
 - `tests/relationship_list_values.rs` covers fresh bounded legacy
   relationship-list bindings, zero-hop empty lists, traversal order versus
   stored endpoint direction, named-path coexistence, direct and `WITH` aliases,
-  semantic distinctness/pagination, unions, query-wide hydration, scope, and
-  the explicit unsupported contexts.
+  semantic distinctness/pagination, unions, query-wide hydration, scope, exact
+  re-matching of a bound list in the same clause and after `WITH` across both
+  producers, and the explicit unsupported contexts.
 - Unit tests beside `planner/lower.rs` should cover binding, scope, semantic
   validation, and logical-plan shape when those details need focused
   diagnosis.

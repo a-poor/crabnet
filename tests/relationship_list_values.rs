@@ -2,6 +2,10 @@ use crabnet::{
     CypherValue, Database, Error, PathValue, QueryResult, RelationshipValue, explain_physical,
 };
 
+fn text(value: &str) -> CypherValue {
+    CypherValue::String(value.into())
+}
+
 fn relationship_name(relationship: &RelationshipValue) -> &str {
     relationship
         .properties
@@ -510,23 +514,174 @@ fn relationship_list_binding_name_collisions_are_semantic() {
 }
 
 #[test]
-fn exact_prebound_relationship_list_sequence_matching_is_deferred() {
+fn same_clause_rematch_denotes_the_same_relationships_without_a_uniqueness_conflict() {
     let mut database = linear_graph();
 
-    for query in [
-        "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(middle:RelListNode), \
-               (middle)-[rels:NEXT*1]->(:RelListNode) \
-         RETURN rels",
-        "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode {name: 'b'}) \
-         WITH rels \
-         MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode {name: 'b'}) \
-         RETURN rels",
-    ] {
-        assert!(
-            matches!(database.execute(query), Err(Error::Unsupported(_))),
-            "exact matching against a pre-bound relationship sequence is deferred: {query}"
+    // The second occurrence of `rels` must resolve to the same sequence, so
+    // `other` always equals `end`. If the re-match took part in relationship
+    // uniqueness the query would return no rows at all.
+    let result = database
+        .execute(
+            "MATCH (start:RelListNode)-[rels:NEXT*1..2]->(end), \
+                   (start)-[rels:NEXT*1..2]->(other) \
+             RETURN start.name AS start, end.name AS end, other.name AS other \
+             ORDER BY start, end",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        [
+            vec![text("a"), text("b"), text("b")],
+            vec![text("a"), text("c"), text("c")],
+            vec![text("b"), text("c"), text("c")],
+            vec![text("b"), text("d"), text("d")],
+            vec![text("c"), text("d"), text("d")],
+        ]
+    );
+
+    // A third, fresh traversal in the same clause still cannot reuse the
+    // relationships the bound list already holds.
+    let result = database
+        .execute(
+            "MATCH (start:RelListNode {name: 'a'})-[rels:NEXT*1]->(end), \
+                   (start)-[rels:NEXT*1]->(other), \
+                   (other)-[more:NEXT*1..2]->(tail) \
+             RETURN end.name AS end, tail.name AS tail ORDER BY tail",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        [vec![text("b"), text("c")], vec![text("b"), text("d")]]
+    );
+}
+
+#[test]
+fn prebound_relationship_lists_match_exactly_after_with() {
+    let mut database = linear_graph();
+    let bound = "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1..2]->() WITH rels ";
+
+    // Both the SQLite-recursive and Rust-backed forms accept the bound list
+    // and match only the endpoints of that exact sequence.
+    for pattern in ["(x)-[rels:NEXT*1..3]->(y)", "(x)-[rels:NEXT*]->(y)"] {
+        let result = database
+            .execute(&format!(
+                "{bound} MATCH {pattern} RETURN x.name AS x, y.name AS y ORDER BY y"
+            ))
+            .unwrap();
+        assert_eq!(
+            result.rows,
+            [vec![text("a"), text("b")], vec![text("a"), text("c")]],
+            "{pattern}"
         );
     }
+
+    // The re-matched pattern keeps its own direction, bounds, and type filters.
+    let reversed = database
+        .execute(&format!(
+            "{bound} MATCH (x)<-[rels:NEXT*]-(y) RETURN x.name AS x, y.name AS y"
+        ))
+        .unwrap();
+    assert_eq!(reversed.rows, [vec![text("b"), text("a")]]);
+    let single_hop = database
+        .execute(&format!(
+            "{bound} MATCH (x)-[rels:NEXT*1]->(y) RETURN x.name AS x, y.name AS y"
+        ))
+        .unwrap();
+    assert_eq!(single_hop.rows, [vec![text("a"), text("b")]]);
+    let wrong_type = database
+        .execute(&format!(
+            "{bound} MATCH (x)-[rels:OTHER*]->(y) RETURN x.name AS x, y.name AS y"
+        ))
+        .unwrap();
+    assert!(wrong_type.rows.is_empty());
+
+    // The variable still projects the original list after the re-match.
+    let projected = database
+        .execute(&format!(
+            "{bound} MATCH ()-[rels:NEXT*]->(y) RETURN rels ORDER BY y.name"
+        ))
+        .unwrap();
+    assert_eq!(
+        projected
+            .rows
+            .iter()
+            .map(|row| relationship_list_names(&row[0]))
+            .collect::<Vec<_>>(),
+        [vec!["ab"], vec!["ab", "bc"]]
+    );
+}
+
+#[test]
+fn prebound_lists_from_path_functions_and_shortest_forms_match_as_one_sequence() {
+    let mut database = linear_graph();
+
+    // A list projected from a multi-segment path compares as the
+    // concatenation of its segments' relationships.
+    let multi_segment = database
+        .execute(
+            "MATCH route = (:RelListNode {name: 'a'})-[:NEXT]->()-[:NEXT]->() \
+             WITH relationships(route) AS rels \
+             MATCH (x)-[rels*]->(y) RETURN x.name AS x, y.name AS y",
+        )
+        .unwrap();
+    assert_eq!(multi_segment.rows, [vec![text("a"), text("c")]]);
+
+    let shortest = database
+        .execute(
+            "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1..2]->() WITH rels \
+             MATCH shortestPath((x)-[rels:NEXT*]->(y)) \
+             RETURN x.name AS x, y.name AS y ORDER BY y",
+        )
+        .unwrap();
+    assert_eq!(
+        shortest.rows,
+        [vec![text("a"), text("b")], vec![text("a"), text("c")]]
+    );
+
+    // A re-matched list bound by an earlier clause still takes part in
+    // relationship uniqueness with the other traversals of its own clause.
+    let with_other = database
+        .execute(
+            "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1..2]->() WITH rels \
+             MATCH (x)-[rels:NEXT*]->(y)-[other:NEXT*1..3]->(z) \
+             RETURN y.name AS y, z.name AS z ORDER BY y, z",
+        )
+        .unwrap();
+    assert_eq!(
+        with_other.rows,
+        [
+            vec![text("b"), text("c")],
+            vec![text("b"), text("d")],
+            vec![text("c"), text("d")],
+        ]
+    );
+}
+
+#[test]
+fn prebound_relationship_list_rematches_keep_the_existing_rejection_boundary() {
+    let mut database = linear_graph();
+
+    assert!(matches!(
+        database.execute(
+            "MATCH (start:RelListNode)-[rels:NEXT*1]->() \
+             OPTIONAL MATCH (start)-[rels:NEXT*1]->(other) RETURN other"
+        ),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(matches!(
+        database.execute(
+            "MATCH (start:RelListNode)-[rels:NEXT*1]->(), (start)-[rels:NEXT*1]->(other) \
+             SET other.seen = true RETURN other"
+        ),
+        Err(Error::Unsupported(_))
+    ));
+    assert!(
+        database
+            .execute("MATCH (node:RelListNode) WHERE node.seen = true RETURN node")
+            .unwrap()
+            .rows
+            .is_empty()
+    );
 }
 
 #[test]

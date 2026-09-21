@@ -71,8 +71,9 @@ Within those shapes, the first iteration supports:
   `MATCH`, over exactly one variable-length relationship whose lower bound is
   zero or one, with unweighted minimum-trail selection for each matched
   endpoint pair
-- fresh legacy relationship-list bindings in mandatory read-only `MATCH`, such
-  as `[rels:TYPE*min..]`, returned as traversal-ordered typed relationships
+- legacy relationship-list bindings in mandatory read-only `MATCH`, such as
+  `[rels:TYPE*min..]`, returned as traversal-ordered typed relationships; a
+  later occurrence of a bound list matches that exact relationship sequence
 - named paths in mandatory read-only `MATCH`, across fixed, bounded,
   open-ended, and mixed patterns, returned as `CypherValue::Path(PathValue)`
 - `length(path)` as an integer scalar in filters, comparisons, arithmetic,
@@ -224,8 +225,12 @@ members follow traversal order while each relationship keeps its stored
 start/end direction, and zero hops bind `[]`. The list may be returned directly,
 carried through a `WITH` alias, shaped by `RETURN DISTINCT` and pagination, and
 combined through `UNION` or `UNION ALL`; it can also coexist with a named path
-for the same pattern. Exact matching against a pre-bound relationship sequence
-and the other graph-list expression contexts above remain unsupported.
+for the same pattern. Reusing a bound relationship-list variable in a later
+variable-length pattern, in the same `MATCH` or after `WITH`, matches only
+traversals whose relationship sequence equals the bound list position by
+position, while the new pattern keeps its own direction, bounds, type, and
+property filters. The other graph-list expression contexts above remain
+unsupported.
 
 Rust keeps path and graph-list cells pending while branch-local
 `RETURN DISTINCT` and deferred pagination, followed by left-to-right
@@ -244,9 +249,8 @@ mutation, and post-write result evaluation then share one immediate transaction;
 any runtime failure rolls the whole statement back.
 
 Notable omissions include multiple or boolean labels/types, label mutations,
-postfix graph quantifiers, exact matching against a pre-bound relationship
-sequence, modern path selectors, expression-position shortest-path calls, and
-path property access. Legacy shortest-path factors are also rejected in
+postfix graph quantifiers, modern path selectors, expression-position
+shortest-path calls, and path property access. Legacy shortest-path factors are also rejected in
 `OPTIONAL MATCH`, with a same-clause `WHERE` or another comma-separated pattern
 part, with a lower bound above one, or in a write query. Named paths or
 relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,

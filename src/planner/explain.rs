@@ -348,6 +348,11 @@ fn render_match_operator(operator: &MatchOperator) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        MatchOperator::MatchRelationshipList { traversal, path } => format!(
+            "match-relationship-list traversal=~{} path={}",
+            traversal.0,
+            path_slot_name(*path)
+        ),
         MatchOperator::Filter(expression) => format!("filter {}", render_expr(expression)),
     }
 }
@@ -937,6 +942,28 @@ mod tests {
         assert!(physical.contains("walk0.depth < 3"));
         assert!(physical.contains("walk_result0.depth >= 0"));
         assert!(physical.contains("walk_result0.depth <= 3"));
+    }
+
+    #[test]
+    fn explains_prebound_relationship_list_rematches_outside_same_clause_uniqueness() {
+        let same_clause = explain_logical(
+            "MATCH (start)-[rels:NEXT*1..2]->(end), (start)-[rels:NEXT*1..2]->(other), \
+                   (other)-[more:NEXT]->(tail) \
+             RETURN tail",
+        )
+        .unwrap();
+        assert!(same_clause.contains("bind-path path=%p0 start=%0"));
+        assert!(same_clause.contains("match-relationship-list traversal=~1 path=%p0"));
+        assert!(same_clause.contains("distinct-relationships [~0, %3]"));
+        assert!(!same_clause.contains("~1, "));
+
+        let later_clause = explain_logical(
+            "MATCH (start)-[rels:NEXT*1..2]->() WITH rels \
+             MATCH (x)-[rels:NEXT*]->(y)-[other:NEXT]->(z) RETURN z",
+        )
+        .unwrap();
+        assert!(later_clause.contains("match-relationship-list traversal=~1 path=%p0"));
+        assert!(later_clause.contains("distinct-relationships [~1, "));
     }
 
     #[test]

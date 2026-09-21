@@ -323,7 +323,9 @@ composition, the SQLite-depth threshold, and rejection boundaries.
   one SQL fragment per branch. Future non-pushable reads can add a value or row
   operator without reviving traversal-specific SQL bindings; a construct that
   requires SQL-to-Rust-row-to-SQL composition will first need a multi-fragment
-  extension. Exact pre-bound relationship-sequence matching, optional-bound
+  extension. Exact pre-bound relationship-sequence matching compiles to a
+  position-wise SQL comparison between a traversal's ordered edge IDs and the
+  bound list's identity, so it needed no new operator kind. Optional-bound
   paths or relationship lists, modern selectors, deferred shortest forms, and
   path-fed writes remain explicit rejections.
 - Implement `MERGE` last as transactional whole-pattern match/create behavior,
@@ -363,6 +365,13 @@ Concurrent external-writer semantics remain a non-goal.
   before serialization. Both domains are supersets of the SQLite join, so the
   physical-plan tests, generated-SQL corpus, and traversal suites lock in
   unchanged results with fewer explored states and bytes.
+- The pre-bound relationship-list slice is green. A bound list reused on a
+  later variable-length relationship, in the same `MATCH` or after `WITH`,
+  matches only the traversal whose relationship sequence equals it position by
+  position; multi-segment `relationships(path)` aliases compare as one
+  sequence, same-clause re-matches stay out of relationship uniqueness against
+  their own binding, and both SQLite-recursive and Rust-backed producers accept
+  the filter.
 - The retained-memory slice is green. Eligible edges, seed and end-domain
   lists, adjacency maps, search frontiers, visited maps, and retained cycles
   are charged to a third fail-closed counter as they are loaded or queued,
@@ -392,7 +401,8 @@ when released; it no longer blocks local hardening.
 Public default state-budget exhaustion, exact query-wide serialized-payload
 accounting, selective traversal seeding, and deterministic retained-memory
 accounting for loaded edges, adjacency maps, and search frontiers are now
-green. The next physical-boundary feature remains exact matching against a
-pre-bound relationship list. After those local contracts stabilize, adopt a
-small pinned openCypher TCK allowlist and deterministic differential cases. The
+green, and exact matching against a pre-bound relationship list is the latest
+physical-boundary feature to land. With those local contracts stable, the next
+step is a small pinned openCypher TCK allowlist and deterministic differential
+cases. The
 working loop is documented in [testing.md](testing.md).

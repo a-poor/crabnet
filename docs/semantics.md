@@ -497,8 +497,20 @@ The list can be returned directly, carried through `WITH`, shaped by semantic
 distinctness and pagination, combined through unions, and bound alongside the
 named path for the same pattern.
 
-Exact matching against a pre-bound relationship sequence and use in the scalar,
-aggregate, grouping, ordering, or `UNWIND` contexts above remain unsupported.
+A relationship-list variable that is already bound, whether by an earlier
+pattern in the same `MATCH`, by an earlier clause, or as a `WITH` alias of
+`relationships(path)`, may appear again on a variable-length relationship. That
+occurrence does not rebind the variable: it constrains the new traversal so
+that its relationship sequence, in traversal order, equals the bound list
+position by position. A list projected from a multi-segment path compares as
+the concatenation of its segments' relationships. The new pattern keeps its own
+direction, bounds, type, and property filters, so a bound list traversed the
+other way or outside the new bounds simply produces no row. Within one `MATCH`,
+a re-matched occurrence denotes the same relationships as the binding it refers
+to and therefore does not take part in relationship uniqueness against it; a
+list bound by an earlier clause still cannot share relationships with the
+other traversals of the clause that re-matches it. Use in the scalar,
+aggregate, grouping, ordering, or `UNWIND` contexts above remains unsupported.
 Named paths or relationship-list bindings in `OPTIONAL MATCH`, postfix graph
 quantifiers, and writes fed by variable-length traversal, a named path, or a
 relationship list also remain unsupported.
@@ -609,8 +621,8 @@ result.
 
 Semantics for unsupported constructs—including modern path selectors,
 expression-position shortest-path calls, other path expressions beyond the
-three path functions above, exact matching against pre-bound relationship-list
-values, optional-bound paths or relationship lists, postfix graph quantifiers,
+three path functions above, optional-bound paths or relationship lists,
+postfix graph quantifiers,
 the deferred legacy shortest forms listed above, quantified optional matching,
 `MERGE`, label mutation, and computed mutation right-hand sides—remain unresolved
 until those constructs are designed and implemented.
