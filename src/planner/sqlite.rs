@@ -1443,6 +1443,14 @@ impl Compiler {
     }
 
     fn boolean_expression(&mut self, expression: &Expr) -> Result<String> {
+        // Comparisons, logical connectives, string predicates, membership,
+        // and null tests already evaluate to SQLite's three-valued 1/0/NULL,
+        // so they need no type gate. Skipping it matters: the gate repeats
+        // its operand several times, which made a chain of `n` connectives
+        // grow the generated SQL by a factor of about ten per term.
+        if is_native_boolean(expression) {
+            return self.scalar_parts(expression).map(|(value, _)| value);
+        }
         let (value, value_type) = self.scalar_parts(expression)?;
         // Retain the value expression as well as its type gate. Most dynamic
         // types derive from the value, but aggregates can have a static result
@@ -1903,6 +1911,33 @@ fn min_max_parts(
          ELSE 'null' END)"
     );
     (result, result_type)
+}
+
+// Expressions whose SQL value is already a three-valued boolean.
+fn is_native_boolean(expression: &Expr) -> bool {
+    match expression {
+        Expr::Binary { operator, .. } => matches!(
+            operator,
+            BinaryOp::Equal
+                | BinaryOp::NotEqual
+                | BinaryOp::Less
+                | BinaryOp::LessEqual
+                | BinaryOp::Greater
+                | BinaryOp::GreaterEqual
+                | BinaryOp::In
+                | BinaryOp::StartsWith
+                | BinaryOp::EndsWith
+                | BinaryOp::Contains
+                | BinaryOp::Or
+                | BinaryOp::And
+        ),
+        Expr::Unary {
+            operator: UnaryOp::Not,
+            ..
+        }
+        | Expr::IsNull { .. } => true,
+        _ => false,
+    }
 }
 
 fn boolean_parts(value: String) -> (String, String) {

@@ -116,5 +116,8 @@ move the row into the matrix when green.
 1. Pull an `open-cypher` release containing the node-local-`WHERE`
    label-context fix (`0.2.0-alpha.2` does not), then promote the
    following-label regression matrix.
-2. Curated openCypher TCK and differential tests after the selected scenarios'
-   setup clauses and any required path values can be represented faithfully.
+2. Burn down `tests/tck/exclusions.txt`: first the `result-mismatch` and
+   `side-effects-mismatch` rows (list ordering and comparison, NaN equality,
+   `min`/`max` over mixed values, float digits beyond fifteen significant
+   figures, explicit-null properties), then the largest `unsupported` buckets.
+3. Deterministic differential tests against a pinned reference engine.

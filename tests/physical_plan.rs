@@ -1,4 +1,4 @@
-use crabnet::explain_physical;
+use crabnet::{CypherValue, Database, explain_physical};
 
 fn operator_names(explanation: &str) -> Vec<&str> {
     let operators = explanation
@@ -272,5 +272,48 @@ fn trail_paths_flow_through_sql_and_then_hydrate() {
         explanation.matches("batch-hydrate-paths").count(),
         1,
         "path-derived values must use the same final hydration operator:\n{explanation}"
+    );
+}
+
+#[test]
+fn boolean_connective_chains_compile_to_linear_sql() {
+    // Found by the openCypher TCK: the three-valued type gate used to repeat
+    // its operand, so each connective multiplied the generated SQL tenfold and
+    // an eleven-term chain exhausted memory.
+    let chain = |terms: usize, connective: &str| vec!["true"; terms].join(connective);
+    let short = explain_physical(&format!("RETURN {} AS t", chain(2, " AND "))).unwrap();
+    let long = explain_physical(&format!("RETURN {} AS t", chain(12, " AND "))).unwrap();
+    assert!(
+        long.len() < short.len() * 12,
+        "12 terms produced {} bytes against {} for 2 terms",
+        long.len(),
+        short.len()
+    );
+    let filtered = explain_physical(&format!(
+        "MATCH (n) WHERE n.a = 1 {} RETURN n",
+        " AND n.b = 2".repeat(20)
+    ))
+    .unwrap();
+    assert!(filtered.len() < 20_000, "{} bytes", filtered.len());
+
+    let mut database = Database::in_memory().unwrap();
+    let result = database
+        .execute(
+            "RETURN true AND true AND null AND true AS a, \
+                    false AND null AND true AS b, \
+                    null OR null OR true AS c, \
+                    NOT (null AND false) OR false AS d, \
+                    1 = 1 AND NOT 2 < 1 AND 'x' STARTS WITH 'x' AS e",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        [vec![
+            CypherValue::Null,
+            CypherValue::Boolean(false),
+            CypherValue::Boolean(true),
+            CypherValue::Boolean(true),
+            CypherValue::Boolean(true),
+        ]]
     );
 }

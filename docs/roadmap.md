@@ -379,8 +379,13 @@ Concurrent external-writer semantics remain a non-goal.
   per-ID formula so the failure point is platform-independent. Unit tests pin
   hand-computed peaks and exact boundaries; executor tests show the charge
   released between `UNION` branches.
-- Adopt a pinned, curated openCypher TCK allowlist once typed graph values and
-  setup clauses can represent its scenarios faithfully.
+- The openCypher TCK slice is green. The complete openCypher 2024.3 suite is
+  vendored and runs in normal CI against pinned `allowlist.txt` and
+  `exclusions.txt` files that must agree with observed behavior in both
+  directions. Roughly a quarter of the expanded scenarios pass; every other
+  scenario carries a generated reason, dominated by unsupported functions,
+  temporal types, expression forms, and multi-label setup clauses. The first
+  run surfaced and fixed exponential SQL growth in boolean connective chains.
 - Add deterministic differential tests against a pinned reference engine;
   minimize every mismatch into a permanent local regression.
 - Optimize only after benchmarks identify a real bottleneck.
@@ -399,10 +404,11 @@ normalization invariants are now green as well. Consume the upstream parser fix
 when released; it no longer blocks local hardening.
 
 Public default state-budget exhaustion, exact query-wide serialized-payload
-accounting, selective traversal seeding, and deterministic retained-memory
-accounting for loaded edges, adjacency maps, and search frontiers are now
-green, and exact matching against a pre-bound relationship list is the latest
-physical-boundary feature to land. With those local contracts stable, the next
-step is a small pinned openCypher TCK allowlist and deterministic differential
-cases. The
+accounting, selective traversal seeding, deterministic retained-memory
+accounting, and exact matching against a pre-bound relationship list are green,
+and the pinned openCypher TCK run is in place. The working order from here is
+to burn down `tests/tck/exclusions.txt` by category, starting with the
+`result-mismatch` and `side-effects-mismatch` rows because they are wrong
+answers rather than rejections, then the largest `unsupported` buckets, before
+adding deterministic differential cases. The
 working loop is documented in [testing.md](testing.md).

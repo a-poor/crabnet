@@ -324,6 +324,8 @@ general staged executor can replace it later without changing the logical plan.
   chosen so far.
 - [Testing workflow](docs/testing.md) describes the focused TDD loop and the
   broader conformance strategy.
+- [openCypher TCK run](tests/tck/README.md) explains the vendored suite, its
+  pinned allowlist and exclusion reasons, and how to update them.
 
 This codebase is still disposable in the useful sense: APIs, modules, and the
 fresh SQLite schema may be reshaped as experiments demand. There is no deployed

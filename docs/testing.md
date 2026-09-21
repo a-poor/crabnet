@@ -223,11 +223,13 @@ proportional to their value.
    valid slot references, placeholder/binding agreement, and SQL that SQLite
    can prepare. Keep seeds reproducible and turn minimized failures into named
    regression tests.
-4. **A curated openCypher TCK subset.** Add this after the result model can
-   represent the graph values required by the chosen scenarios. Pin the TCK
-   revision, maintain an explicit scenario allowlist and exclusion reasons,
-   and require every allowlisted scenario to pass. Run the small deterministic
-   subset in normal CI rather than importing a mostly skipped suite.
+4. **A pinned openCypher TCK run.** `tests/tck.rs` executes the whole
+   vendored openCypher 2024.3 suite in normal CI. `tests/tck/allowlist.txt`
+   names the scenarios that must pass and `tests/tck/exclusions.txt` names
+   every other scenario with its observed, generated reason. The test fails
+   on a regression, a newly passing scenario, or a changed reason, so the
+   exclusion list is an explicit, reviewed backlog rather than a skip list.
+   See `tests/tck/README.md` for the step semantics and update workflow.
 5. **Differential testing.** After the supported grammar and result
    normalization are stable, generate small valid queries and graphs and
    compare them with a pinned reference implementation. Preserve bag
@@ -271,5 +273,15 @@ budget on a graph whose unconstrained seeding exhausts it. Retained-memory
 accounting is covered by producer unit tests that pin hand-computed peaks,
 exact boundaries, and zero residual charge after depth-first and shortest-path
 searches, plus executor tests showing the charge propagates as
-`Error::ResourceLimit` and is released between `UNION` branches. Concurrent
-external-writer behavior remains outside the test goal.
+`Error::ResourceLimit` and is released between `UNION` branches.
+
+The openCypher TCK now runs as a pinned conformance oracle. Its first run found
+a real defect: the three-valued boolean type gate repeated its operand, so each
+`AND`/`OR` multiplied the generated SQL tenfold and an eleven-term chain
+exhausted memory. `boolean_connective_chains_compile_to_linear_sql` in
+`tests/physical_plan.rs` is that mismatch minimized into a permanent local
+regression. The exclusion reasons also make several documented deviations
+visible as concrete scenarios: explicit-null properties are stored rather than
+dropped, floats lose digits beyond fifteen significant figures when they pass
+through SQLite JSON text, and list concatenation with `+` is unsupported.
+Concurrent external-writer behavior remains outside the test goal.
