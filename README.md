@@ -152,8 +152,11 @@ match result before writing, then applies the `CREATE` template once per input
 row. A zero-row match is a no-op; duplicate and Cartesian-product rows each
 produce their own mutations. Fresh entities are fresh per row, and a matched
 node may be reused in `CREATE` only as a bare `(variable)` reference. When a
-`RETURN` is present, it emits one post-mutation row per input row and may refer
-to both matched and created entities.
+`RETURN` is present, it runs as an ordinary read projection over the
+post-mutation rows, so it may refer to matched and created entities, compute
+expressions, aggregate, and use `DISTINCT`, `ORDER BY`, `SKIP`, and `LIMIT`.
+Property values in `CREATE` and `SET` may likewise be computed from the row,
+including from entities created or updated earlier in the same statement.
 
 Matched property updates operate on the same materialized input bag. Direct
 assignment to `null` removes a property, as does a `null` entry in a `+=` map;
@@ -272,9 +275,7 @@ part, with a lower bound above one, or in a write query. Named paths or
 relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,
 traversal-fed writes (including writes fed by a relationship list), writes fed
 by any named path, match modes and hints, parameter-map matching,
-`RETURN *`, `MERGE`, exponentiation (`^`), concatenation (`||`), computed
-right-hand sides for property updates, and computed projections or
-`DISTINCT`/`ORDER BY`/`SKIP`/`OFFSET`/`LIMIT` after mutations. Paths also cannot
+`RETURN *`, `MERGE`, exponentiation (`^`), and concatenation (`||`). Paths also cannot
 themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.

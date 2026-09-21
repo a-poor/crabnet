@@ -149,10 +149,15 @@ fn resolve_bindings(bindings: &[SqlParameter], parameters: &Parameters) -> Resul
         .collect()
 }
 
+/// The temporary table a mutation pipeline fills with its materialized rows
+/// before running a post-mutation `RETURN` over them.
+pub(crate) const ROWS_TABLE: &str = "_crabnet_rows";
+
 pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<CompiledRead> {
     let mut compiler = Compiler::new();
     match input {
         Input::Unit => {}
+        Input::Rows(slots) => compiler.compile_rows(slots),
         Input::Match(plan) => compiler.compile_match(plan)?,
         Input::Pipeline(pipeline) => {
             for stage in &pipeline.stages {
@@ -450,6 +455,25 @@ impl Compiler {
             ctes: Vec::new(),
             has_recursive_cte: false,
         }
+    }
+
+    /// Reads materialized mutation rows from `ROWS_TABLE`, whose column
+    /// `e{slot}` holds each slot's encoded entity record (NULL when the slot
+    /// is unbound in that row). Rows keep their input order unless the
+    /// projection orders them itself.
+    fn compile_rows(&mut self, slots: &[(SlotId, EntityKind)]) {
+        let relation = "mr";
+        for (slot, kind) in slots {
+            self.entities.insert(
+                *slot,
+                EntitySource::Encoded {
+                    sql: format!("{relation}.e{}", slot.0),
+                    kind: *kind,
+                },
+            );
+        }
+        self.from.push(format!("{ROWS_TABLE} AS {relation}"));
+        self.ordering = Some(format!("{relation}.rowid"));
     }
 
     fn compile_match(&mut self, plan: &MatchPlan) -> Result<()> {

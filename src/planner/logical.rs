@@ -881,6 +881,19 @@ pub(crate) enum Input {
     Unit,
     Match(MatchPlan),
     Pipeline(ReadPipeline),
+    /// Rows already materialized by a mutation pipeline, exposed to the SQL
+    /// compiler through the `_crabnet_rows` temporary table with one encoded
+    /// entity column per slot. The post-mutation `RETURN` runs over it.
+    Rows(Vec<(SlotId, EntityKind)>),
+}
+
+/// A value written by `CREATE` or `SET`: a literal or parameter shape that
+/// is resolved once per statement, or an expression evaluated per input row
+/// over the materialized rows.
+#[derive(Clone, Debug)]
+pub(crate) enum StoredValue {
+    Static(ValueExpr),
+    Computed(Expr),
 }
 
 #[derive(Clone, Debug)]
@@ -888,27 +901,27 @@ pub(crate) enum Mutation {
     CreateNode {
         slot: SlotId,
         label: Option<String>,
-        properties: ValueExpr,
+        properties: StoredValue,
     },
     CreateRelationship {
         slot: SlotId,
         relationship_type: String,
         from: SlotId,
         to: SlotId,
-        properties: ValueExpr,
+        properties: StoredValue,
     },
     SetProperty {
         slot: SlotId,
         key: String,
-        value: ValueExpr,
+        value: StoredValue,
     },
     ReplaceProperties {
         slot: SlotId,
-        properties: ValueExpr,
+        properties: StoredValue,
     },
     MergeProperties {
         slot: SlotId,
-        properties: ValueExpr,
+        properties: StoredValue,
     },
     RemoveProperty {
         slot: SlotId,
@@ -952,41 +965,6 @@ pub(crate) struct Query {
     pub(crate) projection: Option<Projection>,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) enum ResolvedExpr {
-    Value(Value),
-    Entity(SlotId),
-    Property(SlotId, String),
-    ElementId(SlotId),
-    Labels(SlotId),
-    RelationshipType(SlotId),
-}
-
-impl Expr {
-    pub(crate) fn resolve_output(&self, parameters: &Parameters) -> Result<ResolvedExpr> {
-        match self {
-            Self::Value(value) => value.resolve(parameters).map(ResolvedExpr::Value),
-            Self::Entity(slot) => Ok(ResolvedExpr::Entity(*slot)),
-            Self::Scalar(_) => Err(Error::Data(
-                "a write projection contained an intermediate scalar slot".into(),
-            )),
-            Self::Path(_) => Err(Error::Data(
-                "a write projection contained a path slot".into(),
-            )),
-            Self::PathFunction { .. } => Err(Error::Data(
-                "a write projection contained a path function".into(),
-            )),
-            Self::Property(slot, key) => Ok(ResolvedExpr::Property(*slot, key.clone())),
-            Self::ElementId(slot) => Ok(ResolvedExpr::ElementId(*slot)),
-            Self::Labels(slot) => Ok(ResolvedExpr::Labels(*slot)),
-            Self::RelationshipType(slot) => Ok(ResolvedExpr::RelationshipType(*slot)),
-            _ => Err(Error::Data(
-                "a write projection contained a non-output expression".into(),
-            )),
-        }
-    }
-}
-
 pub(crate) fn require_object(value: &Value, description: &str) -> Result<()> {
     if value.is_object() {
         Ok(())
@@ -1001,7 +979,7 @@ pub(crate) fn validate_storable_value(value: &Value) -> Result<()> {
     validate_json_value(value, MAX_USER_VALUE_NESTING)
 }
 
-fn validate_storable_properties(value: &Value) -> Result<()> {
+pub(crate) fn validate_storable_properties(value: &Value) -> Result<()> {
     let Value::Object(properties) = value else {
         return Err(Error::Semantic("properties must be a map".into()));
     };

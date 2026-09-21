@@ -347,10 +347,6 @@ fn parse_semantic_and_unsupported_errors_are_distinct() {
         database.execute("MATCH (node) RETURN id(node)"),
         Err(Error::Unsupported(_))
     ));
-    assert!(matches!(
-        database.execute("CREATE (node) RETURN node.value + 1"),
-        Err(Error::Unsupported(_))
-    ));
 }
 
 #[test]

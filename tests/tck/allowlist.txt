@@ -10,6 +10,7 @@ clauses/create/Create1.feature::[17] Fail when adding new label predicate on a n
 clauses/create/Create1.feature::[18] Fail when adding new label predicate on a node that is already bound 4
 clauses/create/Create1.feature::[19] Fail when adding new label predicate on a node that is already bound 5
 clauses/create/Create1.feature::[1] Create a single node
+clauses/create/Create1.feature::[20] Fail when creating a node using undefined variable in pattern
 clauses/create/Create1.feature::[2] Create two nodes
 clauses/create/Create1.feature::[3] Create a single node with a label
 clauses/create/Create1.feature::[4] Create two nodes with same label
@@ -26,6 +27,7 @@ clauses/create/Create2.feature::[16] Create a single relationship with two prope
 clauses/create/Create2.feature::[18] Fail when creating a relationship without a type
 clauses/create/Create2.feature::[1] Create two nodes and a single relationship in a single pattern
 clauses/create/Create2.feature::[23] Fail when creating a relationship that is already bound
+clauses/create/Create2.feature::[24] Fail when creating a relationship using undefined variable in pattern
 clauses/create/Create2.feature::[2] Create two nodes and a single relationship in separate patterns
 clauses/create/Create2.feature::[3] Create two nodes and a single relationship in separate clauses
 clauses/create/Create2.feature::[4] Create two nodes and a single relationship in the reverse direction
@@ -42,13 +44,27 @@ clauses/create/Create5.feature::[1] Create a pattern with multiple hops
 clauses/create/Create5.feature::[2] Create a pattern with multiple hops in the reverse direction
 clauses/create/Create5.feature::[3] Create a pattern with multiple hops in varying directions
 clauses/create/Create5.feature::[4] Create a pattern with multiple hops with multiple types and varying directions
+clauses/create/Create6.feature::[1] Limiting to zero results after creating nodes affects the result set but not the side effects
+clauses/create/Create6.feature::[2] Skipping all results after creating nodes affects the result set but not the side effects
+clauses/create/Create6.feature::[8] Limiting to zero results after creating relationships affects the result set but not the side effects
+clauses/create/Create6.feature::[9] Skipping all results after creating relationships affects the result set but not the side effects
 clauses/delete/Delete1.feature::[1] Delete nodes
 clauses/delete/Delete1.feature::[2] Detach delete node
 clauses/delete/Delete1.feature::[3] Detach deleting connected nodes and relationships
 clauses/delete/Delete1.feature::[8] Failing when deleting a label
 clauses/delete/Delete2.feature::[5] Failing when deleting a relationship type
+clauses/delete/Delete4.feature::[1] Undirected expand followed by delete and count
+clauses/delete/Delete4.feature::[3] Create and delete in same query
 clauses/delete/Delete5.feature::[8] Failing when using undefined variable in DELETE
 clauses/delete/Delete5.feature::[9] Failing when deleting an integer expression
+clauses/delete/Delete6.feature::[10] Skipping and limiting to a few results after deleting relationships affects the result set but not the side effects
+clauses/delete/Delete6.feature::[11] Skipping zero result and limiting to all results after deleting relationships does not affect the result set nor the side effects
+clauses/delete/Delete6.feature::[1] Limiting to zero results after deleting nodes affects the result set but not the side effects
+clauses/delete/Delete6.feature::[2] Skipping all results after deleting nodes affects the result set but not the side effects
+clauses/delete/Delete6.feature::[3] Skipping and limiting to a few results after deleting nodes affects the result set but not the side effects
+clauses/delete/Delete6.feature::[4] Skipping zero results and limiting to all results after deleting nodes does not affect the result set nor the side effects
+clauses/delete/Delete6.feature::[8] Limiting to zero results after deleting relationships affects the result set but not the side effects
+clauses/delete/Delete6.feature::[9] Skipping all results after deleting relationships affects the result set but not the side effects
 clauses/match-where/MatchWhere1.feature::[10] Filter node with disjunctive property predicate on single variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[11] Filter relationship with disjunctive relationship type predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[12] Filter path with path length predicate on multi variables with one binding
@@ -289,6 +305,9 @@ clauses/match/Match5.feature::[21] Handling a variable length relationship and a
 clauses/match/Match5.feature::[22] Handling a variable length relationship and a standard relationship in chain, single length 2
 clauses/match/Match5.feature::[23] Handling a variable length relationship and a standard relationship in chain, longer 1
 clauses/match/Match5.feature::[24] Handling a variable length relationship and a standard relationship in chain, longer 2
+clauses/match/Match5.feature::[25] Handling a variable length relationship and a standard relationship in chain, longer 3
+clauses/match/Match5.feature::[28] Handling mixed relationship patterns 1
+clauses/match/Match5.feature::[29] Handling mixed relationship patterns 2
 clauses/match/Match5.feature::[2] Handling explicitly unbounded variable length match
 clauses/match/Match5.feature::[3] Handling single bounded variable length match 1
 clauses/match/Match5.feature::[4] Handling single bounded variable length match 2
@@ -412,6 +431,21 @@ clauses/match/Match8.feature::[3] Matching and disregarding output, then matchin
 clauses/match/Match9.feature::[2] Return relationships by collecting them as a list - directed, one way
 clauses/match/Match9.feature::[3] Return relationships by collecting them as a list - undirected, starting from two extremes
 clauses/match/Match9.feature::[4] Return relationships by collecting them as a list - undirected, starting from one extreme
+clauses/remove/Remove1.feature::[1] Remove a single node property
+clauses/remove/Remove1.feature::[2] Remove multiple node properties
+clauses/remove/Remove1.feature::[3] Remove a single relationship property
+clauses/remove/Remove1.feature::[4] Remove multiple relationship properties
+clauses/remove/Remove1.feature::[7] Remove a missing node property
+clauses/remove/Remove3.feature::[15] Limiting to zero results after removing a property from relationships affects the result set but not the side effects
+clauses/remove/Remove3.feature::[16] Skipping all results after removing a property from relationships affects the result set but not the side effects
+clauses/remove/Remove3.feature::[17] Skipping and limiting to a few results after removing a property from relationships affects the result set but not the side effects
+clauses/remove/Remove3.feature::[18] Skipping zero result and limiting to all results after removing a property from relationships does not affect the result set nor the side effects
+clauses/remove/Remove3.feature::[1] Limiting to zero results after removing a property from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[20] Aggregating in `RETURN` after removing a property from relationships affects the result set but not the side effects
+clauses/remove/Remove3.feature::[2] Skipping all results after removing a property from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[3] Skipping and limiting to a few results after removing a property from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[4] Skipping zero results and limiting to all results after removing a property from nodes does not affect the result set nor the side effects
+clauses/remove/Remove3.feature::[6] Aggregating in `RETURN` after removing a property from nodes affects the result set but not the side effects
 clauses/return-orderby/ReturnOrderBy1.feature::[1] ORDER BY should order booleans in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[2] ORDER BY DESC should order booleans in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[3] ORDER BY should order strings in the expected order
@@ -497,6 +531,11 @@ clauses/return/Return6.feature::[8] Handle aggregation on functions
 clauses/return/Return8.feature::[1] Return aggregation after With filtering
 clauses/set/Set1.feature::[11] Set multiple node properties
 clauses/set/Set1.feature::[1] Set a property
+clauses/set/Set1.feature::[2] Set a property to an expression
+clauses/set/Set1.feature::[5] Adding a list property
+clauses/set/Set1.feature::[6] Concatenate elements onto a list property
+clauses/set/Set1.feature::[7] Concatenate elements in reverse onto a list property
+clauses/set/Set1.feature::[9] Failing when using undefined variable in SET
 clauses/set/Set2.feature::[1] Setting a node property to null removes the existing property
 clauses/set/Set2.feature::[2] Setting a node property to null removes the existing property, but not before SET
 clauses/set/Set2.feature::[3] Setting a relationship property to null removes the existing property
@@ -507,6 +546,16 @@ clauses/set/Set5.feature::[2] Overwrite values when using +=
 clauses/set/Set5.feature::[3] Retain old values when using +=
 clauses/set/Set5.feature::[4] Explicit null values in a map remove old values
 clauses/set/Set5.feature::[5] Set an empty map when using += has no effect
+clauses/set/Set6.feature::[15] Limiting to zero results after setting a property on relationships affects the result set but not the side effects
+clauses/set/Set6.feature::[16] Skipping all results after setting a property on relationships affects the result set but not the side effects
+clauses/set/Set6.feature::[17] Skipping and limiting to a few results after setting a property on relationships affects the result set but not the side effects
+clauses/set/Set6.feature::[18] Skipping zero result and limiting to all results after setting a property on relationships does not affect the result set nor the side effects
+clauses/set/Set6.feature::[1] Limiting to zero results after setting a property on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[20] Aggregating in `RETURN` after setting a property on relationships affects the result set but not the side effects
+clauses/set/Set6.feature::[2] Skipping all results after setting a property on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[3] Skipping and limiting to a few results after setting a property on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[4] Skipping zero results and limiting to all results after setting a property on nodes does not affect the result set nor the side effects
+clauses/set/Set6.feature::[6] Aggregating in `RETURN` after setting a property on nodes affects the result set but not the side effects
 clauses/union/Union1.feature::[1] Two elements, both unique, distinct
 clauses/union/Union1.feature::[2] Three elements, two unique, distinct
 clauses/union/Union1.feature::[3] Two single-column inputs, one with duplicates, distinct
@@ -731,8 +780,10 @@ clauses/with-orderBy/WithOrderBy4.feature::[6] Sort by aliases of two projected 
 clauses/with-orderBy/WithOrderBy4.feature::[7] Sort by an alias of a projected expression where the alias shadows an existing variable
 clauses/with-orderBy/WithOrderBy4.feature::[8] Sort by non-projected existing variable
 clauses/with-orderBy/WithOrderBy4.feature::[9] Sort by an alias of a projected expression containing the variable shadowed by the alias
+clauses/with-skip-limit/WithSkipLimit1.feature::[1] Handle dependencies across WITH with SKIP
 clauses/with-skip-limit/WithSkipLimit1.feature::[2] Ordering and skipping on aggregate
 clauses/with-skip-limit/WithSkipLimit2.feature::[1] ORDER BY and LIMIT can be used
+clauses/with-skip-limit/WithSkipLimit2.feature::[2] Handle dependencies across WITH with LIMIT
 clauses/with-skip-limit/WithSkipLimit2.feature::[4] Ordering and limiting on aggregate
 clauses/with-skip-limit/WithSkipLimit3.feature::[1] Get rows in the middle
 clauses/with-skip-limit/WithSkipLimit3.feature::[2] Get rows in the middle by param
@@ -747,6 +798,7 @@ clauses/with-where/WithWhere6.feature::[1] Filter a single aggregate
 clauses/with/With1.feature::[3] Forwarding a relationship variable
 clauses/with/With1.feature::[4] Forwarding a path variable
 clauses/with/With1.feature::[6] Forwarding a node variable possibly null
+clauses/with/With2.feature::[1] Forwarding a property to express a join
 clauses/with/With2.feature::[2] Forwarding a nested map literal
 clauses/with/With3.feature::[1] Forwarding multiple node and relationship variables
 clauses/with/With4.feature::[1] Aliasing relationship variable
@@ -866,6 +918,8 @@ expressions/graph/Graph6.feature::[5] Statically access a property of a non-null
 expressions/graph/Graph6.feature::[6] Statically access a property of a optional non-null relationship
 expressions/graph/Graph6.feature::[7] Statically access a property of a null relationship
 expressions/graph/Graph7.feature::[1] Execute n['name'] in read queries
+expressions/graph/Graph7.feature::[2] Execute n['name'] in update queries
+expressions/graph/Graph7.feature::[3] Use dynamic property lookup based on parameters when there is lhs type information
 expressions/graph/Graph8.feature::[1] Using `keys()` on a single node, non-empty result
 expressions/graph/Graph8.feature::[2] Using `keys()` on multiple nodes, non-empty result
 expressions/graph/Graph8.feature::[3] Using `keys()` on a single node, empty result
@@ -989,9 +1043,11 @@ expressions/list/List5.feature::[7] IN should return false when types of LHS and
 expressions/list/List5.feature::[8] IN should return false when types of LHS and RHS don't match - list
 expressions/list/List5.feature::[9] IN should return true when types of LHS and RHS match - singleton list
 expressions/list/List6.feature::[1] Return list size
+expressions/list/List6.feature::[2] Setting and returning the size of a list property
 expressions/list/List6.feature::[3] Concatenating and returning the size of literal lists
 expressions/list/List6.feature::[4] `size()` on null list
 expressions/list/List6.feature::[5] Fail for `size()` on paths
+expressions/list/List9.feature::[1] Returning nested expressions based on list property
 expressions/literals/Literals1.feature::[1] Return a boolean true lower case
 expressions/literals/Literals1.feature::[2] Return a boolean true upper case
 expressions/literals/Literals1.feature::[3] Return a boolean false lower case

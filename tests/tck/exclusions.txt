@@ -53,7 +53,6 @@ clauses/call/Call6.feature::[1] Calling the same STRING procedure twice using th
 clauses/call/Call6.feature::[2] Project procedure results between query scopes with WITH clause	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: STRING?):
 clauses/call/Call6.feature::[3] Project procedure results between query scopes with WITH clause and rename the projection	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: STRING?):
 clauses/create/Create1.feature::[11] Create a single node with null properties should not return those properties	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 2, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
-clauses/create/Create1.feature::[20] Fail when creating a node using undefined variable in pattern	wrong-error-kind: unsupported: non-literal stored value expression
 clauses/create/Create1.feature::[5] Create a single node with multiple labels	unsupported: multiple or boolean node labels
 clauses/create/Create1.feature::[6] Create three nodes with multiple labels	unsupported: multiple or boolean node labels
 clauses/create/Create2.feature::[17] Create a single relationship with null properties should not return those properties	side-effects-mismatch: observed SideEffects { nodes_added: 2, nodes_removed: 0, relationships_added: 1, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 2, properties_removed: 0 }, expected SideEffects { nodes_added: 2, nodes_removed: 0, relationships_added: 1, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
@@ -61,7 +60,6 @@ clauses/create/Create2.feature::[19] Fail when creating a relationship without a
 clauses/create/Create2.feature::[20] Fail when creating a relationship with two directions	wrong-error-kind: unsupported: undirected relationships in CREATE
 clauses/create/Create2.feature::[21] Fail when creating a relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/create/Create2.feature::[22] Fail when creating a variable-length relationship	wrong-error-kind: unsupported: quantified or filtered relationships in CREATE
-clauses/create/Create2.feature::[24] Fail when creating a relationship using undefined variable in pattern	wrong-error-kind: unsupported: non-literal stored value expression
 clauses/create/Create3.feature::[10] WITH-UNWIND-CREATE: A bound node should be recognized after projection with WITH + UNWIND	unsupported: writes in a read pipeline
 clauses/create/Create3.feature::[11] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE node	unsupported: writes in a read pipeline
 clauses/create/Create3.feature::[12] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE pattern	unsupported: writes in a read pipeline
@@ -79,15 +77,11 @@ clauses/create/Create6.feature::[11] Skipping zero result and limiting to all re
 clauses/create/Create6.feature::[12] Filtering after creating relationships affects the result set but not the side effects	unsupported: writes in a read pipeline
 clauses/create/Create6.feature::[13] Aggregating in `RETURN` after creating relationships affects the result set but not the side effects	unsupported: writes in a read pipeline
 clauses/create/Create6.feature::[14] Aggregating in `WITH` after creating relationships affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[1] Limiting to zero results after creating nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/create/Create6.feature::[2] Skipping all results after creating nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
 clauses/create/Create6.feature::[3] Skipping and limiting to a few results after creating nodes does not affect the result set nor the side effects	unsupported: writes in a read pipeline
 clauses/create/Create6.feature::[4] Skipping zero result and limiting to all results after creating nodes does not affect the result set nor the side effects	unsupported: writes in a read pipeline
 clauses/create/Create6.feature::[5] Filtering after creating nodes affects the result set but not the side effects	unsupported: writes in a read pipeline
 clauses/create/Create6.feature::[6] Aggregating in `RETURN` after creating nodes affects the result set but not the side effects	unsupported: writes in a read pipeline
 clauses/create/Create6.feature::[7] Aggregating in `WITH` after creating nodes affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[8] Limiting to zero results after creating relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/create/Create6.feature::[9] Skipping all results after creating relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
 clauses/delete/Delete1.feature::[4] Delete on null node	unsupported: DELETE
 clauses/delete/Delete1.feature::[5] Ignore null when deleting node	unsupported: DELETE
 clauses/delete/Delete1.feature::[6] Detach delete on null node	unsupported: DELETE
@@ -98,9 +92,7 @@ clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional match
 clauses/delete/Delete2.feature::[4] Ignore null when deleting relationship	unsupported: DELETE
 clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: path variable `p` is not a graph entity
 clauses/delete/Delete3.feature::[2] Delete on null path	unsupported: DELETE
-clauses/delete/Delete4.feature::[1] Undirected expand followed by delete and count	unsupported: aggregate projection after a mutation
-clauses/delete/Delete4.feature::[2] Undirected variable length expand followed by delete and count	unsupported: aggregate projection after a mutation
-clauses/delete/Delete4.feature::[3] Create and delete in same query	unsupported: this CREATE clause sequence
+clauses/delete/Delete4.feature::[2] Undirected variable length expand followed by delete and count	unsupported: writes fed by variable-length traversal
 clauses/delete/Delete5.feature::[1] Delete node from a list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[2] Delete relationship from a list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[3] Delete nodes from a map	semantic-error: graph variable `u` is not a scalar expression
@@ -108,20 +100,12 @@ clauses/delete/Delete5.feature::[4] Delete relationships from a map	semantic-err
 clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
-clauses/delete/Delete6.feature::[10] Skipping and limiting to a few results after deleting relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/delete/Delete6.feature::[11] Skipping zero result and limiting to all results after deleting relationships does not affect the result set nor the side effects	unsupported: projection modifiers after a mutation
 clauses/delete/Delete6.feature::[12] Filtering after deleting relationships affects the result set but not the side effects	unsupported: DELETE
 clauses/delete/Delete6.feature::[13] Aggregating in `RETURN` after deleting relationships affects the result set but not the side effects	unsupported: DELETE
 clauses/delete/Delete6.feature::[14] Aggregating in `WITH` after deleting relationships affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[1] Limiting to zero results after deleting nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/delete/Delete6.feature::[2] Skipping all results after deleting nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/delete/Delete6.feature::[3] Skipping and limiting to a few results after deleting nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/delete/Delete6.feature::[4] Skipping zero results and limiting to all results after deleting nodes does not affect the result set nor the side effects	unsupported: projection modifiers after a mutation
 clauses/delete/Delete6.feature::[5] Filtering after deleting nodes affects the result set but not the side effects	unsupported: DELETE
 clauses/delete/Delete6.feature::[6] Aggregating in `RETURN` after deleting nodes affects the result set but not the side effects	unsupported: DELETE
 clauses/delete/Delete6.feature::[7] Aggregating in `WITH` after deleting nodes affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[8] Limiting to zero results after deleting relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/delete/Delete6.feature::[9] Skipping all results after deleting relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
 clauses/match-where/MatchWhere1.feature::[1] Filter node with node label predicate on multi variables with multiple bindings	unsupported: IS predicate
 clauses/match-where/MatchWhere1.feature::[2] Filter node with node label predicate on multi variables without any bindings	unsupported: IS predicate
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
@@ -144,11 +128,8 @@ clauses/match/Match4.feature::[4] Matching longer variable length paths	setup-fa
 clauses/match/Match4.feature::[5] Matching variable length pattern with property predicate	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match4.feature::[7] Matching variable length patterns including a bound relationship	unsupported: path values or path collections in aggregate functions
 clauses/match/Match4.feature::[8] Matching relationships into a list and matching variable length using the list	semantic-error: graph variable `r1` is not a scalar expression
-clauses/match/Match5.feature::[25] Handling a variable length relationship and a standard relationship in chain, longer 3	setup-failed: unsupported: non-literal stored value expression
-clauses/match/Match5.feature::[26] Handling mixed relationship patterns and directions 1	setup-failed: unsupported: this CREATE clause sequence
+clauses/match/Match5.feature::[26] Handling mixed relationship patterns and directions 1	setup-failed: unsupported: mutation clause after DELETE
 clauses/match/Match5.feature::[27] Handling mixed relationship patterns and directions 2	setup-failed: unsupported: IS predicate
-clauses/match/Match5.feature::[28] Handling mixed relationship patterns 1	setup-failed: unsupported: non-literal stored value expression
-clauses/match/Match5.feature::[29] Handling mixed relationship patterns 2	setup-failed: unsupported: non-literal stored value expression
 clauses/match/Match6.feature::[12] Matching path with multiple bidirectional relationships	unsupported: bidirectional relationship patterns
 clauses/match/Match6.feature::[13] Matching path with both directions should respect other directions	unsupported: bidirectional relationship patterns
 clauses/match/Match7.feature::[11] Return two subgraphs with bound undirected relationship and optional relationship	semantic-error: graph variable `r` is not a scalar expression
@@ -249,13 +230,8 @@ clauses/merge/Merge9.feature::[1] UNWIND with one MERGE	unsupported: MERGE
 clauses/merge/Merge9.feature::[2] UNWIND with multiple MERGE	unsupported: MERGE
 clauses/merge/Merge9.feature::[3] Mixing MERGE with CREATE	unsupported: MERGE
 clauses/merge/Merge9.feature::[4] MERGE after WITH with predicate and WITH with aggregation	unsupported: WITH DISTINCT
-clauses/remove/Remove1.feature::[1] Remove a single node property	unsupported: computed projection after a mutation
-clauses/remove/Remove1.feature::[2] Remove multiple node properties	unsupported: computed projection after a mutation
-clauses/remove/Remove1.feature::[3] Remove a single relationship property	unsupported: computed projection after a mutation
-clauses/remove/Remove1.feature::[4] Remove multiple relationship properties	unsupported: computed projection after a mutation
 clauses/remove/Remove1.feature::[5] Ignore null when removing property from a node	unsupported: REMOVE
 clauses/remove/Remove1.feature::[6] Ignore null when removing property from a relationship	unsupported: REMOVE
-clauses/remove/Remove1.feature::[7] Remove a missing node property	unsupported: aggregate projection after a mutation
 clauses/remove/Remove2.feature::[1] Remove a single label from a node with a single label	unsupported: removing labels
 clauses/remove/Remove2.feature::[2] Remove a single label from a node with two labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/remove/Remove2.feature::[3] Remove two labels from a node with three labels	setup-failed: unsupported: multiple or boolean node labels
@@ -266,19 +242,9 @@ clauses/remove/Remove3.feature::[11] Skipping zero result and limiting to all re
 clauses/remove/Remove3.feature::[12] Filtering after removing a label from nodes affects the result set but not the side effects	unsupported: REMOVE
 clauses/remove/Remove3.feature::[13] Aggregating in `RETURN` after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[14] Aggregating in `WITH` after removing a label from nodes affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[15] Limiting to zero results after removing a property from relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/remove/Remove3.feature::[16] Skipping all results after removing a property from relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/remove/Remove3.feature::[17] Skipping and limiting to a few results after removing a property from relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/remove/Remove3.feature::[18] Skipping zero result and limiting to all results after removing a property from relationships does not affect the result set nor the side effects	unsupported: projection modifiers after a mutation
 clauses/remove/Remove3.feature::[19] Filtering after removing a property from relationships affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[1] Limiting to zero results after removing a property from nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/remove/Remove3.feature::[20] Aggregating in `RETURN` after removing a property from relationships affects the result set but not the side effects	unsupported: aggregate projection after a mutation
 clauses/remove/Remove3.feature::[21] Aggregating in `WITH` after removing a property from relationships affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[2] Skipping all results after removing a property from nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/remove/Remove3.feature::[3] Skipping and limiting to a few results after removing a property from nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/remove/Remove3.feature::[4] Skipping zero results and limiting to all results after removing a property from nodes does not affect the result set nor the side effects	unsupported: projection modifiers after a mutation
 clauses/remove/Remove3.feature::[5] Filtering after removing a property from nodes affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[6] Aggregating in `RETURN` after removing a property from nodes affects the result set but not the side effects	unsupported: aggregate projection after a mutation
 clauses/remove/Remove3.feature::[7] Aggregating in `WITH` after removing a property from nodes affects the result set but not the side effects	unsupported: REMOVE
 clauses/remove/Remove3.feature::[8] Limiting to zero results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[9] Skipping all results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
@@ -328,15 +294,10 @@ clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expre
 clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return7.feature::[1] Return all variables	unsupported: RETURN *
 clauses/return/Return7.feature::[2] Fail when using RETURN * without variables in scope	wrong-error-kind: unsupported: RETURN *
-clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	wrong-error-kind: unsupported: this CREATE clause sequence
-clauses/set/Set1.feature::[2] Set a property to an expression	unsupported: non-literal stored value expression
+clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
-clauses/set/Set1.feature::[5] Adding a list property	unsupported: computed projection after a mutation
-clauses/set/Set1.feature::[6] Concatenate elements onto a list property	unsupported: this CREATE clause sequence
-clauses/set/Set1.feature::[7] Concatenate elements in reverse onto a list property	unsupported: this CREATE clause sequence
 clauses/set/Set1.feature::[8] Ignore null when setting property	unsupported: SET
-clauses/set/Set1.feature::[9] Failing when using undefined variable in SET	wrong-error-kind: unsupported: non-literal stored value expression
 clauses/set/Set3.feature::[1] Add a single label to a node with no label	unsupported: setting labels
 clauses/set/Set3.feature::[2] Adding multiple labels to a node with no label	unsupported: setting labels
 clauses/set/Set3.feature::[3] Add a single label to a node with an existing label	unsupported: setting labels
@@ -353,19 +314,9 @@ clauses/set/Set6.feature::[11] Skipping zero result and limiting to all results 
 clauses/set/Set6.feature::[12] Filtering after adding a label on nodes affects the result set but not the side effects	unsupported: SET
 clauses/set/Set6.feature::[13] Aggregating in `RETURN` after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/set/Set6.feature::[14] Aggregating in `WITH` after adding a label on nodes affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[15] Limiting to zero results after setting a property on relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/set/Set6.feature::[16] Skipping all results after setting a property on relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/set/Set6.feature::[17] Skipping and limiting to a few results after setting a property on relationships affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/set/Set6.feature::[18] Skipping zero result and limiting to all results after setting a property on relationships does not affect the result set nor the side effects	unsupported: projection modifiers after a mutation
 clauses/set/Set6.feature::[19] Filtering after setting a property on relationships affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[1] Limiting to zero results after setting a property on nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/set/Set6.feature::[20] Aggregating in `RETURN` after setting a property on relationships affects the result set but not the side effects	unsupported: non-literal stored value expression
 clauses/set/Set6.feature::[21] Aggregating in `WITH` after setting a property on relationships affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[2] Skipping all results after setting a property on nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/set/Set6.feature::[3] Skipping and limiting to a few results after setting a property on nodes affects the result set but not the side effects	unsupported: projection modifiers after a mutation
-clauses/set/Set6.feature::[4] Skipping zero results and limiting to all results after setting a property on nodes does not affect the result set nor the side effects	unsupported: projection modifiers after a mutation
 clauses/set/Set6.feature::[5] Filtering after setting a property on nodes affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[6] Aggregating in `RETURN` after setting a property on nodes affects the result set but not the side effects	unsupported: non-literal stored value expression
 clauses/set/Set6.feature::[7] Aggregating in `WITH` after setting a property on nodes affects the result set but not the side effects	unsupported: SET
 clauses/set/Set6.feature::[8] Limiting to zero results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/set/Set6.feature::[9] Skipping all results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
@@ -393,31 +344,31 @@ clauses/with-orderBy/WithOrderBy1.feature::[22] Sort distinct types in descendin
 clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 1	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 2	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 3	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[34] Sort by a date variable projected from a node property in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[34] Sort by a date variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[35] Sort by a local time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[35] Sort by a local time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[35] Sort by a local time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[36] Sort by a local time variable projected from a node property in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[36] Sort by a local time variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[37] Sort by a time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[37] Sort by a time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[37] Sort by a time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[38] Sort by a time variable projected from a node property in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[38] Sort by a time variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[39] Sort by a local date time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[39] Sort by a local date time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[39] Sort by a local date time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[40] Sort by a local date time variable projected from a node property in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[40] Sort by a local date time variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[41] Sort by a date time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[41] Sort by a date time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[41] Sort by a date time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable projected from a node property in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable projected from a node property in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
+clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[34] Sort by a date variable projected from a node property in descending order::example 1	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[34] Sort by a date variable projected from a node property in descending order::example 2	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy1.feature::[35] Sort by a local time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[35] Sort by a local time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[35] Sort by a local time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[36] Sort by a local time variable projected from a node property in descending order::example 1	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[36] Sort by a local time variable projected from a node property in descending order::example 2	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy1.feature::[37] Sort by a time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[37] Sort by a time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[37] Sort by a time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[38] Sort by a time variable projected from a node property in descending order::example 1	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[38] Sort by a time variable projected from a node property in descending order::example 2	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy1.feature::[39] Sort by a local date time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[39] Sort by a local date time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[39] Sort by a local date time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[40] Sort by a local date time variable projected from a node property in descending order::example 1	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[40] Sort by a local date time variable projected from a node property in descending order::example 2	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy1.feature::[41] Sort by a date time variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[41] Sort by a date time variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[41] Sort by a date time variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable projected from a node property in descending order::example 1	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable projected from a node property in descending order::example 2	setup-failed: unsupported: function `datetime`
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 1	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 2	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 10	unsupported: function `datetime`
@@ -427,31 +378,31 @@ clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent 
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 8	unsupported: function `time`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 9	unsupported: function `localdatetime`
 clauses/with-orderBy/WithOrderBy1.feature::[9] Sort lists in ascending order	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[12] Sort by a date expression in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[12] Sort by a date expression in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[13] Sort by a local time expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[13] Sort by a local time expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[13] Sort by a local time expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[14] Sort by a local time expression in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[14] Sort by a local time expression in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[15] Sort by a time expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[15] Sort by a time expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[15] Sort by a time expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[16] Sort by a time expression in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[16] Sort by a time expression in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[17] Sort by a local date time expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[17] Sort by a local date time expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[17] Sort by a local date time expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[18] Sort by a local date time expression in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[18] Sort by a local date time expression in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 2	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 3	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[20] Sort by a date time expression in descending order::example 1	setup-failed: unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy2.feature::[20] Sort by a date time expression in descending order::example 2	setup-failed: unsupported: non-literal stored value expression
+clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 1	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 2	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 3	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy2.feature::[12] Sort by a date expression in descending order::example 1	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy2.feature::[12] Sort by a date expression in descending order::example 2	setup-failed: unsupported: function `date`
+clauses/with-orderBy/WithOrderBy2.feature::[13] Sort by a local time expression in ascending order::example 1	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy2.feature::[13] Sort by a local time expression in ascending order::example 2	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy2.feature::[13] Sort by a local time expression in ascending order::example 3	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy2.feature::[14] Sort by a local time expression in descending order::example 1	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy2.feature::[14] Sort by a local time expression in descending order::example 2	setup-failed: unsupported: function `localtime`
+clauses/with-orderBy/WithOrderBy2.feature::[15] Sort by a time expression in ascending order::example 1	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy2.feature::[15] Sort by a time expression in ascending order::example 2	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy2.feature::[15] Sort by a time expression in ascending order::example 3	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy2.feature::[16] Sort by a time expression in descending order::example 1	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy2.feature::[16] Sort by a time expression in descending order::example 2	setup-failed: unsupported: function `time`
+clauses/with-orderBy/WithOrderBy2.feature::[17] Sort by a local date time expression in ascending order::example 1	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy2.feature::[17] Sort by a local date time expression in ascending order::example 2	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy2.feature::[17] Sort by a local date time expression in ascending order::example 3	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy2.feature::[18] Sort by a local date time expression in descending order::example 1	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy2.feature::[18] Sort by a local date time expression in descending order::example 2	setup-failed: unsupported: function `localdatetime`
+clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 1	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 2	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy2.feature::[19] Sort by a date time expression in ascending order::example 3	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy2.feature::[20] Sort by a date time expression in descending order::example 1	setup-failed: unsupported: function `datetime`
+clauses/with-orderBy/WithOrderBy2.feature::[20] Sort by a date time expression in descending order::example 2	setup-failed: unsupported: function `datetime`
 clauses/with-orderBy/WithOrderBy2.feature::[22] Sort by an expression that is only partially orderable on a non-distinct binding table, but used as a grouping key::example 1	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy2.feature::[22] Sort by an expression that is only partially orderable on a non-distinct binding table, but used as a grouping key::example 2	semantic-error: unknown variable `a`
 clauses/with-orderBy/WithOrderBy2.feature::[23] Sort by an expression that is only partially orderable on a non-distinct binding table, but used in parts as a grouping key::example 1	semantic-error: unknown variable `a`
@@ -463,8 +414,6 @@ clauses/with-orderBy/WithOrderBy4.feature::[16] Handle constants and parameters 
 clauses/with-orderBy/WithOrderBy4.feature::[17] Handle projected variables inside an order by item which contains an aggregation expression	semantic-error: unknown variable `you`
 clauses/with-orderBy/WithOrderBy4.feature::[18]  Handle projected property accesses inside an order by item which contains an aggregation expression	semantic-error: unknown variable `me`
 clauses/with-orderBy/WithOrderBy4.feature::[20] Fail if more complex expressions, even if projected, are used inside an order by item which contains an aggregation expression	wrong-error-kind: unsupported: computed WITH expressions without aliases
-clauses/with-skip-limit/WithSkipLimit1.feature::[1] Handle dependencies across WITH with SKIP	setup-failed: unsupported: non-literal stored value expression
-clauses/with-skip-limit/WithSkipLimit2.feature::[2] Handle dependencies across WITH with LIMIT	setup-failed: unsupported: non-literal stored value expression
 clauses/with-skip-limit/WithSkipLimit2.feature::[3] Connected components succeeding WITH with LIMIT	unsupported: RETURN *
 clauses/with-skip-limit/WithSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: writes in a read pipeline
 clauses/with-where/WithWhere1.feature::[2] Filter node with property predicate on a single variable with multiple distinct bindings	unsupported: WITH DISTINCT
@@ -481,7 +430,6 @@ clauses/with-where/WithWhere7.feature::[3] WHERE sees both, variable bound befor
 clauses/with/With1.feature::[1] Forwarind a node variable 1	unsupported: RETURN *
 clauses/with/With1.feature::[2] Forwarind a node variable 2	unsupported: RETURN *
 clauses/with/With1.feature::[5] Forwarding null	unsupported: RETURN *
-clauses/with/With2.feature::[1] Forwarding a property to express a join	setup-failed: unsupported: non-literal stored value expression
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
 clauses/with/With4.feature::[6] Reusing variable names in WITH	unsupported: aggregate calls nested in WITH expressions
 clauses/with/With4.feature::[7] Multiple aliasing and backreferencing	unsupported: writes in a read pipeline
@@ -709,8 +657,6 @@ expressions/graph/Graph6.feature::[9] Fail when performing property access on a 
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 4	expected-error-not-raised
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 5	expected-error-not-raised
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 6	expected-error-not-raised
-expressions/graph/Graph7.feature::[2] Execute n['name'] in update queries	unsupported: computed projection after a mutation
-expressions/graph/Graph7.feature::[3] Use dynamic property lookup based on parameters when there is lhs type information	unsupported: computed projection after a mutation
 expressions/graph/Graph9.feature::[5] `properties()` failing on an integer literal	expected-error-not-raised
 expressions/graph/Graph9.feature::[6] `properties()` failing on a string literal	expected-error-not-raised
 expressions/graph/Graph9.feature::[7] `properties()` failing on a list of booleans	expected-error-not-raised
@@ -772,7 +718,6 @@ expressions/list/List5.feature::[42] Failing when using IN on a non-list literal
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 4	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 5	expected-error-not-raised
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
-expressions/list/List6.feature::[2] Setting and returning the size of a list property	unsupported: computed projection after a mutation
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	wrong-error-kind: unsupported: pattern predicate
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	wrong-error-kind: unsupported: pattern predicate
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	wrong-error-kind: unsupported: pattern predicate
@@ -784,7 +729,6 @@ expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::exa
 expressions/list/List6.feature::[7] Using size of pattern comprehension to test existence	unsupported: pattern comprehension
 expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: pattern comprehension
 expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: pattern comprehension
-expressions/list/List9.feature::[1] Returning nested expressions based on list property	unsupported: computed projection after a mutation
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 1	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 2	expected-error-not-raised
 expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 3	expected-error-not-raised
@@ -824,7 +768,7 @@ expressions/pattern/Pattern1.feature::[20] Using two existential pattern predica
 expressions/pattern/Pattern1.feature::[21] Using two existential pattern predicates in a disjunction	unsupported: pattern predicate
 expressions/pattern/Pattern1.feature::[22] Fail on using pattern in RETURN projection	wrong-error-kind: unsupported: pattern predicate
 expressions/pattern/Pattern1.feature::[23] Fail on using pattern in WITH projection	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[24] Fail on using pattern in right-hand side of SET	wrong-error-kind: unsupported: non-literal stored value expression
+expressions/pattern/Pattern1.feature::[24] Fail on using pattern in right-hand side of SET	wrong-error-kind: unsupported: pattern predicate
 expressions/pattern/Pattern1.feature::[2] Matching on a single undirected connection	unsupported: pattern predicate
 expressions/pattern/Pattern1.feature::[3] Matching on any single incoming directed connection	unsupported: pattern predicate
 expressions/pattern/Pattern1.feature::[4] Matching on a specific type of single outgoing directed connection	unsupported: pattern predicate
@@ -1462,11 +1406,11 @@ expressions/temporal/Temporal3.feature::[9] Should select time into date time::e
 expressions/temporal/Temporal3.feature::[9] Should select time into date time::example 7	unsupported: function `time`
 expressions/temporal/Temporal3.feature::[9] Should select time into date time::example 8	unsupported: function `time`
 expressions/temporal/Temporal3.feature::[9] Should select time into date time::example 9	unsupported: function `localdatetime`
-expressions/temporal/Temporal4.feature::[10] Should store date time array::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[10] Should store date time array::example 2	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[11] Should store duration::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[12] Should store duration array::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[12] Should store duration array::example 2	unsupported: non-literal stored value expression
+expressions/temporal/Temporal4.feature::[10] Should store date time array::example 1	unsupported: function `datetime`
+expressions/temporal/Temporal4.feature::[10] Should store date time array::example 2	unsupported: function `datetime`
+expressions/temporal/Temporal4.feature::[11] Should store duration::example 1	unsupported: function `duration`
+expressions/temporal/Temporal4.feature::[12] Should store duration array::example 1	unsupported: function `duration`
+expressions/temporal/Temporal4.feature::[12] Should store duration array::example 2	unsupported: function `duration`
 expressions/temporal/Temporal4.feature::[13] Should propagate null::example 1	unsupported: function `date`
 expressions/temporal/Temporal4.feature::[13] Should propagate null::example 10	unsupported: qualified function call
 expressions/temporal/Temporal4.feature::[13] Should propagate null::example 11	unsupported: qualified function call
@@ -1488,26 +1432,26 @@ expressions/temporal/Temporal4.feature::[13] Should propagate null::example 6	un
 expressions/temporal/Temporal4.feature::[13] Should propagate null::example 7	unsupported: qualified function call
 expressions/temporal/Temporal4.feature::[13] Should propagate null::example 8	unsupported: qualified function call
 expressions/temporal/Temporal4.feature::[13] Should propagate null::example 9	unsupported: function `time`
-expressions/temporal/Temporal4.feature::[1] Should store date::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[2] Should store date array::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[2] Should store date array::example 2	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[3] Should store local time::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[4] Should store local time array::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[4] Should store local time array::example 2	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[5] Should store time::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[6] Should store time array::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[6] Should store time array::example 2	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[7] Should store local date time::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[8] Should store local date time array::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[8] Should store local date time array::example 2	unsupported: non-literal stored value expression
-expressions/temporal/Temporal4.feature::[9] Should store date time::example 1	unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[1] Should provide accessors for date	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[2] Should provide accessors for date in last weekYear	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[3] Should provide accessors for local time	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[4] Should provide accessors for time	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[5] Should provide accessors for local date time	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[6] Should provide accessors for date time	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal5.feature::[7] Should provide accessors for duration	setup-failed: unsupported: non-literal stored value expression
+expressions/temporal/Temporal4.feature::[1] Should store date::example 1	unsupported: function `date`
+expressions/temporal/Temporal4.feature::[2] Should store date array::example 1	unsupported: function `date`
+expressions/temporal/Temporal4.feature::[2] Should store date array::example 2	unsupported: function `date`
+expressions/temporal/Temporal4.feature::[3] Should store local time::example 1	unsupported: function `localtime`
+expressions/temporal/Temporal4.feature::[4] Should store local time array::example 1	unsupported: function `localtime`
+expressions/temporal/Temporal4.feature::[4] Should store local time array::example 2	unsupported: function `localtime`
+expressions/temporal/Temporal4.feature::[5] Should store time::example 1	unsupported: function `time`
+expressions/temporal/Temporal4.feature::[6] Should store time array::example 1	unsupported: function `time`
+expressions/temporal/Temporal4.feature::[6] Should store time array::example 2	unsupported: function `time`
+expressions/temporal/Temporal4.feature::[7] Should store local date time::example 1	unsupported: function `localdatetime`
+expressions/temporal/Temporal4.feature::[8] Should store local date time array::example 1	unsupported: function `localdatetime`
+expressions/temporal/Temporal4.feature::[8] Should store local date time array::example 2	unsupported: function `localdatetime`
+expressions/temporal/Temporal4.feature::[9] Should store date time::example 1	unsupported: function `datetime`
+expressions/temporal/Temporal5.feature::[1] Should provide accessors for date	setup-failed: unsupported: function `date`
+expressions/temporal/Temporal5.feature::[2] Should provide accessors for date in last weekYear	setup-failed: unsupported: function `date`
+expressions/temporal/Temporal5.feature::[3] Should provide accessors for local time	setup-failed: unsupported: function `localtime`
+expressions/temporal/Temporal5.feature::[4] Should provide accessors for time	setup-failed: unsupported: function `time`
+expressions/temporal/Temporal5.feature::[5] Should provide accessors for local date time	setup-failed: unsupported: function `localdatetime`
+expressions/temporal/Temporal5.feature::[6] Should provide accessors for date time	setup-failed: unsupported: function `datetime`
+expressions/temporal/Temporal5.feature::[7] Should provide accessors for duration	setup-failed: unsupported: function `duration`
 expressions/temporal/Temporal6.feature::[1] Should serialize date	unsupported: function `date`
 expressions/temporal/Temporal6.feature::[2] Should serialize local time	unsupported: function `localtime`
 expressions/temporal/Temporal6.feature::[3] Should serialize time	unsupported: function `time`
@@ -1543,33 +1487,33 @@ expressions/temporal/Temporal7.feature::[6] Should compare durations for equalit
 expressions/temporal/Temporal7.feature::[6] Should compare durations for equality::example 6	unsupported: function `duration`
 expressions/temporal/Temporal7.feature::[6] Should compare durations for equality::example 7	unsupported: function `duration`
 expressions/temporal/Temporal7.feature::[6] Should compare durations for equality::example 8	unsupported: function `duration`
-expressions/temporal/Temporal8.feature::[1] Should add or subtract duration to or from date::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[1] Should add or subtract duration to or from date::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[1] Should add or subtract duration to or from date::example 3	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[2] Should add or subtract duration to or from local time::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[2] Should add or subtract duration to or from local time::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[2] Should add or subtract duration to or from local time::example 3	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[3] Should add or subtract duration to or from time::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[3] Should add or subtract duration to or from time::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[3] Should add or subtract duration to or from time::example 3	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[4] Should add or subtract duration to or from local date time::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[4] Should add or subtract duration to or from local date time::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[4] Should add or subtract duration to or from local date time::example 3	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[5] Should add or subtract duration to or from date time::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[5] Should add or subtract duration to or from date time::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[5] Should add or subtract duration to or from date time::example 3	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 3	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 4	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 5	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 6	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 7	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 8	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 9	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[7] Should multiply or divide durations by numbers::example 1	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[7] Should multiply or divide durations by numbers::example 2	setup-failed: unsupported: non-literal stored value expression
-expressions/temporal/Temporal8.feature::[7] Should multiply or divide durations by numbers::example 3	setup-failed: unsupported: non-literal stored value expression
+expressions/temporal/Temporal8.feature::[1] Should add or subtract duration to or from date::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[1] Should add or subtract duration to or from date::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[1] Should add or subtract duration to or from date::example 3	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[2] Should add or subtract duration to or from local time::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[2] Should add or subtract duration to or from local time::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[2] Should add or subtract duration to or from local time::example 3	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[3] Should add or subtract duration to or from time::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[3] Should add or subtract duration to or from time::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[3] Should add or subtract duration to or from time::example 3	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[4] Should add or subtract duration to or from local date time::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[4] Should add or subtract duration to or from local date time::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[4] Should add or subtract duration to or from local date time::example 3	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[5] Should add or subtract duration to or from date time::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[5] Should add or subtract duration to or from date time::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[5] Should add or subtract duration to or from date time::example 3	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 3	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 4	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 5	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 6	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 7	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 8	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[6] Should add or subtract durations::example 9	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[7] Should multiply or divide durations by numbers::example 1	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[7] Should multiply or divide durations by numbers::example 2	setup-failed: unsupported: function `duration`
+expressions/temporal/Temporal8.feature::[7] Should multiply or divide durations by numbers::example 3	setup-failed: unsupported: function `duration`
 expressions/temporal/Temporal9.feature::[1] Should truncate date::example 1	unsupported: qualified function call
 expressions/temporal/Temporal9.feature::[1] Should truncate date::example 10	unsupported: qualified function call
 expressions/temporal/Temporal9.feature::[1] Should truncate date::example 11	unsupported: qualified function call

@@ -595,45 +595,58 @@ fn aggregate_with_rejects_ungrouped_incoming_references_in_where_and_order() {
 }
 
 #[test]
-fn aggregate_projection_after_create_is_rejected_without_writing() {
+fn aggregate_projection_after_create_counts_the_written_rows() {
     let mut database = Database::in_memory().unwrap();
 
-    let message = unsupported_error(
-        &mut database,
-        "CREATE (:RejectedAggregateWrite) RETURN count(*) AS writes",
-    );
-    assert!(
-        message.contains("aggregate projection after a mutation"),
-        "unexpected error: {message}"
-    );
+    let written = database
+        .execute("CREATE (:AggregateWrite), (:AggregateWrite) RETURN count(*) AS writes")
+        .unwrap();
+    assert_eq!(written.columns, ["writes"]);
+    assert_eq!(written.rows, [vec![CypherValue::Integer(1)]]);
+    assert_eq!(written.summary.nodes_created, 2);
 
     let remaining = database
-        .execute("MATCH (:RejectedAggregateWrite) RETURN count(*) AS nodes")
+        .execute("MATCH (:AggregateWrite) RETURN count(*) AS nodes")
         .unwrap();
-    assert_eq!(remaining.rows, [vec![CypherValue::Integer(0)]]);
+    assert_eq!(remaining.rows, [vec![CypherValue::Integer(2)]]);
 }
 
 #[test]
-fn aggregate_projection_after_matched_mutation_is_rejected_without_writing() {
+fn aggregate_projection_after_matched_mutation_sees_updated_values() {
     let mut database = Database::in_memory().unwrap();
     database
-        .execute("CREATE (:AggregateMutation {value: 1})")
+        .execute(
+            "CREATE (:AggregateMutation {value: 1, group: 'a'}), \
+                    (:AggregateMutation {value: 1, group: 'a'}), \
+                    (:AggregateMutation {value: 1, group: 'b'})",
+        )
         .unwrap();
 
-    let message = unsupported_error(
-        &mut database,
-        "MATCH (item:AggregateMutation) \
-         SET item.value = 2 RETURN count(*) AS writes",
-    );
-    assert!(
-        message.contains("aggregate projection after a mutation"),
-        "unexpected error: {message}"
-    );
-
-    let remaining = database
-        .execute("MATCH (item:AggregateMutation) RETURN item.value AS value")
+    let updated = database
+        .execute(
+            "MATCH (item:AggregateMutation) \
+             SET item.value = 2 \
+             RETURN item.group AS grp, sum(item.value) AS total, collect(item.value) AS values \
+             ORDER BY grp",
+        )
         .unwrap();
-    assert_eq!(remaining.rows, [vec![CypherValue::Integer(1)]]);
+    assert_eq!(updated.columns, ["grp", "total", "values"]);
+    assert_eq!(
+        updated.rows,
+        [
+            vec![
+                CypherValue::String("a".into()),
+                CypherValue::Integer(4),
+                CypherValue::List(vec![CypherValue::Integer(2), CypherValue::Integer(2)])
+            ],
+            vec![
+                CypherValue::String("b".into()),
+                CypherValue::Integer(2),
+                CypherValue::List(vec![CypherValue::Integer(2)])
+            ],
+        ]
+    );
+    assert_eq!(updated.summary.properties_set, 3);
 }
 
 #[test]

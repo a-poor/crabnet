@@ -3,8 +3,8 @@ use serde_json::Value;
 use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, MatchOperator,
     Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
-    ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr,
-    WithBinding, WithStage,
+    ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, StoredValue, UnaryOp,
+    ValueExpr, WithBinding, WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -43,6 +43,14 @@ pub(super) fn render(query: &Query) -> String {
     renderer.line(1, "input:");
     match &query.input {
         Input::Unit => renderer.line(2, "unit"),
+        Input::Rows(slots) => {
+            let names = slots
+                .iter()
+                .map(|(slot, _)| slot_name(*slot))
+                .collect::<Vec<_>>()
+                .join(", ");
+            renderer.line(2, format!("materialized-rows {names}"));
+        }
         Input::Match(plan) => {
             renderer.line(2, "match");
             if plan.operators.is_empty() {
@@ -389,6 +397,13 @@ fn render_property_values(properties: &[(String, ValueExpr)]) -> String {
     )
 }
 
+fn render_stored_value(value: &StoredValue) -> String {
+    match value {
+        StoredValue::Static(value) => render_value_expr(value),
+        StoredValue::Computed(expression) => format!("computed({})", render_expr(expression)),
+    }
+}
+
 fn render_mutation(mutation: &Mutation) -> String {
     match mutation {
         Mutation::CreateNode {
@@ -399,7 +414,7 @@ fn render_mutation(mutation: &Mutation) -> String {
             "create-node slot={} label={} properties={}",
             slot_name(*slot),
             label.as_deref().map_or_else(|| "none".to_owned(), quote),
-            render_value_expr(properties)
+            render_stored_value(properties)
         ),
         Mutation::CreateRelationship {
             slot,
@@ -413,23 +428,23 @@ fn render_mutation(mutation: &Mutation) -> String {
             quote(relationship_type),
             slot_name(*from),
             slot_name(*to),
-            render_value_expr(properties)
+            render_stored_value(properties)
         ),
         Mutation::SetProperty { slot, key, value } => format!(
             "set-property slot={} key={} value={}",
             slot_name(*slot),
             quote(key),
-            render_value_expr(value)
+            render_stored_value(value)
         ),
         Mutation::ReplaceProperties { slot, properties } => format!(
             "replace-properties slot={} properties={}",
             slot_name(*slot),
-            render_value_expr(properties)
+            render_stored_value(properties)
         ),
         Mutation::MergeProperties { slot, properties } => format!(
             "merge-properties slot={} properties={}",
             slot_name(*slot),
-            render_value_expr(properties)
+            render_stored_value(properties)
         ),
         Mutation::RemoveProperty { slot, key } => format!(
             "remove-property slot={} key={}",

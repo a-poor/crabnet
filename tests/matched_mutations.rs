@@ -685,22 +685,38 @@ fn whole_map_replacement_preserves_explicit_json_null() {
 }
 
 #[test]
-fn computed_set_values_are_rejected_before_earlier_items_mutate() {
+fn computed_set_values_are_evaluated_per_row() {
     let mut database = Database::in_memory().unwrap();
-    database.execute("CREATE (:Item {name: 'kept'})").unwrap();
+    database
+        .execute("CREATE (:Item {name: 'kept', n: 1}), (:Item {name: 'other', n: 2})")
+        .unwrap();
 
-    assert!(matches!(
-        database.execute(
+    let updated = database
+        .execute(
             "MATCH (item:Item) \
-             SET item.changed = true, item.copy = item.name"
-        ),
-        Err(Error::Unsupported(_))
-    ));
+             SET item.changed = true, item.copy = item.name, item.n = item.n * 10 \
+             RETURN item.name AS name, item.copy AS copy, item.n AS n ORDER BY name",
+        )
+        .unwrap();
+    assert_eq!(
+        updated.rows,
+        [
+            vec![json!("kept"), json!("kept"), json!(10)],
+            vec![json!("other"), json!("other"), json!(20)],
+        ]
+    );
+    assert_eq!(updated.summary.properties_set, 6);
 
     let stored = database
-        .execute("MATCH (item:Item) RETURN item.name, item.changed, item.copy")
+        .execute("MATCH (item:Item) RETURN item.name, item.changed, item.copy, item.n ORDER BY item.name")
         .unwrap();
-    assert_eq!(stored.rows, [vec![json!("kept"), json!(null), json!(null)]]);
+    assert_eq!(
+        stored.rows,
+        [
+            vec![json!("kept"), json!(true), json!("kept"), json!(10)],
+            vec![json!("other"), json!(true), json!("other"), json!(20)],
+        ]
+    );
 }
 
 static NEXT_TEMPORARY_DATABASE: AtomicU64 = AtomicU64::new(0);

@@ -144,3 +144,138 @@ fn consecutive_create_clauses_share_bindings_and_follow_multiple_matches() {
         .unwrap_err();
     assert!(matches!(error, Error::Unsupported(_)), "{error:?}");
 }
+
+#[test]
+fn computed_stored_values_read_the_row_and_earlier_writes() {
+    let mut database = Database::in_memory().unwrap();
+
+    // CREATE properties may compute from earlier bindings in the statement.
+    let created = database
+        .execute(
+            "CREATE (a:A {x: 1, name: 'a'}) \
+             CREATE (b:B {y: a.x + 1, upper: toUpper(a.name), tags: [a.x, 2]}) \
+             CREATE (a)-[:R {weight: a.x * 2.5}]->(b) \
+             RETURN b.y AS y, b.upper AS upper, b.tags AS tags",
+        )
+        .unwrap();
+    assert_eq!(created.rows, [vec![json!(2), json!("A"), json!([1, 2])]]);
+    let weight = database
+        .execute("MATCH ()-[r:R]->() RETURN r.weight AS weight")
+        .unwrap();
+    assert_eq!(weight.rows, [vec![json!(2.5)]]);
+
+    // CREATE followed by SET in one statement, with the list concatenation
+    // the TCK uses.
+    let appended = database
+        .execute(
+            "CREATE (n:L {numbers: [1, 2, 3]}) \
+             SET n.numbers = n.numbers + [4, 5] \
+             RETURN n.numbers AS numbers",
+        )
+        .unwrap();
+    assert_eq!(appended.rows, [vec![json!([1, 2, 3, 4, 5])]]);
+
+    // Whole-map forms accept computed maps and copy another entity's
+    // properties; per-row evaluation sees each row's own values.
+    database
+        .execute("CREATE (:P {k: 1, src: 'one'}), (:P {k: 2, src: 'two'})")
+        .unwrap();
+    let merged = database
+        .execute(
+            "MATCH (p:P) \
+             SET p += {doubled: p.k * 2, label: 'p' + toString(p.k)} \
+             RETURN p.doubled AS doubled, p.label AS label ORDER BY doubled",
+        )
+        .unwrap();
+    assert_eq!(
+        merged.rows,
+        [vec![json!(2), json!("p1")], vec![json!(4), json!("p2")]]
+    );
+    let copied = database
+        .execute("MATCH (a:A), (b:B) SET b = a RETURN b.x AS x, b.name AS name, b.y AS y")
+        .unwrap();
+    assert_eq!(copied.rows, [vec![json!(1), json!("a"), json!(null)]]);
+
+    // A property set from another row's state uses the row's own value each
+    // time, so a chained expression composes with earlier SET items.
+    let chained = database
+        .execute(
+            "MATCH (p:P) SET p.k = p.k + 10, p.twice = p.k * 2 \
+             RETURN p.k AS k, p.twice AS twice ORDER BY k",
+        )
+        .unwrap();
+    assert_eq!(
+        chained.rows,
+        [vec![json!(11), json!(22)], vec![json!(12), json!(24)]]
+    );
+
+    // Null results remove the property, like a literal null.
+    let removed = database
+        .execute("MATCH (p:P) SET p.twice = p.missing RETURN p.twice AS twice")
+        .unwrap();
+    assert_eq!(removed.rows, [vec![json!(null)], vec![json!(null)]]);
+}
+
+#[test]
+fn computed_stored_values_reject_entities_aggregates_and_non_maps() {
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE (:Q {k: 1}), (:Q {k: 2})").unwrap();
+
+    for query in [
+        "MATCH (q:Q) SET q.other = q",
+        "MATCH (q:Q) SET q.list = [q]",
+        "MATCH (q:Q) SET q.total = count(*)",
+        "MATCH (q:Q) SET q = q.k",
+        "MATCH (q:Q) SET q += 'text'",
+        "MATCH (q:Q) CREATE (:R {props: q})",
+        "MATCH p = (q:Q) SET q.path = p",
+    ] {
+        let error = database.execute(query).unwrap_err();
+        assert!(matches!(error, Error::Semantic(_)), "{query}: {error:?}");
+    }
+
+    // Nothing was written by the rejected statements.
+    let stored = database
+        .execute("MATCH (q:Q) RETURN keys(q) AS k ORDER BY q.k")
+        .unwrap();
+    assert_eq!(stored.rows, [vec![json!(["k"])], vec![json!(["k"])]]);
+    let count = database
+        .execute("MATCH (r:R) RETURN count(r) AS c")
+        .unwrap();
+    assert_eq!(count.rows, [vec![json!(0)]]);
+}
+
+#[test]
+fn post_mutation_return_supports_computed_projections_and_modifiers() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:S {v: 3}), (:S {v: 1}), (:S {v: 2}), (:S {v: 2})")
+        .unwrap();
+
+    let result = database
+        .execute(
+            "MATCH (s:S) SET s.v = s.v + 1 \
+             RETURN DISTINCT s.v * 10 AS tens, CASE WHEN s.v > 2 THEN 'big' ELSE 'small' END AS size \
+             ORDER BY tens DESC SKIP 1 LIMIT 2",
+        )
+        .unwrap();
+    assert_eq!(result.columns, ["tens", "size"]);
+    assert_eq!(
+        result.rows,
+        [
+            vec![json!(30), json!("big")],
+            vec![json!(20), json!("small")]
+        ]
+    );
+    assert_eq!(result.summary.properties_set, 4);
+
+    // A created entity returned whole reflects the statement's later SET.
+    let node = database
+        .execute("CREATE (n:T {a: 1}) SET n.b = n.a + 1 RETURN n")
+        .unwrap();
+    let node = node.rows[0][0].as_node().unwrap();
+    assert_eq!(
+        node.properties.get("b"),
+        Some(&crabnet::CypherValue::Integer(2))
+    );
+}

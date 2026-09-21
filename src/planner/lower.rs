@@ -23,8 +23,8 @@ use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
     ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
     PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage,
-    RelationshipUse, ScalarFunction, ScalarSlotId, SlotId, SortDirection, SortItem, TraversalId,
-    UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    RelationshipUse, ScalarFunction, ScalarSlotId, SlotId, SortDirection, SortItem, StoredValue,
+    TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
@@ -229,9 +229,7 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
         lowerer.create_clause(create)?;
     }
     let projection = return_clause
-        .map(|return_clause| {
-            lowerer.projection(&return_clause.projection, !create_clauses.is_empty())
-        })
+        .map(|return_clause| lowerer.projection(&return_clause.projection))
         .transpose()?;
 
     Ok(Query {
@@ -251,6 +249,7 @@ fn lower_matched_mutation_query(
     let mut lowerer = Lowerer::new(source);
     let mut input = MatchPlan::default();
     let mut saw_match = false;
+    let mut saw_create = false;
     let mut saw_mutation = false;
     let mut saw_delete = false;
     let mut projection = None;
@@ -269,11 +268,19 @@ fn lower_matched_mutation_query(
             ClauseKind::Match(_) => {
                 return Err(unsupported(clause.span, "MATCH after a mutation clause"));
             }
+            ClauseKind::Create(create) => {
+                if saw_delete {
+                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
+                }
+                saw_create = true;
+                saw_mutation = true;
+                lowerer.create_clause(create)?;
+            }
             ClauseKind::Set(set_clause) => {
                 if saw_delete {
                     return Err(unsupported(clause.span, "mutation clause after DELETE"));
                 }
-                if !saw_match {
+                if !saw_match && !saw_create {
                     return Err(semantic(clause.span, "SET requires a MATCH input"));
                 }
                 saw_mutation = true;
@@ -283,7 +290,7 @@ fn lower_matched_mutation_query(
                 if saw_delete {
                     return Err(unsupported(clause.span, "mutation clause after DELETE"));
                 }
-                if !saw_match {
+                if !saw_match && !saw_create {
                     return Err(semantic(clause.span, "REMOVE requires a MATCH input"));
                 }
                 saw_mutation = true;
@@ -293,7 +300,7 @@ fn lower_matched_mutation_query(
                 if saw_delete {
                     return Err(unsupported(clause.span, "mutation clause after DELETE"));
                 }
-                if !saw_match {
+                if !saw_match && !saw_create {
                     return Err(semantic(clause.span, "DELETE requires a MATCH input"));
                 }
                 saw_mutation = true;
@@ -301,7 +308,7 @@ fn lower_matched_mutation_query(
                 lowerer.delete_clause(delete_clause)?;
             }
             ClauseKind::Return(return_clause) if index + 1 == clauses.len() => {
-                projection = Some(lowerer.projection(&return_clause.projection, true)?);
+                projection = Some(lowerer.projection(&return_clause.projection)?);
             }
             ClauseKind::Return(_) => {
                 return Err(unsupported(clause.span, "clauses after RETURN"));
@@ -320,7 +327,11 @@ fn lower_matched_mutation_query(
         slots: lowerer.slots,
         scalar_slots: lowerer.scalar_slots,
         path_slots: lowerer.path_slots,
-        input: Input::Match(input),
+        input: if saw_match {
+            Input::Match(input)
+        } else {
+            Input::Unit
+        },
         mutations: lowerer.mutations,
         projection,
     })
@@ -351,7 +362,7 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
                 stages.push(ReadStage::Unwind(lowerer.unwind_clause(unwind_clause)?));
             }
             ClauseKind::Return(return_clause) if index + 1 == clauses.len() => {
-                projection = Some(lowerer.projection(&return_clause.projection, false)?);
+                projection = Some(lowerer.projection(&return_clause.projection)?);
             }
             ClauseKind::Return(_) => {
                 return Err(unsupported(clause.span, "clauses after RETURN"));
@@ -1104,7 +1115,7 @@ impl<'source> Lowerer<'source> {
             .as_ref()
             .map(|label| single_label(label, "multiple or boolean node labels"))
             .transpose()?;
-        let properties = properties_input(node.properties.as_deref())?;
+        let properties = self.stored_properties(node.properties.as_deref())?;
         let slot = self.allocate(EntityKind::Node);
         self.mutations.push(Mutation::CreateNode {
             slot,
@@ -1164,7 +1175,7 @@ impl<'source> Lowerer<'source> {
             relationship_type,
             from,
             to,
-            properties: properties_input(relationship.properties.as_deref())?,
+            properties: self.stored_properties(relationship.properties.as_deref())?,
         });
         if let Some(variable) = &relationship.variable {
             self.symbols
@@ -1181,21 +1192,21 @@ impl<'source> Lowerer<'source> {
                     self.mutations.push(Mutation::SetProperty {
                         slot,
                         key,
-                        value: input_value(value)?,
+                        value: self.stored_value(value, input_value, false)?,
                     });
                 }
                 SetItemKind::ReplaceProperties { target, value } => {
                     let slot = self.resolve_entity_name(target)?;
                     self.mutations.push(Mutation::ReplaceProperties {
                         slot,
-                        properties: property_map_input(value)?,
+                        properties: self.stored_value(value, property_map_input, true)?,
                     });
                 }
                 SetItemKind::MergeProperties { target, value } => {
                     let slot = self.resolve_entity_name(target)?;
                     self.mutations.push(Mutation::MergeProperties {
                         slot,
-                        properties: property_map_input(value)?,
+                        properties: self.stored_value(value, property_map_input, true)?,
                     });
                 }
                 SetItemKind::Labels { .. } => {
@@ -1205,6 +1216,54 @@ impl<'source> Lowerer<'source> {
             }
         }
         Ok(())
+    }
+
+    /// A `CREATE`/`SET` value: literal and parameter shapes stay static and
+    /// are resolved once per statement; anything else is lowered as an
+    /// expression evaluated per input row.
+    fn stored_value(
+        &self,
+        expression: &AstExpr,
+        literal: fn(&AstExpr) -> Result<ValueExpr>,
+        map: bool,
+    ) -> Result<StoredValue> {
+        match literal(expression) {
+            Ok(value) => Ok(StoredValue::Static(value)),
+            Err(Error::Unsupported(_)) => self.computed_stored_value(expression, map),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn stored_properties(&self, properties: Option<&AstExpr>) -> Result<StoredValue> {
+        match properties_input(properties) {
+            Ok(value) => Ok(StoredValue::Static(value)),
+            Err(Error::Unsupported(_)) if properties.is_some() => {
+                self.computed_stored_value(properties.expect("checked above"), true)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// `map` marks whole-map contexts (`CREATE` properties, `SET =`,
+    /// `SET +=`), where a bare entity means "its properties".
+    fn computed_stored_value(&self, expression: &AstExpr, map: bool) -> Result<StoredValue> {
+        let lowered = match self.output_expression(expression)? {
+            Expr::Entity(slot) if map => Expr::EntityProperties(slot),
+            lowered if contains_graph_value(&lowered) => {
+                return Err(semantic(
+                    expression.span,
+                    "graph entities and paths cannot be stored as property values",
+                ));
+            }
+            lowered => lowered,
+        };
+        if lowered.contains_aggregate() {
+            return Err(semantic(
+                expression.span,
+                "aggregate calls are not allowed in a stored value",
+            ));
+        }
+        Ok(StoredValue::Computed(lowered))
     }
 
     fn remove_clause(&mut self, remove_clause: &RemoveClause) -> Result<()> {
@@ -1488,19 +1547,7 @@ impl<'source> Lowerer<'source> {
         })
     }
 
-    fn projection(&self, projection: &ProjectionClause, after_write: bool) -> Result<Projection> {
-        if after_write
-            && (projection.quantifier.is_some()
-                || projection.order_by.is_some()
-                || projection.offset.is_some()
-                || projection.skip.is_some()
-                || projection.limit.is_some())
-        {
-            return Err(unsupported(
-                projection.span,
-                "projection modifiers after a mutation",
-            ));
-        }
+    fn projection(&self, projection: &ProjectionClause) -> Result<Projection> {
         let distinct = match projection.quantifier.as_ref().map(|value| value.kind) {
             None | Some(SetQuantifier::All) => false,
             Some(SetQuantifier::Distinct) => true,
@@ -1520,39 +1567,6 @@ impl<'source> Lowerer<'source> {
                 return Err(unsupported(
                     expression.span,
                     "aggregate calls nested in projection expressions",
-                ));
-            }
-            if after_write && lowered.contains_aggregate() {
-                return Err(unsupported(
-                    expression.span,
-                    "aggregate projection after a mutation",
-                ));
-            }
-            if after_write
-                && matches!(
-                    lowered,
-                    Expr::Binary { .. }
-                        | Expr::Unary { .. }
-                        | Expr::IsNull { .. }
-                        | Expr::Quantified { .. }
-                        | Expr::MapProperty { .. }
-                        | Expr::Size(_)
-                        | Expr::List(_)
-                        | Expr::Map(_)
-                        | Expr::ListComprehension { .. }
-                        | Expr::Index { .. }
-                        | Expr::DynamicProperty(_, _)
-                        | Expr::Slice { .. }
-                        | Expr::Range { .. }
-                        | Expr::Case { .. }
-                        | Expr::Function { .. }
-                        | Expr::EntityKeys(_)
-                        | Expr::EntityProperties(_)
-                )
-            {
-                return Err(unsupported(
-                    expression.span,
-                    "computed projection after a mutation",
                 ));
             }
             let column = column_name(self.source, expression, alias.as_ref());
@@ -3032,4 +3046,18 @@ fn semantic(span: Span, message: impl AsRef<str>) -> Error {
         span.start,
         span.end
     ))
+}
+
+/// Whether an expression mentions a node, relationship, path, or path
+/// collection anywhere, which no stored value may contain.
+fn contains_graph_value(expression: &Expr) -> bool {
+    matches!(
+        expression,
+        Expr::Entity(_)
+            | Expr::Path(_)
+            | Expr::PathFunction {
+                kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+                ..
+            }
+    ) || expression.children().into_iter().any(contains_graph_value)
 }

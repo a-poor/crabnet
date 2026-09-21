@@ -418,14 +418,17 @@ computed list and map literals, indexing, slicing, `range`, string and list
 concatenation with `+`, `CASE`, `rand`, and a scalar function library
 (`coalesce`, `keys`, `properties`, conversions, string and math functions)
 are in, and so are consecutive `CREATE` clauses after any number of `MATCH`
-clauses, which unblocked setup for about a hundred scenarios; the ranking
-now reads qualified function calls (all temporal), expected errors that are
-not raised (mostly wrong-kind arguments that read as null where Cypher
-raises a type error, a deliberate choice that a future strict-types pass
-could revisit in one place), the temporal functions, the non-literal
-stored-value expressions that gate setup for other scenarios, `MERGE`, and
-projection modifiers (`DISTINCT`, `ORDER BY`, `SKIP`, `LIMIT`) and computed
-projections after a mutation. `rand()` is compiled as a one-row `json_each(json_array(random()))`
+clauses, which unblocked setup for about a hundred scenarios. The
+post-mutation result stage no longer runs in Rust: the executor writes the
+materialized rows to a `_crabnet_rows` temporary table and the `RETURN` is
+compiled as an ordinary read over it, which gave computed projections,
+aggregates, and projection modifiers after a mutation in one step; computed
+`CREATE`/`SET` values reuse the same read to evaluate one value per row. The
+ranking now reads qualified function calls (all temporal), the temporal
+functions themselves (which now also account for every remaining setup
+failure), expected errors that are not raised (mostly wrong-kind arguments
+that read as null where Cypher raises a type error, a deliberate choice that
+a future strict-types pass could revisit in one place), and `MERGE`. `rand()` is compiled as a one-row `json_each(json_array(random()))`
 source joined after the row sources rather than as an expression, because
 SQLite evaluates an uncorrelated scalar subquery once per statement; that
 gives one draw per call site per row that the value and type SQL share.

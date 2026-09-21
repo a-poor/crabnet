@@ -6,14 +6,16 @@ mod sqlite;
 
 use crate::{Error, Parameters, Result};
 
-pub(crate) use logical::{EntityKind, ResolvedExpr, SlotId};
-use logical::{Input, Mutation, Projection, Query, validate_storable_value};
+pub(crate) use logical::{
+    EntityKind, SlotId, require_object, validate_storable_properties, validate_storable_value,
+};
+use logical::{Input, Mutation, Projection, Query, StoredValue};
 pub(crate) use physical::{
     OutputShape, PhysicalOperator, PreparedFragmentArgument, PreparedPhysicalOperator,
     PreparedSqlFragment, PreparedValueOperator, ResolvedNodeDomain, ResolvedTrailExpansion,
     ShortestMode, TrailDirection,
 };
-pub(crate) use sqlite::ResolvedRowSource;
+pub(crate) use sqlite::{ROWS_TABLE, ResolvedRowSource};
 
 pub(crate) enum Plan {
     Read(ReadPlan),
@@ -130,17 +132,33 @@ fn compile_logical(query: Query) -> Result<Plan> {
     let input = match &query.input {
         Input::Unit => None,
         Input::Match(plan) => Some(sqlite::compile_row_source(plan)?),
-        Input::Pipeline(_) => {
+        Input::Pipeline(_) | Input::Rows(_) => {
             return Err(Error::Data(
                 "a mutation plan cannot contain a read-only WITH pipeline".into(),
             ));
         }
     };
+    // The post-mutation RETURN is an ordinary read over the rows the
+    // mutations leave behind, so it supports everything a read projection
+    // does: computed expressions, aggregates, DISTINCT, ordering, and paging.
+    let result = query
+        .projection
+        .as_ref()
+        .map(|projection| {
+            let slots = query
+                .slots
+                .iter()
+                .enumerate()
+                .map(|(index, kind)| (SlotId(index), *kind))
+                .collect();
+            sqlite::compile_read(&Input::Rows(slots), projection).map(ReadPlan::single)
+        })
+        .transpose()?;
     Ok(Plan::Mutate(Box::new(MutationPlan {
         input,
         slots: query.slots,
         mutations: query.mutations,
-        projection: query.projection,
+        result,
     })))
 }
 
@@ -212,34 +230,41 @@ pub(crate) struct MutationPlan {
     input: Option<sqlite::RowSource>,
     slots: Vec<EntityKind>,
     mutations: Vec<Mutation>,
-    projection: Option<Projection>,
+    result: Option<ReadPlan>,
+}
+
+/// A stored value ready to execute: resolved once, or a prepared read over
+/// the materialized rows that yields one value per row.
+pub(crate) enum ResolvedStoredValue {
+    Static(serde_json::Value),
+    Computed(PreparedReadPlan),
 }
 
 pub(crate) enum ResolvedMutation {
     CreateNode {
         slot: SlotId,
         label: Option<String>,
-        properties: serde_json::Value,
+        properties: ResolvedStoredValue,
     },
     CreateRelationship {
         slot: SlotId,
         relationship_type: String,
         from: SlotId,
         to: SlotId,
-        properties: serde_json::Value,
+        properties: ResolvedStoredValue,
     },
     SetProperty {
         slot: SlotId,
         key: String,
-        value: serde_json::Value,
+        value: ResolvedStoredValue,
     },
     ReplaceProperties {
         slot: SlotId,
-        properties: serde_json::Value,
+        properties: ResolvedStoredValue,
     },
     MergeProperties {
         slot: SlotId,
-        properties: serde_json::Value,
+        properties: ResolvedStoredValue,
     },
     RemoveProperty {
         slot: SlotId,
@@ -251,16 +276,11 @@ pub(crate) enum ResolvedMutation {
     },
 }
 
-pub(crate) struct ResolvedProjection {
-    pub(crate) columns: Vec<String>,
-    pub(crate) expressions: Vec<ResolvedExpr>,
-}
-
 pub(crate) struct ResolvedMutationPlan {
     pub(crate) input: Option<ResolvedRowSource>,
     pub(crate) slots: Vec<EntityKind>,
     pub(crate) mutations: Vec<ResolvedMutation>,
-    pub(crate) projection: Option<ResolvedProjection>,
+    pub(crate) result: Option<PreparedReadPlan>,
 }
 
 impl MutationPlan {
@@ -272,6 +292,35 @@ impl MutationPlan {
             .input
             .map(|input| input.resolve(parameters))
             .transpose()?;
+        let slots = self
+            .slots
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| (SlotId(index), *kind))
+            .collect::<Vec<_>>();
+        let computed = |expression| -> Result<ResolvedStoredValue> {
+            compile_stored_expression(&slots, expression)?
+                .prepare(parameters)
+                .map(ResolvedStoredValue::Computed)
+        };
+        let properties = |value, description: &str| -> Result<ResolvedStoredValue> {
+            match value {
+                StoredValue::Static(value) => value
+                    .resolve_properties(parameters, description)
+                    .map(ResolvedStoredValue::Static),
+                StoredValue::Computed(expression) => computed(expression),
+            }
+        };
+        let scalar = |value| -> Result<ResolvedStoredValue> {
+            match value {
+                StoredValue::Static(value) => {
+                    let value = value.resolve(parameters)?;
+                    validate_storable_value(&value)?;
+                    Ok(ResolvedStoredValue::Static(value))
+                }
+                StoredValue::Computed(expression) => computed(expression),
+            }
+        };
         let mutations = self
             .mutations
             .into_iter()
@@ -279,48 +328,44 @@ impl MutationPlan {
                 Mutation::CreateNode {
                     slot,
                     label,
-                    properties,
-                } => {
-                    let properties =
-                        properties.resolve_properties(parameters, "node properties")?;
-                    Ok(ResolvedMutation::CreateNode {
-                        slot,
-                        label,
-                        properties,
-                    })
-                }
+                    properties: value,
+                } => Ok(ResolvedMutation::CreateNode {
+                    slot,
+                    label,
+                    properties: properties(value, "node properties")?,
+                }),
                 Mutation::CreateRelationship {
                     slot,
                     relationship_type,
                     from,
                     to,
-                    properties,
-                } => {
-                    let properties =
-                        properties.resolve_properties(parameters, "relationship properties")?;
-                    Ok(ResolvedMutation::CreateRelationship {
-                        slot,
-                        relationship_type,
-                        from,
-                        to,
-                        properties,
-                    })
-                }
-                Mutation::SetProperty { slot, key, value } => {
-                    let value = value.resolve(parameters)?;
-                    validate_storable_value(&value)?;
-                    Ok(ResolvedMutation::SetProperty { slot, key, value })
-                }
-                Mutation::ReplaceProperties { slot, properties } => {
-                    let properties =
-                        properties.resolve_properties(parameters, "replacement properties")?;
-                    Ok(ResolvedMutation::ReplaceProperties { slot, properties })
-                }
-                Mutation::MergeProperties { slot, properties } => {
-                    let properties =
-                        properties.resolve_properties(parameters, "merged properties")?;
-                    Ok(ResolvedMutation::MergeProperties { slot, properties })
-                }
+                    properties: value,
+                } => Ok(ResolvedMutation::CreateRelationship {
+                    slot,
+                    relationship_type,
+                    from,
+                    to,
+                    properties: properties(value, "relationship properties")?,
+                }),
+                Mutation::SetProperty { slot, key, value } => Ok(ResolvedMutation::SetProperty {
+                    slot,
+                    key,
+                    value: scalar(value)?,
+                }),
+                Mutation::ReplaceProperties {
+                    slot,
+                    properties: value,
+                } => Ok(ResolvedMutation::ReplaceProperties {
+                    slot,
+                    properties: properties(value, "replacement properties")?,
+                }),
+                Mutation::MergeProperties {
+                    slot,
+                    properties: value,
+                } => Ok(ResolvedMutation::MergeProperties {
+                    slot,
+                    properties: properties(value, "merged properties")?,
+                }),
                 Mutation::RemoveProperty { slot, key } => {
                     Ok(ResolvedMutation::RemoveProperty { slot, key })
                 }
@@ -329,26 +374,33 @@ impl MutationPlan {
                 }
             })
             .collect::<Result<Vec<_>>>()?;
-        let projection = self
-            .projection
-            .map(|projection| -> Result<ResolvedProjection> {
-                let expressions = projection
-                    .expressions
-                    .iter()
-                    .map(|expression| expression.resolve_output(parameters))
-                    .collect::<Result<Vec<_>>>()?;
-                Ok(ResolvedProjection {
-                    columns: projection.columns,
-                    expressions,
-                })
-            })
+        let result = self
+            .result
+            .map(|result| result.prepare(parameters))
             .transpose()?;
 
         Ok(ResolvedMutationPlan {
             input,
             slots: self.slots,
             mutations,
-            projection,
+            result,
         })
     }
+}
+
+/// Compiles a computed stored value as a one-column read over the
+/// materialized rows; row order follows the rows table.
+fn compile_stored_expression(
+    slots: &[(SlotId, EntityKind)],
+    expression: logical::Expr,
+) -> Result<ReadPlan> {
+    let projection = Projection {
+        columns: vec!["value".to_owned()],
+        expressions: vec![expression],
+        distinct: false,
+        order_by: Vec::new(),
+        offset: None,
+        limit: None,
+    };
+    sqlite::compile_read(&Input::Rows(slots.to_vec()), &projection).map(ReadPlan::single)
 }

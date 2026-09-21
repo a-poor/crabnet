@@ -42,9 +42,8 @@ Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
 relative order of equal sort keys is unspecified. Ascending order places nulls
 last; descending order places nulls first. `SKIP`/`OFFSET` and `LIMIT` are
-applied after ordering when an order is present. Projection modifiers,
-including ordering and pagination, are not currently supported after a
-mutation; neither is `RETURN DISTINCT` after a mutation.
+applied after ordering when an order is present. The same rules apply to a
+`RETURN` after a mutation, which runs as a read over the post-mutation rows.
 
 ## `WITH` clause boundaries
 
@@ -121,9 +120,9 @@ an immediately preceding `WITH ... ORDER BY` controls collection order.
 Explicit `ALL` has the same bag behavior as an omitted aggregate quantifier.
 `count(DISTINCT expression)` is supported. `DISTINCT` on the other aggregates,
 collecting whole entities, nested aggregate calls, aggregate calls embedded in
-a larger projection expression, aggregate-only ordering/filtering without an
-aggregating projection, and aggregation after a mutation are structured
-planning-time rejections. Aggregates are not allowed in `MATCH` predicates or
+a larger projection expression, and aggregate-only ordering/filtering without
+an aggregating projection are structured planning-time rejections; a `RETURN`
+after a mutation may aggregate over the post-mutation rows. Aggregates are not allowed in `MATCH` predicates or
 directly in `UNWIND`; a `WITH` boundary must materialize them first.
 Whole path values and path-derived typed lists are not accepted as aggregate
 inputs or grouping keys. `length(path)` is an ordinary integer and may be a
@@ -391,8 +390,7 @@ non-integer argument gives null, and a zero step raises `Error::Argument` at
 runtime.
 
 Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
-rejections. Computed scalar projections are currently read-only: the
-post-mutation result stage does not yet execute them.
+rejections.
 
 ## `CASE` expressions
 
@@ -699,13 +697,19 @@ materialized row. Consequently:
   that same statement.
 
 Matched `SET` and `REMOVE` currently accept direct property targets on nodes or
-relationships. `SET entity.key = value` assigns a literal or parameter value,
-and `REMOVE entity.key` deletes that key. `SET entity = map` replaces the
-complete property map, while `SET entity += map` performs a shallow merge; the
-map may be a literal or named parameter. Row-dependent or otherwise computed
-right-hand sides and label mutation are explicit planning-time rejections, as
-are writes in a query containing `WITH`, fed by variable-length traversal, or
-fed by any named path.
+relationships. `SET entity.key = value` assigns a value and `REMOVE entity.key`
+deletes that key. `SET entity = map` replaces the complete property map, while
+`SET entity += map` performs a shallow merge. Values and maps may be literals,
+named parameters, or expressions over the row: `SET a.total = a.price * a.qty`,
+`SET a += {copy: b.name}`, and `SET a = b` (which copies `b`'s properties) all
+work, as do computed `CREATE` properties such as `CREATE (c {next: a.n + 1})`.
+A `CREATE` may precede `SET`, `REMOVE`, and `DELETE` in the same statement.
+A computed value is evaluated once per input row, over the rows as they stand
+when that `SET` item or `CREATE` pattern starts, so later items see earlier
+writes. It must not contain aggregates, nodes, relationships, or paths; a
+whole-map form must evaluate to a map. Those are semantic errors. Label
+mutation remains a planning-time rejection, as are writes in a query
+containing `WITH`, fed by variable-length traversal, or fed by any named path.
 
 Direct assignment of `null` removes the targeted key. A null-valued entry in a
 `+=` map also removes that key. Whole-map replacement is deliberately
@@ -768,5 +772,5 @@ expression-position shortest-path calls, other path expressions beyond the
 three path functions above, optional-bound paths or relationship lists,
 postfix graph quantifiers,
 the deferred legacy shortest forms listed above, quantified optional matching,
-`MERGE`, label mutation, and computed mutation right-hand sides—remain unresolved
-until those constructs are designed and implemented.
+`MERGE`, and label mutation—remain unresolved until those constructs are
+designed and implemented.

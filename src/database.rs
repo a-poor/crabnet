@@ -13,8 +13,8 @@ use crate::{
     Result,
     planner::{
         self, EntityKind, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
-        PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedExpr, ResolvedMutation,
-        ResolvedMutationPlan, SlotId, UnionKind,
+        PreparedReadPlan, PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedMutation,
+        ResolvedMutationPlan, ResolvedRowSource, ResolvedStoredValue, SlotId, UnionKind,
     },
 };
 
@@ -119,33 +119,41 @@ impl Database {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let mut input_rows = materialize_input(&transaction, &plan)?;
-        let mut rows = Vec::with_capacity(input_rows.len());
+        let ResolvedMutationPlan {
+            input,
+            slots,
+            mutations,
+            result,
+        } = plan;
+        let mut input_rows = materialize_input(&transaction, input.as_ref(), &slots)?;
         let mut summary = QuerySummary::default();
 
         // Mutation-major execution mirrors a Cypher update pipeline: each
         // operation observes the complete input bag before the next operation
         // starts. DELETE in particular must gather and deduplicate its targets
-        // across every matched row before removing anything.
-        for mutation in &plan.mutations {
+        // across every matched row before removing anything. A computed value
+        // is evaluated for every row over the rows as they stand when its
+        // operation starts.
+        for mutation in mutations {
             match mutation {
                 ResolvedMutation::CreateNode {
                     slot,
                     label,
                     properties,
                 } => {
-                    for input_row in &mut input_rows {
-                        let properties_text = properties.to_string();
+                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
+                    for (index, input_row) in input_rows.iter_mut().enumerate() {
+                        let properties = values.get(index);
                         let id = transaction.query_row(
                             "INSERT INTO nodes (id, label, props)
                              VALUES (lower(hex(randomblob(16))), ?1, json(?2))
                              RETURNING id",
-                            params![label.as_deref(), properties_text],
+                            params![label.as_deref(), properties.to_string()],
                             |row| row.get::<_, String>(0),
                         )?;
                         input_row.set(
-                            &plan.slots,
-                            *slot,
+                            &slots,
+                            slot,
                             EntityValue::Node(NodeValue {
                                 element_id: id,
                                 labels: label.iter().cloned().collect(),
@@ -162,20 +170,21 @@ impl Database {
                     to,
                     properties,
                 } => {
-                    for input_row in &mut input_rows {
-                        let from = input_row.node_id(*from)?.to_owned();
-                        let to = input_row.node_id(*to)?.to_owned();
-                        let properties_text = properties.to_string();
+                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
+                    for (index, input_row) in input_rows.iter_mut().enumerate() {
+                        let properties = values.get(index);
+                        let from = input_row.node_id(from)?.to_owned();
+                        let to = input_row.node_id(to)?.to_owned();
                         let id = transaction.query_row(
                             "INSERT INTO edges (id, edge_type, from_node, to_node, props)
                              VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, json(?4))
                              RETURNING id",
-                            params![relationship_type, from, to, properties_text],
+                            params![relationship_type, from, to, properties.to_string()],
                             |row| row.get::<_, String>(0),
                         )?;
                         input_row.set(
-                            &plan.slots,
-                            *slot,
+                            &slots,
+                            slot,
                             EntityValue::Relationship(RelationshipValue {
                                 element_id: id,
                                 relationship_type: relationship_type.clone(),
@@ -188,30 +197,47 @@ impl Database {
                     }
                 }
                 ResolvedMutation::SetProperty { slot, key, value } => {
-                    summary.properties_set +=
-                        update_properties(&transaction, &mut input_rows, *slot, |properties| {
+                    let values = row_values(&transaction, &slots, &input_rows, value, false)?;
+                    summary.properties_set += update_properties(
+                        &transaction,
+                        &mut input_rows,
+                        slot,
+                        |index, properties| {
+                            let value = values.get(index);
                             if value.is_null() {
-                                properties.remove(key);
+                                properties.remove(&key);
                             } else {
                                 properties.insert(key.clone(), value.clone());
                             }
-                        })?;
+                        },
+                    )?;
                 }
                 ResolvedMutation::ReplaceProperties { slot, properties } => {
-                    let replacement = properties
-                        .as_object()
-                        .expect("resolved replacement properties are validated maps");
-                    summary.properties_set +=
-                        update_properties(&transaction, &mut input_rows, *slot, |current| {
-                            *current = replacement.clone()
-                        })?;
+                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
+                    summary.properties_set += update_properties(
+                        &transaction,
+                        &mut input_rows,
+                        slot,
+                        |index, current| {
+                            *current = values
+                                .get(index)
+                                .as_object()
+                                .expect("stored properties are validated maps")
+                                .clone();
+                        },
+                    )?;
                 }
                 ResolvedMutation::MergeProperties { slot, properties } => {
-                    let patch = properties
-                        .as_object()
-                        .expect("resolved merged properties are validated maps");
-                    summary.properties_set +=
-                        update_properties(&transaction, &mut input_rows, *slot, |current| {
+                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
+                    summary.properties_set += update_properties(
+                        &transaction,
+                        &mut input_rows,
+                        slot,
+                        |index, current| {
+                            let patch = values
+                                .get(index)
+                                .as_object()
+                                .expect("stored properties are validated maps");
                             for (key, value) in patch {
                                 if value.is_null() {
                                     current.remove(key);
@@ -219,37 +245,28 @@ impl Database {
                                     current.insert(key.clone(), value.clone());
                                 }
                             }
-                        })?;
+                        },
+                    )?;
                 }
                 ResolvedMutation::RemoveProperty { slot, key } => {
                     summary.properties_set +=
-                        update_properties(&transaction, &mut input_rows, *slot, |properties| {
-                            properties.remove(key);
+                        update_properties(&transaction, &mut input_rows, slot, |_, properties| {
+                            properties.remove(&key);
                         })?;
                 }
                 ResolvedMutation::Delete { targets, detach } => {
-                    delete_entities(&transaction, &input_rows, targets, *detach, &mut summary)?;
+                    delete_entities(&transaction, &input_rows, &targets, detach, &mut summary)?;
                 }
             }
         }
 
-        if let Some(projection) = &plan.projection {
-            for input_row in &input_rows {
-                rows.push(
-                    projection
-                        .expressions
-                        .iter()
-                        .map(|expression| input_row.evaluate(expression))
-                        .collect::<Result<Vec<_>>>()?,
-                );
+        let (columns, rows) = match result {
+            Some(result) => {
+                let result = read_materialized_rows(&transaction, &slots, &input_rows, result)?;
+                (result.columns, result.rows)
             }
-        }
-
-        let columns = plan
-            .projection
-            .as_ref()
-            .map(|projection| projection.columns.clone())
-            .unwrap_or_default();
+            None => (Vec::new(), Vec::new()),
+        };
         transaction.commit()?;
         Ok(QueryResult {
             columns,
@@ -279,6 +296,14 @@ fn execute_read_plan(
     // parameter in a later UNION branch therefore cannot spend traversal work
     // or issue a SQLite read in an earlier branch.
     let plan = plan.prepare(parameters)?;
+    execute_prepared_read_plan(connection, plan, trail_budget)
+}
+
+fn execute_prepared_read_plan(
+    connection: &Connection,
+    plan: PreparedReadPlan,
+    trail_budget: &mut traversal::TrailBudget,
+) -> Result<QueryResult> {
     let columns = plan.columns;
     let rows = match plan.root {
         PreparedPhysicalOperator::BatchHydrate { input } => {
@@ -482,7 +507,7 @@ fn update_properties(
     transaction: &Transaction<'_>,
     rows: &mut [ExecutionRow],
     slot: SlotId,
-    update: impl Fn(&mut serde_json::Map<String, serde_json::Value>),
+    update: impl Fn(usize, &mut serde_json::Map<String, serde_json::Value>),
 ) -> Result<usize> {
     let mut total_changed = 0;
     for target_index in 0..rows.len() {
@@ -506,7 +531,7 @@ fn update_properties(
         };
 
         let before = properties.clone();
-        update(&mut properties);
+        update(target_index, &mut properties);
         let changed = property_change_count(&before, &properties);
         if changed > 0 {
             let update_sql = match kind {
@@ -680,13 +705,6 @@ impl EntityValue {
         }
     }
 
-    fn properties(&self) -> &std::collections::BTreeMap<String, CypherValue> {
-        match self {
-            Self::Node(node) => &node.properties,
-            Self::Relationship(relationship) => &relationship.properties,
-        }
-    }
-
     fn to_cypher_value(&self) -> CypherValue {
         match self {
             Self::Node(node) => CypherValue::Node(node.clone()),
@@ -779,55 +797,189 @@ impl ExecutionRow {
         }
         found
     }
+}
 
-    fn evaluate(&self, expression: &ResolvedExpr) -> Result<CypherValue> {
-        match expression {
-            ResolvedExpr::Value(value) => CypherValue::try_from(value),
-            ResolvedExpr::Entity(slot) => Ok(self.entity(*slot)?.to_cypher_value()),
-            ResolvedExpr::Property(slot, key) => self
-                .entity(*slot)?
-                .properties()
-                .get(key)
-                .cloned()
-                .map_or(Ok(CypherValue::Null), Ok),
-            ResolvedExpr::ElementId(slot) => match self.entity(*slot)? {
-                EntityValue::Node(node) => Ok(CypherValue::String(node.element_id.clone())),
-                EntityValue::Relationship(relationship) => {
-                    Ok(CypherValue::String(relationship.element_id.clone()))
-                }
-            },
-            ResolvedExpr::Labels(slot) => match self.entity(*slot)? {
-                EntityValue::Node(node) => Ok(CypherValue::List(
-                    node.labels
-                        .iter()
-                        .cloned()
-                        .map(CypherValue::String)
-                        .collect(),
-                )),
-                EntityValue::Relationship(_) => Err(crate::Error::Data(format!(
-                    "logical slot {} is not a node",
-                    slot.0
-                ))),
-            },
-            ResolvedExpr::RelationshipType(slot) => match self.entity(*slot)? {
-                EntityValue::Relationship(relationship) => {
-                    Ok(CypherValue::String(relationship.relationship_type.clone()))
-                }
-                EntityValue::Node(_) => Err(crate::Error::Data(format!(
-                    "logical slot {} is not a relationship",
-                    slot.0
-                ))),
-            },
+/// One stored value per input row: a static value shared by every row, or
+/// the per-row results of a computed expression.
+enum RowValues {
+    Static(serde_json::Value),
+    PerRow(Vec<serde_json::Value>),
+}
+
+impl RowValues {
+    fn get(&self, index: usize) -> &serde_json::Value {
+        match self {
+            Self::Static(value) => value,
+            Self::PerRow(values) => &values[index],
+        }
+    }
+}
+
+/// Evaluates a computed stored value over the current rows. `map` says the
+/// value must be a property map (CREATE, `SET =`, `SET +=`) rather than a
+/// single property value.
+fn row_values(
+    transaction: &Transaction<'_>,
+    slots: &[EntityKind],
+    rows: &[ExecutionRow],
+    value: ResolvedStoredValue,
+    map: bool,
+) -> Result<RowValues> {
+    let plan = match value {
+        ResolvedStoredValue::Static(value) => return Ok(RowValues::Static(value)),
+        ResolvedStoredValue::Computed(plan) => plan,
+    };
+    let result = read_materialized_rows(transaction, slots, rows, plan)?;
+    if result.rows.len() != rows.len() {
+        return Err(crate::Error::Data(
+            "a computed stored value did not yield one value per row".into(),
+        ));
+    }
+    result
+        .rows
+        .into_iter()
+        .map(|mut row| {
+            let value = storable_json(row.swap_remove(0))?;
+            if map {
+                crate::planner::require_object(&value, "computed properties")?;
+                crate::planner::validate_storable_properties(&value)?;
+            } else {
+                crate::planner::validate_storable_value(&value)?;
+            }
+            Ok(value)
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(RowValues::PerRow)
+}
+
+/// A computed value as stored JSON. Graph entities and paths are not
+/// property values.
+fn storable_json(value: CypherValue) -> Result<serde_json::Value> {
+    match &value {
+        CypherValue::Node(_) | CypherValue::Relationship(_) | CypherValue::Path(_) => {
+            Err(crate::Error::Semantic(
+                "graph entities and paths cannot be stored as property values".into(),
+            ))
+        }
+        CypherValue::List(items)
+            if items.iter().any(|item| {
+                matches!(
+                    item,
+                    CypherValue::Node(_) | CypherValue::Relationship(_) | CypherValue::Path(_)
+                )
+            }) =>
+        {
+            Err(crate::Error::Semantic(
+                "graph entities and paths cannot be stored as property values".into(),
+            ))
+        }
+        _ => Ok(json_from_cypher(&value)),
+    }
+}
+
+/// Runs the post-mutation RETURN: the rows the mutations produced are written
+/// to a temporary table, one encoded entity record per slot, and the compiled
+/// read projection runs over it inside the same transaction.
+fn read_materialized_rows(
+    transaction: &Transaction<'_>,
+    slots: &[EntityKind],
+    rows: &[ExecutionRow],
+    result: PreparedReadPlan,
+) -> Result<QueryResult> {
+    let table = crate::planner::ROWS_TABLE;
+    let columns = (0..slots.len())
+        .map(|index| format!("e{index} TEXT"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    transaction.execute_batch(&format!(
+        "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
+    ))?;
+    {
+        let placeholders = (1..=slots.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let mut insert =
+            transaction.prepare(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
+        for row in rows {
+            let records = row
+                .entities
+                .iter()
+                .map(|entity| entity.as_ref().map(encode_entity))
+                .collect::<Vec<_>>();
+            insert.execute(params_from_iter(records.iter()))?;
+        }
+    }
+    let mut trail_budget = traversal::TrailBudget::default();
+    let result = execute_prepared_read_plan(transaction, result, &mut trail_budget);
+    transaction.execute_batch(&format!("DROP TABLE IF EXISTS temp.{table};"))?;
+    result
+}
+
+/// The JSON record the SQL compiler expects for an encoded entity: the
+/// inverse of `decode_entity`, reflecting the entity's current in-memory
+/// properties.
+fn encode_entity(entity: &EntityValue) -> String {
+    let record = match entity {
+        EntityValue::Node(node) => serde_json::json!({
+            "id": node.element_id,
+            "label": node.labels.first(),
+            "props": json_from_properties(&node.properties),
+        }),
+        EntityValue::Relationship(relationship) => serde_json::json!({
+            "id": relationship.element_id,
+            "type": relationship.relationship_type,
+            "from": relationship.start_node_element_id,
+            "to": relationship.end_node_element_id,
+            "props": json_from_properties(&relationship.properties),
+        }),
+    };
+    record.to_string()
+}
+
+fn json_from_properties(
+    properties: &std::collections::BTreeMap<String, CypherValue>,
+) -> serde_json::Value {
+    serde_json::Value::Object(
+        properties
+            .iter()
+            .map(|(key, value)| (key.clone(), json_from_cypher(value)))
+            .collect(),
+    )
+}
+
+/// Stored property values are JSON: scalars, lists, and maps. Entities and
+/// paths never occur inside properties.
+fn json_from_cypher(value: &CypherValue) -> serde_json::Value {
+    match value {
+        CypherValue::Null => serde_json::Value::Null,
+        CypherValue::Boolean(value) => serde_json::Value::Bool(*value),
+        CypherValue::Integer(value) => serde_json::Value::from(*value),
+        CypherValue::Float(value) => serde_json::Number::from_f64(*value)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
+        CypherValue::String(value) => serde_json::Value::String(value.clone()),
+        CypherValue::List(items) => {
+            serde_json::Value::Array(items.iter().map(json_from_cypher).collect())
+        }
+        CypherValue::Map(entries) => serde_json::Value::Object(
+            entries
+                .iter()
+                .map(|(key, value)| (key.clone(), json_from_cypher(value)))
+                .collect(),
+        ),
+        CypherValue::Node(_) | CypherValue::Relationship(_) | CypherValue::Path(_) => {
+            serde_json::Value::Null
         }
     }
 }
 
 fn materialize_input(
     transaction: &Transaction<'_>,
-    plan: &ResolvedMutationPlan,
+    input: Option<&ResolvedRowSource>,
+    slots: &[EntityKind],
 ) -> Result<Vec<ExecutionRow>> {
-    let Some(input) = &plan.input else {
-        return Ok(vec![ExecutionRow::empty(plan.slots.len())]);
+    let Some(input) = input else {
+        return Ok(vec![ExecutionRow::empty(slots.len())]);
     };
 
     let mut statement = transaction.prepare(&input.sql)?;
@@ -835,11 +987,11 @@ fn materialize_input(
     let mut cursor = statement.query(params_from_iter(input.bindings.iter()))?;
     let mut input_rows = Vec::new();
     while let Some(row) = cursor.next()? {
-        let mut execution_row = ExecutionRow::empty(plan.slots.len());
+        let mut execution_row = ExecutionRow::empty(slots.len());
         for (column, (slot, kind)) in input.slots.iter().enumerate() {
             let encoded = row.get::<_, String>(column)?;
             let entity = decode_entity(&encoded, *kind)?;
-            execution_row.set(&plan.slots, *slot, entity)?;
+            execution_row.set(slots, *slot, entity)?;
         }
         input_rows.push(execution_row);
     }
