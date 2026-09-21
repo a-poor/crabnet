@@ -289,7 +289,16 @@ twice on the way out, once when SQLite's `json()` rendered a REAL and once when
 now leave SQL through a Rust shortest-round-trip formatter and
 `floats_round_trip_through_sql_without_losing_significant_digits` in
 `tests/arithmetic_and_distinct.rs` pins literals, parameters, stored
-properties, arithmetic, and aggregates bit-for-bit. Because the exclusion
+properties, arithmetic, and aggregates bit-for-bit. The Precedence1 scenarios
+then exposed the same shape of defect as the boolean gate one level down:
+every operator mentioned each operand several times and a derived type
+repeated its value again, so nested comparisons and arithmetic grew
+exponentially (`a = (a IN c)` was 150 KB of SQL, two five-operator arithmetic
+terms 25 MB) and the whole TCK run took half a minute. Non-trivial operands
+are now computed once in a correlated scalar-subquery scope;
+`nested_operands_compile_to_linear_sql` in `tests/physical_plan.rs` pins the
+linear growth, checks that leaf-only filters still open no scope, and
+re-verifies results through the scoped shape. Because the exclusion
 reason is the engine's own message, rejections must name the feature: the
 lowering names every unsupported expression kind and operator rather than
 falling back to a generic `expression` bucket, which is what lets

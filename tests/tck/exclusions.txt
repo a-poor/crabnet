@@ -593,7 +593,6 @@ clauses/with/With1.feature::[2] Forwarind a node variable 2	setup-failed: unsupp
 clauses/with/With1.feature::[5] Forwarding null	unsupported: RETURN *
 clauses/with/With1.feature::[6] Forwarding a node variable possibly null	setup-failed: unsupported: this CREATE clause sequence
 clauses/with/With2.feature::[1] Forwarding a property to express a join	setup-failed: unsupported: non-literal stored value expression
-clauses/with/With2.feature::[2] Forwarding a nested map literal	unsupported: nested property access
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
 clauses/with/With4.feature::[6] Reusing variable names in WITH	setup-failed: unsupported: this CREATE clause sequence
 clauses/with/With4.feature::[7] Multiple aliasing and backreferencing	unsupported: writes in a read pipeline
@@ -839,6 +838,12 @@ expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes wit
 expressions/graph/Graph5.feature::[5] Label expression on null	unsupported: IS predicate
 expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	unsupported: non-literal stored value expression
 expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	unsupported: non-literal stored value expression
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 1	expected-error-not-raised
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 2	expected-error-not-raised
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 3	expected-error-not-raised
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 4	expected-error-not-raised
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 5	expected-error-not-raised
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 6	expected-error-not-raised
 expressions/graph/Graph7.feature::[1] Execute n['name'] in read queries	unsupported: list or map indexing
 expressions/graph/Graph7.feature::[2] Execute n['name'] in update queries	unsupported: list or map indexing
 expressions/graph/Graph7.feature::[3] Use dynamic property lookup based on parameters when there is lhs type information	unsupported: list or map indexing
@@ -1005,19 +1010,13 @@ expressions/list/List6.feature::[8] Get node degree via size of pattern comprehe
 expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: function `size`
 expressions/list/List9.feature::[1] Returning nested expressions based on list property	unsupported: function `tail`
 expressions/literals/Literals8.feature::[22] Fail on a map containing unquoted string	wrong-error-kind: unsupported: non-literal stored value expression
-expressions/map/Map1.feature::[1] Statically access a field of a non-null map	semantic-error: scalar variable `m` does not have graph properties
-expressions/map/Map1.feature::[2] Statically access a field of a null map	semantic-error: scalar variable `m` does not have graph properties
-expressions/map/Map1.feature::[3] Statically access a field of a map resulting from an expression	unsupported: nested property access
-expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 1	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 2	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 3	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[4] Statically access a field is case-sensitive::example 4	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 1	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 2	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 3	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 4	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 5	semantic-error: scalar variable `map` does not have graph properties
-expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 6	semantic-error: scalar variable `map` does not have graph properties
+expressions/map/Map1.feature::[3] Statically access a field of a map resulting from an expression	unsupported: list or map indexing
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 1	expected-error-not-raised
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 2	expected-error-not-raised
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 3	expected-error-not-raised
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 4	expected-error-not-raised
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 5	expected-error-not-raised
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 6	expected-error-not-raised
 expressions/map/Map2.feature::[1] Dynamically access a field based on parameters when there is no type information	unsupported: list or map indexing
 expressions/map/Map2.feature::[2] Dynamically access a field based on parameters when there is rhs type information	unsupported: list or map indexing
 expressions/map/Map2.feature::[3] Dynamically access a field on null results in null	unsupported: list or map indexing
@@ -1045,30 +1044,6 @@ expressions/map/Map3.feature::[4] Using `keys()` on map with null values::exampl
 expressions/map/Map3.feature::[5] Using `keys()` and `IN` to check field existence	unsupported: function `keys`
 expressions/mathematical/Mathematical11.feature::[1] Absolute function	unsupported: function `abs`
 expressions/mathematical/Mathematical13.feature::[1] `sqrt()` returning float values	unsupported: function `sqrt`
-expressions/null/Null1.feature::[5] IS NULL on a map::example 1	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 10	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 11	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 12	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 2	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 3	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 4	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 5	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 6	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 7	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 8	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null1.feature::[5] IS NULL on a map::example 9	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 1	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 10	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 11	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 12	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 2	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 3	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 4	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 5	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 6	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 7	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 8	semantic-error: scalar variable `map` does not have graph properties
-expressions/null/Null2.feature::[5] IS NOT NULL on a map::example 9	semantic-error: scalar variable `map` does not have graph properties
 expressions/path/Path1.feature::[1] `nodes()` on null path	semantic-error: non-entity variable `a` cannot be used in a graph pattern
 expressions/path/Path2.feature::[3] `relationships()` on null path	semantic-error: non-entity variable `a` cannot be used in a graph pattern
 expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 10	wrong-error-kind: unsupported: pattern predicate
@@ -1121,49 +1096,15 @@ expressions/pattern/Pattern2.feature::[8] Use a pattern comprehension in WITH	se
 expressions/pattern/Pattern2.feature::[9] Use a variable-length pattern comprehension in WITH	unsupported: pattern comprehension
 expressions/precedence/Precedence1.feature::[14] Exclusive disjunction takes precedence over inclusive disjunction in every combination of truth values	unsupported: XOR
 expressions/precedence/Precedence1.feature::[15] Conjunction takes precedence over exclusive disjunction in every combination of truth values	unsupported: XOR
-expressions/precedence/Precedence1.feature::[16] Conjunction takes precedence over inclusive disjunction in every combination of truth values	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[17] Negation takes precedence over conjunction in every combination of truth values	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[18] Negation takes precedence over inclusive disjunction in every combination of truth values	unsupported: quantified list predicate
 expressions/precedence/Precedence1.feature::[19] Comparison operators takes precedence over boolean negation in every combination of truth values::example 1	semantic-error: unknown variable `comp`
 expressions/precedence/Precedence1.feature::[19] Comparison operators takes precedence over boolean negation in every combination of truth values::example 2	semantic-error: unknown variable `comp`
 expressions/precedence/Precedence1.feature::[19] Comparison operators takes precedence over boolean negation in every combination of truth values::example 3	semantic-error: unknown variable `comp`
 expressions/precedence/Precedence1.feature::[1] Exclusive disjunction takes precedence over inclusive disjunction	unsupported: XOR
-expressions/precedence/Precedence1.feature::[20] Pairs of comparison operators and boolean negation that are associative in every combination of truth values::example 1	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[20] Pairs of comparison operators and boolean negation that are associative in every combination of truth values::example 2	unsupported: quantified list predicate
 expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 1	unsupported: XOR
-expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 2	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 3	unsupported: quantified list predicate
 expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 4	unsupported: XOR
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 1	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 10	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 11	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 12	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 2	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 3	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 4	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 5	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 6	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 7	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 8	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 9	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[24] Null predicates take precedence over boolean negation on every truth values::example 1	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[24] Null predicates take precedence over boolean negation on every truth values::example 2	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 1	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 2	unsupported: quantified list predicate
 expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 3	unsupported: XOR
 expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 4	unsupported: XOR
-expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 5	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 6	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 1	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 2	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 3	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 4	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 5	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 6	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[27] List predicate takes precedence over negation in every combination of truth values	unsupported: quantified list predicate
-expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 1	unsupported: quantified list predicate
 expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 2	unsupported: XOR
-expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 3	unsupported: quantified list predicate
 expressions/precedence/Precedence1.feature::[2] Conjunction disjunction takes precedence over exclusive disjunction	unsupported: XOR
 expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence over numeric multiplicative operations::example 1	unsupported: `^`
 expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence over numeric multiplicative operations::example 2	unsupported: `^`
@@ -1182,114 +1123,32 @@ expressions/precedence/Precedence3.feature::[6] List element containment takes p
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 6	result-mismatch: row values differ
 expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 6	unsupported: XOR
 expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 7	unsupported: XOR
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[11] None quantifier with IS NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[13] None quantifier is true if the predicate is statically false and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[14] None quantifier is false if the predicate is statically true and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 1	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 2	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 3	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[1] None quantifier is always true on empty list	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 13	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 14	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 15	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 16	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 17	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[3] None quantifier on list literal containing integers::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[4] None quantifier on list literal containing floats::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 9	unsupported: quantified list predicate
+expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
+expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
+expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[5] None quantifier on list literal containing strings::example 9	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier1.feature::[6] None quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier10.feature::[1] Single quantifier is always false if the predicate is statically false and the list is not empty	unsupported: list comprehension
 expressions/quantifier/Quantifier10.feature::[2] Single quantifier is always false if the predicate is statically true and the list has more than one element	unsupported: list comprehension
-expressions/quantifier/Quantifier10.feature::[3] Single quantifier is always true if the predicate is statically true and the list has exactly one non-null element	unsupported: quantified list predicate
+expressions/quantifier/Quantifier10.feature::[3] Single quantifier is always true if the predicate is statically true and the list has exactly one non-null element	unsupported: non-literal stored value expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 1	unsupported: CASE expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 2	unsupported: CASE expression
 expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 3	unsupported: CASE expression
@@ -1334,441 +1193,97 @@ expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal 
 expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3	unsupported: CASE expression
 expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4	unsupported: CASE expression
 expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5	unsupported: CASE expression
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[11] Single quantifier with IS NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[13] Single quantifier is false if the predicate is statically false and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[14] Single quantifier is false if the predicate is statically true and the list has more than one element	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[15] Single quantifier is true if the predicate is statically true and the list has exactly one non-null element	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 1	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 2	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 3	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[1] Single quantifier is always false on empty list	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 13	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 14	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 15	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 16	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 17	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[3] Single quantifier on list literal containing integers::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[4] Single quantifier on list literal containing floats::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 9	unsupported: quantified list predicate
+expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
+expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
+expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[5] Single quantifier on list literal containing strings::example 9	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier2.feature::[6] Single quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[11] Any quantifier with IS NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[13] Any quantifier is false if the predicate is statically false and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[14] Any quantifier is true if the predicate is statically true and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 1	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 2	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 3	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[1] Any quantifier is always false on empty list	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 13	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 14	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 15	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 16	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 17	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[3] Any quantifier on list literal containing integers::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[4] Any quantifier on list literal containing floats::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 9	unsupported: quantified list predicate
+expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
+expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
+expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[5] Any quantifier on list literal containing strings::example 9	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier3.feature::[6] Any quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[11] All quantifier with IS NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[13] All quantifier is false if the predicate is statically false and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[14] All quantifier is true if the predicate is statically true and the list is not empty	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 1	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 2	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 3	wrong-error-kind: unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[1] All quantifier is always true on empty list	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 13	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 14	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 15	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 16	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 17	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[3] All quantifier on list literal containing integers::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 10	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 11	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 12	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[4] All quantifier on list literal containing floats::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 9	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 9	unsupported: quantified list predicate
+expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
+expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
+expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[5] All quantifier on list literal containing strings::example 9	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 6	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 7	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 8	unsupported: function `size`
+expressions/quantifier/Quantifier4.feature::[6] All quantifier on list literal containing lists::example 9	unsupported: function `size`
 expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes	setup-failed: unsupported: this CREATE clause sequence
 expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships	setup-failed: unsupported: this CREATE clause sequence
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[3] None quantifier is equal the boolean negative of the any quantifier::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[3] None quantifier is equal the boolean negative of the any quantifier::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[3] None quantifier is equal the boolean negative of the any quantifier::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[3] None quantifier is equal the boolean negative of the any quantifier::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[3] None quantifier is equal the boolean negative of the any quantifier::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[4] None quantifier is equal the all quantifier on the boolean negative of the predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[1] Single quantifier can nest itself and other quantifiers on nested lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[2] Single quantifier can nest itself and other quantifiers on the same list::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[1] Any quantifier can nest itself and other quantifiers on nested lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[2] Any quantifier can nest itself and other quantifiers on the same list::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[3] Any quantifier is true if the single or the all quantifier is true::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[3] Any quantifier is true if the single or the all quantifier is true::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[3] Any quantifier is true if the single or the all quantifier is true::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[3] Any quantifier is true if the single or the all quantifier is true::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[3] Any quantifier is true if the single or the all quantifier is true::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[4] Any quantifier is equal the boolean negative of the none quantifier::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[4] Any quantifier is equal the boolean negative of the none quantifier::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[4] Any quantifier is equal the boolean negative of the none quantifier::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[4] Any quantifier is equal the boolean negative of the none quantifier::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[4] Any quantifier is equal the boolean negative of the none quantifier::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[5] Any quantifier is equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[1] All quantifier can nest itself and other quantifiers on nested lists::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 6	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 7	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 8	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[4] All quantifier is equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 5	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 1	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 2	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4	unsupported: quantified list predicate
-expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5	unsupported: quantified list predicate
+expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 3	unsupported: function `abs`
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier5.feature::[5] None quantifier is equal whether the size of the list filtered with same the predicate is zero::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier6.feature::[3] Single quantifier is equal whether the size of the list filtered with same the predicate is one::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier7.feature::[6] Any quantifier is equal whether the size of the list filtered with same the predicate is grater zero::example 5	unsupported: function `size`
+expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 7	unsupported: function `abs`
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 1	unsupported: function `size`
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 2	unsupported: function `size`
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3	unsupported: function `size`
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4	unsupported: function `size`
+expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5	unsupported: function `size`
 expressions/quantifier/Quantifier9.feature::[1] None quantifier is always true if the predicate is statically false and the list is not empty	unsupported: list comprehension
 expressions/quantifier/Quantifier9.feature::[2] None quantifier is always false if the predicate is statically true and the list is not empty	unsupported: list comprehension
 expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 1	unsupported: list comprehension

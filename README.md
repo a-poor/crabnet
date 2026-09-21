@@ -92,7 +92,10 @@ Within those shapes, the first iteration supports:
   values rejected during preflight before they can become unreadable stored
   properties
 - inline property matching and `WHERE` typed comparisons, boolean expressions,
-  `IN`, `STARTS WITH`, `CONTAINS`, and `ENDS WITH`
+  `IN`, `STARTS WITH`, `CONTAINS`, `ENDS WITH`, and the list quantifiers
+  `all`, `any`, `none`, and `single`
+- `.key` access on map values: projected maps, parameters, nested properties,
+  and quantified list elements
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
   including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
   `elementId`, `labels`, and `type`

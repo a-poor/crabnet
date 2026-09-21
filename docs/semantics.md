@@ -295,6 +295,41 @@ the result is null; there is no string coercion. These predicates and `IN` may
 appear in `WHERE` or as computed read projections, where their result is a
 typed boolean or null cell.
 
+## List quantifiers
+
+`all`, `any`, `none`, and `single(x IN list WHERE predicate)` evaluate the
+predicate once per element and combine the outcomes three-valued. Each
+outcome is true, false, or null; a null outcome could be either truth value, so
+it only matters when the definite outcomes leave the answer open:
+
+- `all` is false if any outcome is false, otherwise null if any is null,
+  otherwise true (so it is true on an empty list);
+- `any` is true if any outcome is true, otherwise null if any is null,
+  otherwise false;
+- `none` is the negation of `any`;
+- `single` is false if more than one outcome is true, null if any outcome is
+  null, true if exactly one is true, and false otherwise.
+
+The bound variable shadows any outer binding of the same name inside the
+predicate only; the list expression is evaluated in the enclosing scope, so
+`all(x IN x WHERE ...)` iterates the outer `x`. Quantifiers nest, may mention
+outer scalars, properties, and parameters, and may appear anywhere a boolean
+expression may: `WHERE`, projections, `ORDER BY`, and aggregate arguments.
+Aggregates are rejected inside the predicate. A null or non-list operand
+produces null; Cypher raises a type error for a non-list. Predicates that
+apply an operator to an element of the wrong kind follow the engine's general
+rule and produce null where Cypher raises a type error.
+
+## Map key access
+
+`value.key` on a non-entity value reads a key of a map: a projected or
+parameter map, a nested property such as `n.meta.tag`, a parenthesized
+expression, or a quantified list element. A missing key, a key holding null,
+and a null map all read as null. Reading a key of a non-map, non-null value
+also produces null; Cypher raises a type error. Keys are case-sensitive and
+may be escaped identifiers. Graph entities keep their own property semantics,
+and property access on a path variable is a semantic error.
+
 ## Numeric arithmetic and computed projections
 
 Read predicates and projections support binary `+`, `-`, `*`, `/`, and `%`,

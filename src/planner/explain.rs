@@ -1,10 +1,10 @@
 use serde_json::Value;
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, Mutation,
-    PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query, ReadStage,
-    RelationshipUse, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr, WithBinding,
-    WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, MatchOperator,
+    Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
+    ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, UnaryOp, ValueExpr,
+    WithBinding, WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -549,6 +549,31 @@ fn render_expr(expression: &Expr) -> String {
                 .as_deref()
                 .map_or_else(|| "*".to_owned(), render_expr)
         ),
+        Expr::Quantified {
+            kind,
+            variable,
+            list,
+            predicate,
+        } => format!(
+            "{}(#l{} in {} where {})",
+            quantifier_kind_name(*kind),
+            variable.0,
+            render_expr(list),
+            render_expr(predicate)
+        ),
+        Expr::ListElement(variable) => format!("#l{}", variable.0),
+        Expr::MapProperty { base, key } => {
+            format!("map-property({}, {})", render_expr(base), quote(key))
+        }
+    }
+}
+
+fn quantifier_kind_name(kind: ListQuantifier) -> &'static str {
+    match kind {
+        ListQuantifier::All => "all",
+        ListQuantifier::Any => "any",
+        ListQuantifier::None => "none",
+        ListQuantifier::Single => "single",
     }
 }
 

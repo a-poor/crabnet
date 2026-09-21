@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 
 use open_cypher::{
@@ -6,10 +7,10 @@ use open_cypher::{
         BinaryOperator, ClauseKind, CreateClause, DeleteClause, DeleteMode, Expr as AstExpr,
         ExprKind, FunctionInvocation, IntegerRadix, IsPredicate, LabelExpression,
         LabelExpressionKind, LiteralKind, MatchClause, NodePattern, ParameterName, PathFactor,
-        PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, Quantifier, QuantifierKind,
-        RelationshipDirection, RelationshipPattern, RemoveClause, RemoveItemKind, SetClause,
-        SetItemKind, SetQuantifier, SortDirection as AstSortDirection, StatementKind,
-        UnaryOperator as AstUnaryOperator, UnwindClause, WithClause,
+        PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, QuantifiedPredicateKind,
+        Quantifier, QuantifierKind, RelationshipDirection, RelationshipPattern, RemoveClause,
+        RemoveItemKind, SetClause, SetItemKind, SetQuantifier, SortDirection as AstSortDirection,
+        StatementKind, UnaryOperator as AstUnaryOperator, UnwindClause, WithClause,
     },
     parse,
 };
@@ -19,10 +20,11 @@ use crate::{Error, Result};
 
 use super::UnionKind;
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MAX_USER_VALUE_NESTING,
-    MatchOperator, MatchPlan, Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment,
-    Projection, Query, ReadPipeline, ReadStage, RelationshipUse, ScalarSlotId, SlotId,
-    SortDirection, SortItem, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, ListVariableId,
+    MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
+    PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage,
+    RelationshipUse, ScalarSlotId, SlotId, SortDirection, SortItem, TraversalId, UnaryOp,
+    UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
@@ -408,6 +410,9 @@ struct Lowerer<'source> {
     path_slots: usize,
     symbols: HashMap<String, Symbol>,
     mutations: Vec<Mutation>,
+    // Expression lowering borrows the lowerer immutably, so list-bound
+    // variable ids come from a cell rather than a `&mut` counter.
+    list_variables: Cell<usize>,
 }
 
 impl<'source> Lowerer<'source> {
@@ -420,7 +425,14 @@ impl<'source> Lowerer<'source> {
             path_slots: 0,
             symbols: HashMap::new(),
             mutations: Vec::new(),
+            list_variables: Cell::new(0),
         }
+    }
+
+    fn allocate_list_variable(&self) -> ListVariableId {
+        let id = self.list_variables.get();
+        self.list_variables.set(id + 1);
+        ListVariableId(id)
     }
 
     fn allocate(&mut self, kind: EntityKind) -> SlotId {
@@ -1525,7 +1537,11 @@ impl<'source> Lowerer<'source> {
             if after_write
                 && matches!(
                     lowered,
-                    Expr::Binary { .. } | Expr::Unary { .. } | Expr::IsNull { .. }
+                    Expr::Binary { .. }
+                        | Expr::Unary { .. }
+                        | Expr::IsNull { .. }
+                        | Expr::Quantified { .. }
+                        | Expr::MapProperty { .. }
                 )
             {
                 return Err(unsupported(
@@ -1661,25 +1677,7 @@ impl<'source> Lowerer<'source> {
             ExprKind::Property {
                 expression: base,
                 key,
-            } => {
-                let slot = match &base.kind {
-                    ExprKind::Variable(variable) => match aliases.get(&variable.kind.text) {
-                        Some(Expr::Entity(slot)) => *slot,
-                        Some(_) => {
-                            return Err(semantic(
-                                variable.span,
-                                format!(
-                                    "scalar variable `{}` has no graph properties",
-                                    variable.kind.text
-                                ),
-                            ));
-                        }
-                        None => self.resolve_entity_variable(base)?,
-                    },
-                    _ => self.resolve_entity_variable(base)?,
-                };
-                Ok(Expr::Property(slot, key.kind.text.clone()))
-            }
+            } => self.property_expression(base, &key.kind.text, aliases, expression_depth),
             ExprKind::Variable(variable) => {
                 if let Some(expression) = aliases.get(&variable.kind.text) {
                     return Ok(expression.clone());
@@ -1766,25 +1764,7 @@ impl<'source> Lowerer<'source> {
             ExprKind::Property {
                 expression: base,
                 key,
-            } => {
-                let slot = match &base.kind {
-                    ExprKind::Variable(variable) => match aliases.get(&variable.kind.text) {
-                        Some(Expr::Entity(slot)) => *slot,
-                        Some(_) => {
-                            return Err(semantic(
-                                variable.span,
-                                format!(
-                                    "scalar variable `{}` has no graph properties",
-                                    variable.kind.text
-                                ),
-                            ));
-                        }
-                        None => self.resolve_entity_variable(base)?,
-                    },
-                    _ => self.resolve_entity_variable(base)?,
-                };
-                Ok(Expr::Property(slot, key.kind.text.clone()))
-            }
+            } => self.property_expression(base, &key.kind.text, aliases, expression_depth),
             ExprKind::Binary {
                 left,
                 operator,
@@ -1924,8 +1904,45 @@ impl<'source> Lowerer<'source> {
                 Err(unsupported(expression.span, "pattern comprehension"))
             }
             ExprKind::Reduce(_) => Err(unsupported(expression.span, "reduce expression")),
-            ExprKind::QuantifiedPredicate(_) => {
-                Err(unsupported(expression.span, "quantified list predicate"))
+            ExprKind::QuantifiedPredicate(quantified) => {
+                let kind = match quantified.kind.kind {
+                    QuantifiedPredicateKind::All => ListQuantifier::All,
+                    QuantifiedPredicateKind::Any => ListQuantifier::Any,
+                    QuantifiedPredicateKind::None => ListQuantifier::None,
+                    QuantifiedPredicateKind::Single => ListQuantifier::Single,
+                    _ => return Err(unsupported(quantified.kind.span, "list quantifier")),
+                };
+                // The list is evaluated in the enclosing scope; only the
+                // predicate sees the bound variable, which shadows any outer
+                // binding of the same name.
+                let list = self.scalar_expression_with_aliases_at_depth(
+                    &quantified.list,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let variable = self.allocate_list_variable();
+                let mut inner = aliases.clone();
+                inner.insert(
+                    quantified.variable.kind.text.clone(),
+                    Expr::ListElement(variable),
+                );
+                let predicate = self.scalar_expression_with_aliases_at_depth(
+                    &quantified.predicate,
+                    &inner,
+                    expression_depth + 1,
+                )?;
+                if predicate.contains_aggregate() {
+                    return Err(semantic(
+                        quantified.predicate.span,
+                        "aggregate calls are not allowed inside a list quantifier predicate",
+                    ));
+                }
+                Ok(Expr::Quantified {
+                    kind,
+                    variable,
+                    list: Box::new(list),
+                    predicate: Box::new(predicate),
+                })
             }
             ExprKind::Subquery(_) => Err(unsupported(expression.span, "subquery expression")),
             ExprKind::Pattern(_) => Err(unsupported(expression.span, "pattern predicate")),
@@ -2136,6 +2153,47 @@ impl<'source> Lowerer<'source> {
                 ),
             )),
         }
+    }
+
+    /// Lowers `base.key`. Graph entities keep the dedicated `Property`
+    /// expression; any other base (a projected or parameter map, a quantified
+    /// list element, a nested map, or an arbitrary scalar expression) becomes
+    /// a `MapProperty` lookup evaluated against the base's JSON value.
+    fn property_expression(
+        &self,
+        base: &AstExpr,
+        key: &str,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        let key = key.to_owned();
+        let map_property = |base: Expr| Expr::MapProperty {
+            base: Box::new(base),
+            key: key.clone(),
+        };
+        if let ExprKind::Variable(variable) = &base.kind {
+            return match aliases.get(&variable.kind.text) {
+                Some(Expr::Entity(slot)) => Ok(Expr::Property(*slot, key)),
+                Some(Expr::Path(_) | Expr::PathFunction { .. }) => Err(semantic(
+                    variable.span,
+                    format!(
+                        "path variable `{}` does not have graph properties",
+                        variable.kind.text
+                    ),
+                )),
+                Some(expression) => Ok(map_property(expression.clone())),
+                None => match self.resolve_symbol(variable)? {
+                    Symbol::Entity(slot) => Ok(Expr::Property(slot, key)),
+                    Symbol::Scalar(slot) => Ok(map_property(Expr::Scalar(slot))),
+                    Symbol::Path(_) | Symbol::PathCollection { .. } => self
+                        .resolve_entity_variable(base)
+                        .map(|slot| Expr::Property(slot, key)),
+                },
+            };
+        }
+        let base =
+            self.scalar_expression_with_aliases_at_depth(base, aliases, expression_depth + 1)?;
+        Ok(map_property(base))
     }
 
     fn resolve_entity_variable(&self, expression: &AstExpr) -> Result<SlotId> {

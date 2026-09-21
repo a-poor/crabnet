@@ -159,6 +159,19 @@ pub(crate) enum UnaryOp {
     Not,
 }
 
+/// A list-bound variable introduced by a quantified predicate such as
+/// `any(x IN list WHERE ...)`. Ids are unique within one lowered query.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub(crate) struct ListVariableId(pub(crate) usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ListQuantifier {
+    All,
+    Any,
+    None,
+    Single,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AggregateKind {
     Count,
@@ -201,6 +214,21 @@ pub(crate) enum Expr {
         argument: Option<Box<Self>>,
         distinct: bool,
     },
+    /// `all`/`any`/`none`/`single(variable IN list WHERE predicate)`. The
+    /// predicate refers to the current element through `ListElement`.
+    Quantified {
+        kind: ListQuantifier,
+        variable: ListVariableId,
+        list: Box<Self>,
+        predicate: Box<Self>,
+    },
+    ListElement(ListVariableId),
+    /// `.key` on a map-valued scalar such as a projected map, a parameter, a
+    /// nested property, or a quantified list element.
+    MapProperty {
+        base: Box<Self>,
+        key: String,
+    },
 }
 
 impl Expr {
@@ -212,6 +240,10 @@ impl Expr {
             }
             Self::Unary { operand, .. } => operand.contains_aggregate(),
             Self::IsNull { expression, .. } => expression.contains_aggregate(),
+            Self::Quantified {
+                list, predicate, ..
+            } => list.contains_aggregate() || predicate.contains_aggregate(),
+            Self::MapProperty { base, .. } => base.contains_aggregate(),
             _ => false,
         }
     }
@@ -223,6 +255,13 @@ impl Expr {
             Self::Binary { left, right, .. } => left.is_row_dependent() || right.is_row_dependent(),
             Self::Unary { operand, .. } => operand.is_row_dependent(),
             Self::IsNull { expression, .. } => expression.is_row_dependent(),
+            Self::Quantified {
+                list, predicate, ..
+            } => list.is_row_dependent() || predicate.is_row_dependent(),
+            // An element varies per list member, not per row; the enclosing
+            // quantifier reports its own row dependence through its operands.
+            Self::ListElement(_) => false,
+            Self::MapProperty { base, .. } => base.is_row_dependent(),
             Self::Entity(_)
             | Self::Scalar(_)
             | Self::Path(_)
@@ -245,6 +284,14 @@ impl Expr {
             }
             Self::Unary { operand, .. } => operand.uses_only_grouped_values(grouping),
             Self::IsNull { expression, .. } => expression.uses_only_grouped_values(grouping),
+            Self::Quantified {
+                list, predicate, ..
+            } => {
+                list.uses_only_grouped_values(grouping)
+                    && predicate.uses_only_grouped_values(grouping)
+            }
+            Self::ListElement(_) => true,
+            Self::MapProperty { base, .. } => base.uses_only_grouped_values(grouping),
             Self::Property(slot, _)
             | Self::ElementId(slot)
             | Self::Labels(slot)

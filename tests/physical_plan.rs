@@ -317,3 +317,68 @@ fn boolean_connective_chains_compile_to_linear_sql() {
         ]]
     );
 }
+
+#[test]
+fn nested_operands_compile_to_linear_sql() {
+    // Found by the openCypher TCK's Precedence1 scenarios: comparisons,
+    // arithmetic, membership, and string predicates mention each operand
+    // several times, and a derived type repeats its value again, so nesting
+    // multiplied the SQL at every level. `a = (a IN c)` reached 150 KB, five
+    // nested arithmetic operators 3 MB, and a projection of two of those
+    // 25 MB. Non-trivial operands are now computed once in a scalar-subquery
+    // scope, so growth is linear in the number of operators.
+    let arithmetic = |depth: usize| {
+        let mut text = String::from("a");
+        for level in 0..depth {
+            text = format!(
+                "(({text}) {} {})",
+                ["+", "*", "-", "/", "%"][level % 5],
+                level + 2
+            );
+        }
+        text
+    };
+    let shallow = explain_physical(&format!("WITH 1 AS a RETURN {} AS r", arithmetic(2))).unwrap();
+    let deep = explain_physical(&format!("WITH 1 AS a RETURN {} AS r", arithmetic(12))).unwrap();
+    assert!(
+        deep.len() < shallow.len() * 6,
+        "12 nested operators produced {} bytes against {} for 2",
+        deep.len(),
+        shallow.len()
+    );
+
+    let predicates = explain_physical(
+        "WITH true AS a, [true] AS c \
+         RETURN a = (a IN c) AS r, (a = (a IN c)) <> (a IN c) AS s, \
+                collect((a + 1 > 2) = ('x' STARTS WITH 'y')) AS t",
+    )
+    .unwrap();
+    assert!(predicates.len() < 60_000, "{} bytes", predicates.len());
+
+    // Leaf operands stay inline: a plain property filter opens no scope.
+    let simple =
+        explain_physical("MATCH (n) WHERE n.age > 30 AND n.name = 'x' RETURN n.name").unwrap();
+    assert!(!simple.contains("(SELECT ("), "{simple}");
+
+    let mut database = Database::in_memory().unwrap();
+    let result = database
+        .execute(
+            "WITH 1 AS a, [true] AS c \
+             RETURN ((((a + 1) * 2 - 3) / 4) % 5) + ((((a + 1) * 2 - 3) / 4) % 5) AS r, \
+                    (a > 0) = ((a > 0) IN c) AS s, \
+                    (a + 1 > 2) = ('x' STARTS WITH 'y') AS t, \
+                    -(a + 0.5) * 2 AS u, \
+                    (a + 1 > 2) = (null IN c) AS v",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        [vec![
+            CypherValue::Integer(0),
+            CypherValue::Boolean(true),
+            CypherValue::Boolean(true),
+            CypherValue::Float(-3.0),
+            CypherValue::Null,
+        ]]
+    );
+}

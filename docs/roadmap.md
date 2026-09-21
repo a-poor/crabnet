@@ -413,7 +413,12 @@ to burn down `tests/tck/exclusions.txt` by category, starting with the
 answers rather than rejections, then the largest `unsupported` buckets, before
 adding deterministic differential cases. Every unsupported expression kind and
 operator is now named in its rejection, so the exclusions file ranks the gaps
-directly: quantified list predicates (`all`/`any`/`none`/`single`) are the
-largest by far, then qualified function calls, the `CREATE` clause sequences
-that gate setup for other features, and the temporal functions. The
-working loop is documented in [testing.md](testing.md).
+directly. List quantifiers and map key access, the two largest at the time,
+are in; the ranking now reads qualified function calls, the `CREATE` clause
+sequences that gate setup for other features, the temporal functions, `size`,
+list comprehension, `range`, and `CASE`. The generated-SQL blowup that made
+nested operators grow exponentially (a five-operator arithmetic expression
+reached 3 MB) is fixed by computing non-trivial operands once in a
+scalar-subquery scope; aggregates still repeat their argument a constant
+number of times, which is the remaining SQL-size cost. The working loop is
+documented in [testing.md](testing.md).

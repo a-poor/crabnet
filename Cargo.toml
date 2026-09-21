@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-open-cypher = "0.2.0-alpha.2"
+open-cypher = "0.2.0"
 rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }

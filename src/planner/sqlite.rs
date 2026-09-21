@@ -7,9 +7,10 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, MatchOperator, MatchPlan,
-    PathFunctionKind, PathId, PathSegment, Projection, ReadStage, RelationshipUse, ScalarSlotId,
-    SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, ListVariableId,
+    MatchOperator, MatchPlan, PathFunctionKind, PathId, PathSegment, Projection, ReadStage,
+    RelationshipUse, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage,
+    ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
@@ -333,9 +334,76 @@ struct TraversalSource {
     node_ids: String,
 }
 
+/// A compiled scalar expression: its SQL value and how to name its JSON type.
+#[derive(Clone, Debug)]
+struct Scalar {
+    value: String,
+    kind: ScalarType,
+}
+
+#[derive(Clone, Debug)]
+enum ScalarType {
+    /// Type SQL that stands on its own, such as `json_type(...)` or a
+    /// constant like `'integer'`.
+    Sql(String),
+    /// A three-valued SQL boolean whose type name follows from its value.
+    Boolean,
+    /// A SQL number (or null) whose type name follows from its value.
+    Numeric,
+}
+
+impl Scalar {
+    fn sql(value: impl Into<String>, value_type: impl Into<String>) -> Self {
+        Self {
+            value: value.into(),
+            kind: ScalarType::Sql(value_type.into()),
+        }
+    }
+
+    fn boolean(value: String) -> Self {
+        Self {
+            value,
+            kind: ScalarType::Boolean,
+        }
+    }
+
+    fn numeric(value: String) -> Self {
+        Self {
+            value,
+            kind: ScalarType::Numeric,
+        }
+    }
+
+    /// The type SQL, given SQL that yields this scalar's value. Derived
+    /// kinds are computed from `value` rather than from the scalar's own
+    /// value text, so a scope can compute the value once and type it by name.
+    fn type_of(&self, value: &str) -> String {
+        match &self.kind {
+            ScalarType::Sql(sql) => sql.clone(),
+            ScalarType::Boolean => boolean_type(value),
+            ScalarType::Numeric => numeric_type(value),
+        }
+    }
+
+    fn into_parts(self) -> (String, String) {
+        let value_type = self.type_of(&self.value);
+        (self.value, value_type)
+    }
+}
+
+impl From<(String, String)> for Scalar {
+    fn from((value, value_type): (String, String)) -> Self {
+        Self::sql(value, value_type)
+    }
+}
+
 struct Compiler {
     entities: HashMap<SlotId, EntitySource>,
     scalars: HashMap<ScalarSlotId, String>,
+    // Value and type SQL for each list-bound variable currently in scope.
+    list_elements: HashMap<ListVariableId, (String, String)>,
+    // Scalar-subquery scopes opened so far; each gets unique column names.
+    scopes: usize,
     traversals: HashMap<TraversalId, TraversalSource>,
     paths: HashMap<PathId, String>,
     scanned: Vec<(SlotId, EntityKind)>,
@@ -353,6 +421,8 @@ impl Compiler {
         Self {
             entities: HashMap::new(),
             scalars: HashMap::new(),
+            list_elements: HashMap::new(),
+            scopes: 0,
             traversals: HashMap::new(),
             paths: HashMap::new(),
             scanned: Vec::new(),
@@ -1071,12 +1141,8 @@ impl Compiler {
                 WithBinding::Scalar {
                     slot, expression, ..
                 } => {
-                    let (value, value_type) = self.scalar_parts(expression)?;
-                    select.push(format!(
-                        "{} AS s{}",
-                        encoded_scalar(&value, &value_type),
-                        slot.0
-                    ));
+                    let encoded = self.encoded_expression(expression)?;
+                    select.push(format!("{encoded} AS s{}", slot.0));
                     scalar_bindings.push(*slot);
                     if aggregating
                         && !expression.contains_aggregate()
@@ -1391,8 +1457,7 @@ impl Compiler {
         if let Expr::PathFunction { kind, path } = expression {
             let shape = match kind {
                 PathFunctionKind::Length => {
-                    let (value, value_type) = self.scalar_parts(expression)?;
-                    return Ok((encoded_scalar(&value, &value_type), OutputShape::Json));
+                    return Ok((self.encoded_expression(expression)?, OutputShape::Json));
                 }
                 PathFunctionKind::Nodes => OutputShape::PathNodes,
                 PathFunctionKind::Relationships => OutputShape::PathRelationships,
@@ -1400,8 +1465,7 @@ impl Compiler {
             return Ok((self.path_source(*path)?.to_owned(), shape));
         }
 
-        let (value, value_type) = self.scalar_parts(expression)?;
-        Ok((encoded_scalar(&value, &value_type), OutputShape::Json))
+        Ok((self.encoded_expression(expression)?, OutputShape::Json))
     }
 
     fn grouping_terms(&mut self, expression: &Expr) -> Result<Vec<String>> {
@@ -1420,21 +1484,86 @@ impl Compiler {
                 "path values as grouping keys".to_owned(),
             ));
         }
-        let (value, value_type) = self.scalar_parts(expression)?;
-        Ok(vec![format!(
-            "crabnet_semantic_key({})",
-            encoded_scalar(&value, &value_type)
-        )])
+        let encoded = self.encoded_expression(expression)?;
+        Ok(vec![format!("crabnet_semantic_key({encoded})")])
     }
 
     fn raw_expression(&mut self, expression: &Expr) -> Result<String> {
-        let (value, value_type) = self.scalar_parts(expression)?;
         // Some values (notably literals and parameters) use a separate bind
         // to carry their JSON type. Keep that bind visible even when ORDER BY
         // needs only the raw payload, or SQLite's parameter count and the
         // planner's binding vector can diverge.
+        self.scoped(&[expression], |_, parts| {
+            let (value, value_type) = &parts[0];
+            Ok(format!(
+                "CASE WHEN ({value_type}) IS NULL THEN ({value}) ELSE ({value}) END"
+            ))
+        })
+    }
+
+    /// The JSON text encoding of a scalar, as stored in result columns.
+    fn encoded_expression(&mut self, expression: &Expr) -> Result<String> {
+        self.scoped(&[expression], |_, parts| {
+            let (value, value_type) = &parts[0];
+            Ok(encoded_scalar(value, value_type))
+        })
+    }
+
+    /// Compiles each operand once and builds `body` over short references to
+    /// their values and types. Operators mention an operand several times
+    /// (null guards, type gates, the operation itself), and a derived type
+    /// repeats its value again, so inlining operand SQL made the generated
+    /// text grow exponentially with expression depth. Non-trivial operands
+    /// are instead computed in a correlated scalar-subquery scope:
+    /// `(SELECT body FROM (SELECT b.v, type(b.v) AS t FROM (SELECT value AS v) AS b) AS s)`.
+    /// Leaves are cheap to repeat and stay inline, as do aggregates, which
+    /// must remain in the grouping query rather than move into a subquery.
+    fn scoped(
+        &mut self,
+        operands: &[&Expr],
+        body: impl FnOnce(&mut Self, &[(String, String)]) -> Result<String>,
+    ) -> Result<String> {
+        let mut compiled = Vec::with_capacity(operands.len());
+        for operand in operands {
+            let scalar = self.compile_scalar(operand)?;
+            compiled.push((scalar, is_inline_operand(operand)));
+        }
+        self.scoped_scalars(compiled, body)
+    }
+
+    fn scoped_scalars(
+        &mut self,
+        operands: Vec<(Scalar, bool)>,
+        body: impl FnOnce(&mut Self, &[(String, String)]) -> Result<String>,
+    ) -> Result<String> {
+        let scope = self.scopes;
+        self.scopes += 1;
+        let mut values = Vec::new();
+        let mut typed = Vec::new();
+        let mut parts = Vec::with_capacity(operands.len());
+        for (index, (scalar, inline)) in operands.into_iter().enumerate() {
+            if inline {
+                parts.push(scalar.into_parts());
+                continue;
+            }
+            let value = format!("v{scope}_{index}");
+            let value_type = format!("t{scope}_{index}");
+            let bound_type = scalar.type_of(&format!("b{scope}.{value}"));
+            values.push(format!("({}) AS {value}", scalar.value));
+            typed.push(format!("b{scope}.{value}, ({bound_type}) AS {value_type}"));
+            parts.push((
+                format!("s{scope}.{value}"),
+                format!("s{scope}.{value_type}"),
+            ));
+        }
+        let body = body(self, &parts)?;
+        if values.is_empty() {
+            return Ok(body);
+        }
         Ok(format!(
-            "CASE WHEN ({value_type}) IS NULL THEN ({value}) ELSE ({value}) END"
+            "(SELECT {body} FROM (SELECT {} FROM (SELECT {}) AS b{scope}) AS s{scope})",
+            typed.join(", "),
+            values.join(", ")
         ))
     }
 
@@ -1449,18 +1578,25 @@ impl Compiler {
         // its operand several times, which made a chain of `n` connectives
         // grow the generated SQL by a factor of about ten per term.
         if is_native_boolean(expression) {
-            return self.scalar_parts(expression).map(|(value, _)| value);
+            return self.compile_scalar(expression).map(|scalar| scalar.value);
         }
-        let (value, value_type) = self.scalar_parts(expression)?;
-        // Retain the value expression as well as its type gate. Most dynamic
-        // types derive from the value, but aggregates can have a static result
-        // type; dropping their value here would also drop argument bindings.
-        let retained_type =
-            format!("CASE WHEN ({value}) IS NULL THEN ({value_type}) ELSE ({value_type}) END");
-        Ok(boolean_value(&retained_type))
+        self.scoped(&[expression], |_, parts| {
+            let (value, value_type) = &parts[0];
+            // Retain the value expression as well as its type gate. Most
+            // dynamic types derive from the value, but aggregates can have a
+            // static result type; dropping their value here would also drop
+            // argument bindings.
+            let retained_type =
+                format!("CASE WHEN ({value}) IS NULL THEN ({value_type}) ELSE ({value_type}) END");
+            Ok(boolean_value(&retained_type))
+        })
     }
 
     fn scalar_parts(&mut self, expression: &Expr) -> Result<(String, String)> {
+        self.compile_scalar(expression).map(Scalar::into_parts)
+    }
+
+    fn compile_scalar(&mut self, expression: &Expr) -> Result<Scalar> {
         match expression {
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),
@@ -1471,7 +1607,7 @@ impl Compiler {
             Expr::PathFunction { kind, path } => match kind {
                 PathFunctionKind::Length => {
                     let source = self.path_source(*path)?;
-                    Ok((
+                    Ok(Scalar::sql(
                         format!(
                             "CASE WHEN ({source}) IS NULL \
                                       OR json_type(({source}), '$') = 'null' \
@@ -1481,7 +1617,7 @@ impl Compiler {
                                 FROM json_each(({source}), '$.segments') AS path_segment) \
                              END"
                         ),
-                        "'integer'".into(),
+                        "'integer'",
                     ))
                 }
                 PathFunctionKind::Nodes | PathFunctionKind::Relationships => Err(
@@ -1492,7 +1628,7 @@ impl Compiler {
                 let source = self.scalars.get(slot).cloned().ok_or_else(|| {
                     Error::Data(format!("scalar slot {} has no SQL source", slot.0))
                 })?;
-                Ok((
+                Ok(Scalar::sql(
                     format!("json_extract({source}, '$')"),
                     format!("json_type({source}, '$')"),
                 ))
@@ -1500,25 +1636,25 @@ impl Compiler {
             Expr::Value(value) => {
                 let json = self.push_binding(SqlParameter::Json(value.clone()));
                 let json = format!("json({json})");
-                Ok((
+                Ok(Scalar::sql(
                     format!("json_extract({json}, '$')"),
                     format!("json_type({json}, '$')"),
                 ))
             }
-            Expr::Property(slot, key) => self.entity_property_parts(*slot, key),
-            Expr::ElementId(slot) => Ok((self.entity_field(*slot, "id")?, "'text'".into())),
+            Expr::Property(slot, key) => self.entity_property_parts(*slot, key).map(Scalar::from),
+            Expr::ElementId(slot) => Ok(Scalar::sql(self.entity_field(*slot, "id")?, "'text'")),
             Expr::RelationshipType(slot) => {
-                Ok((self.entity_field(*slot, "type")?, "'text'".into()))
+                Ok(Scalar::sql(self.entity_field(*slot, "type")?, "'text'"))
             }
             Expr::Labels(slot) => {
                 let id = self.entity_field(*slot, "id")?;
                 let label = self.entity_field(*slot, "label")?;
-                Ok((
+                Ok(Scalar::sql(
                     format!(
                         "CASE WHEN {id} IS NULL THEN NULL \
                          WHEN {label} IS NULL THEN '[]' ELSE json_array({label}) END"
                     ),
-                    "'array'".into(),
+                    "'array'",
                 ))
             }
             Expr::Binary {
@@ -1528,30 +1664,32 @@ impl Compiler {
             } => {
                 let predicate = match operator {
                     BinaryOp::Equal | BinaryOp::NotEqual => {
-                        let (left_value, left_type) = self.scalar_parts(left)?;
-                        let (right_value, right_type) = self.scalar_parts(right)?;
-                        typed_sql_comparison(
-                            &left_value,
-                            &left_type,
-                            &right_value,
-                            &right_type,
-                            *operator,
-                        )
+                        self.scoped(&[left, right], |_, parts| {
+                            let (left_value, left_type) = &parts[0];
+                            let (right_value, right_type) = &parts[1];
+                            Ok(typed_sql_comparison(
+                                left_value,
+                                left_type,
+                                right_value,
+                                right_type,
+                                *operator,
+                            ))
+                        })?
                     }
                     BinaryOp::Less
                     | BinaryOp::LessEqual
                     | BinaryOp::Greater
-                    | BinaryOp::GreaterEqual => {
-                        let (left_value, left_type) = self.scalar_parts(left)?;
-                        let (right_value, right_type) = self.scalar_parts(right)?;
-                        typed_sql_ordering(
-                            &left_value,
-                            &left_type,
-                            &right_value,
-                            &right_type,
+                    | BinaryOp::GreaterEqual => self.scoped(&[left, right], |_, parts| {
+                        let (left_value, left_type) = &parts[0];
+                        let (right_value, right_type) = &parts[1];
+                        Ok(typed_sql_ordering(
+                            left_value,
+                            left_type,
+                            right_value,
+                            right_type,
                             *operator,
-                        )
-                    }
+                        ))
+                    })?,
                     BinaryOp::In => self.membership_expression(left, right)?,
                     BinaryOp::StartsWith | BinaryOp::EndsWith | BinaryOp::Contains => {
                         self.string_predicate(left, right, *operator)?
@@ -1574,12 +1712,12 @@ impl Compiler {
                         return self.numeric_binary(left, right, *operator);
                     }
                 };
-                Ok(boolean_parts(predicate))
+                Ok(Scalar::boolean(predicate))
             }
             Expr::Unary { operator, operand } => match operator {
                 UnaryOp::Not => {
                     let operand = self.boolean_expression(operand)?;
-                    Ok(boolean_parts(format!("(NOT ({operand}))")))
+                    Ok(Scalar::boolean(format!("(NOT ({operand}))")))
                 }
                 UnaryOp::Plus | UnaryOp::Minus => self.numeric_unary(operand, *operator),
             },
@@ -1588,7 +1726,7 @@ impl Compiler {
                 negated,
             } => {
                 let expression = self.raw_expression(expression)?;
-                Ok(boolean_parts(format!(
+                Ok(Scalar::boolean(format!(
                     "(({expression}) IS {}NULL)",
                     if *negated { "NOT " } else { "" }
                 )))
@@ -1598,6 +1736,42 @@ impl Compiler {
                 argument,
                 distinct,
             } => self.aggregate_parts(*kind, argument.as_deref(), *distinct),
+            Expr::Quantified {
+                kind,
+                variable,
+                list,
+                predicate,
+            } => self
+                .quantified_expression(*kind, *variable, list, predicate)
+                .map(Scalar::boolean),
+            Expr::MapProperty { base, key } => {
+                let path = self.push_binding(SqlParameter::Text(key.to_owned()));
+                let json_path = format!("'$.' || json_quote({path})");
+                let scalar = self.compile_scalar(base)?;
+                let inline = is_inline_operand(base);
+                // Only maps have keys; null and every other kind read as null.
+                let map = |(value, value_type): &(String, String)| {
+                    format!("(CASE WHEN ({value_type}) = 'object' THEN ({value}) END)")
+                };
+                let value = self.scoped_scalars(vec![(scalar.clone(), inline)], |_, parts| {
+                    Ok(format!("json_extract({}, {json_path})", map(&parts[0])))
+                })?;
+                let value_type = self.scoped_scalars(vec![(scalar, inline)], |_, parts| {
+                    Ok(format!("json_type({}, {json_path})", map(&parts[0])))
+                })?;
+                Ok(Scalar::sql(value, value_type))
+            }
+            Expr::ListElement(variable) => self
+                .list_elements
+                .get(variable)
+                .cloned()
+                .map(Scalar::from)
+                .ok_or_else(|| {
+                    Error::Data(format!(
+                        "list variable #l{} is referenced outside its quantifier",
+                        variable.0
+                    ))
+                }),
         }
     }
 
@@ -1606,9 +1780,9 @@ impl Compiler {
         kind: AggregateKind,
         argument: Option<&Expr>,
         distinct: bool,
-    ) -> Result<(String, String)> {
+    ) -> Result<Scalar> {
         if kind == AggregateKind::Count && argument.is_none() {
-            return Ok(("COUNT(*)".into(), "'integer'".into()));
+            return Ok(Scalar::sql("COUNT(*)", "'integer'"));
         }
         let argument = argument.ok_or_else(|| {
             Error::Data("logical aggregate other than count() is missing its argument".into())
@@ -1621,13 +1795,15 @@ impl Compiler {
                 ));
             }
             let value = self.entity_field(*slot, "id")?;
-            return Ok((
+            return Ok(Scalar::sql(
                 format!("COUNT({}{value})", if distinct { "DISTINCT " } else { "" }),
-                "'integer'".into(),
+                "'integer'",
             ));
         }
 
-        let (value, value_type) = self.scalar_parts(argument)?;
+        let scalar = self.compile_scalar(argument)?;
+        let inline = is_inline_operand(argument);
+        let (value, value_type) = scalar.clone().into_parts();
         let non_null = format!(
             "({value}) IS NOT NULL AND ({value_type}) IS NOT NULL \
              AND ({value_type}) <> 'null'"
@@ -1642,7 +1818,10 @@ impl Compiler {
                 } else {
                     format!("CASE WHEN {non_null} THEN ({value}) END")
                 };
-                Ok((format!("COUNT({modifier}{counted})"), "'integer'".into()))
+                Ok(Scalar::sql(
+                    format!("COUNT({modifier}{counted})"),
+                    "'integer'",
+                ))
             }
             AggregateKind::Sum => {
                 let invalid = format!("({non_null}) AND NOT ({numeric})");
@@ -1651,7 +1830,7 @@ impl Compiler {
                     "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
                      ELSE COALESCE({sum}, 0) END)"
                 );
-                Ok(numeric_parts(value))
+                Ok(Scalar::numeric(value))
             }
             AggregateKind::Average => {
                 let invalid = format!("({non_null}) AND NOT ({numeric})");
@@ -1660,102 +1839,108 @@ impl Compiler {
                     "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
                      ELSE {average} END)"
                 );
-                Ok((value, "'real'".into()))
+                Ok(Scalar::sql(value, "'real'"))
             }
             AggregateKind::Minimum | AggregateKind::Maximum => {
-                Ok(min_max_parts(kind, &value, &value_type, modifier))
+                Ok(min_max_parts(kind, &value, &value_type, modifier).into())
             }
             AggregateKind::Collect => {
                 if distinct {
                     return Err(Error::Unsupported("collect(DISTINCT ...)".into()));
                 }
-                let encoded = encoded_scalar(&value, &value_type);
+                let encoded = self.scoped_scalars(vec![(scalar, inline)], |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(encoded_scalar(value, value_type))
+                })?;
                 let ordering = self
                     .ordering
                     .as_ref()
                     .map(|ordering| format!(" ORDER BY {ordering}"))
                     .unwrap_or_default();
-                Ok((
+                Ok(Scalar::sql(
                     format!(
                         "json_group_array(json({encoded}){ordering}) FILTER (WHERE {non_null})"
                     ),
-                    "'array'".into(),
+                    "'array'",
                 ))
             }
         }
     }
 
-    fn numeric_binary(
-        &mut self,
-        left: &Expr,
-        right: &Expr,
-        operator: BinaryOp,
-    ) -> Result<(String, String)> {
-        let (left_value, left_type) = self.scalar_parts(left)?;
-        let (right_value, right_type) = self.scalar_parts(right)?;
-        let compatible = format!(
-            "({left_type}) IN ('integer', 'real') AND \
+    fn numeric_binary(&mut self, left: &Expr, right: &Expr, operator: BinaryOp) -> Result<Scalar> {
+        self.scoped(&[left, right], |_, parts| {
+            let (left_value, left_type) = &parts[0];
+            let (right_value, right_type) = &parts[1];
+            let compatible = format!(
+                "({left_type}) IN ('integer', 'real') AND \
              ({right_type}) IN ('integer', 'real')"
-        );
-        let operation = if operator == BinaryOp::Remainder {
-            format!(
-                "CASE WHEN ({left_type}) = 'integer' AND ({right_type}) = 'integer' \
+            );
+            let operation = if operator == BinaryOp::Remainder {
+                format!(
+                    "CASE WHEN ({left_type}) = 'integer' AND ({right_type}) = 'integer' \
                  THEN (({left_value}) % ({right_value})) \
                  ELSE (({left_value}) - \
                        CAST(({left_value}) / ({right_value}) AS INTEGER) * ({right_value})) END"
-            )
-        } else {
-            let symbol = match operator {
-                BinaryOp::Add => "+",
-                BinaryOp::Subtract => "-",
-                BinaryOp::Multiply => "*",
-                BinaryOp::Divide => "/",
-                BinaryOp::Remainder => unreachable!(),
-                _ => unreachable!("only arithmetic operators reach numeric_binary"),
+                )
+            } else {
+                let symbol = match operator {
+                    BinaryOp::Add => "+",
+                    BinaryOp::Subtract => "-",
+                    BinaryOp::Multiply => "*",
+                    BinaryOp::Divide => "/",
+                    BinaryOp::Remainder => unreachable!(),
+                    _ => unreachable!("only arithmetic operators reach numeric_binary"),
+                };
+                format!("(({left_value}) {symbol} ({right_value}))")
             };
-            format!("(({left_value}) {symbol} ({right_value}))")
-        };
-        let value = format!(
-            "(CASE \
+            let value = format!(
+                "(CASE \
              WHEN ({left_value}) IS NULL OR ({right_value}) IS NULL THEN NULL \
              WHEN {compatible} THEN ({operation}) \
              ELSE NULL END)"
-        );
-        Ok(numeric_parts(value))
+            );
+            Ok(value)
+        })
+        .map(Scalar::numeric)
     }
 
-    fn numeric_unary(&mut self, operand: &Expr, operator: UnaryOp) -> Result<(String, String)> {
-        let (operand_value, operand_type) = self.scalar_parts(operand)?;
-        let symbol = match operator {
-            UnaryOp::Plus => "+",
-            UnaryOp::Minus => "-",
-            UnaryOp::Not => unreachable!("NOT is handled as a boolean operator"),
-        };
-        let value = format!(
-            "(CASE \
+    fn numeric_unary(&mut self, operand: &Expr, operator: UnaryOp) -> Result<Scalar> {
+        self.scoped(&[operand], |_, parts| {
+            let (operand_value, operand_type) = &parts[0];
+            let symbol = match operator {
+                UnaryOp::Plus => "+",
+                UnaryOp::Minus => "-",
+                UnaryOp::Not => unreachable!("NOT is handled as a boolean operator"),
+            };
+            let value = format!(
+                "(CASE \
              WHEN ({operand_value}) IS NULL THEN NULL \
              WHEN ({operand_type}) IN ('integer', 'real') THEN {symbol}({operand_value}) \
              ELSE NULL END)"
-        );
-        Ok(numeric_parts(value))
+            );
+            Ok(value)
+        })
+        .map(Scalar::numeric)
     }
 
     fn membership_expression(&mut self, left: &Expr, right: &Expr) -> Result<String> {
-        let (left_value, left_type) = self.scalar_parts(left)?;
-        let (right_value, right_type) = self.scalar_parts(right)?;
-        let list = format!("CASE WHEN ({right_type}) = 'array' THEN ({right_value}) ELSE '[]' END");
-        let member_value = "member.value";
-        let member_type = "member.type";
-        let equal = typed_sql_comparison(
-            &left_value,
-            &left_type,
-            member_value,
-            member_type,
-            BinaryOp::Equal,
-        );
+        self.scoped(&[left, right], |_, parts| {
+            let (left_value, left_type) = &parts[0];
+            let (right_value, right_type) = &parts[1];
+            let list =
+                format!("CASE WHEN ({right_type}) = 'array' THEN ({right_value}) ELSE '[]' END");
+            let member_value = "member.value";
+            let member_type = "member.type";
+            let equal = typed_sql_comparison(
+                left_value,
+                left_type,
+                member_value,
+                member_type,
+                BinaryOp::Equal,
+            );
 
-        Ok(format!(
-            "(CASE \
+            Ok(format!(
+                "(CASE \
              WHEN ({right_type}) IS NULL OR ({right_type}) = 'null' THEN NULL \
              WHEN ({right_type}) <> 'array' THEN NULL \
              WHEN EXISTS (SELECT 1 FROM json_each({list}) AS member WHERE ({equal})) THEN 1 \
@@ -1764,7 +1949,54 @@ impl Compiler {
              WHEN EXISTS (SELECT 1 FROM json_each({list}) AS member \
                           WHERE member.type = 'null') THEN NULL \
              ELSE 0 END)"
+            ))
+        })
+    }
+
+    /// Compiles `all`/`any`/`none`/`single(x IN list WHERE predicate)` to a
+    /// correlated `json_each` subquery. The predicate is evaluated once per
+    /// element into SQLite's three-valued 1/0/NULL; the quantifier then
+    /// decides from the counts of true, null, and total outcomes, which is
+    /// exactly Cypher's semantics: a null outcome can be either truth value,
+    /// so it only matters when the remaining outcomes leave the answer open.
+    fn quantified_expression(
+        &mut self,
+        kind: ListQuantifier,
+        variable: ListVariableId,
+        list: &Expr,
+        predicate: &Expr,
+    ) -> Result<String> {
+        self.scoped(&[list], |this, parts| {
+        let (list_value, list_type) = &parts[0];
+        let alias = format!("q{}", variable.0);
+        let previous = this.list_elements.insert(
+            variable,
+            (format!("{alias}.value"), format!("{alias}.type")),
+        );
+        let outcome = this.boolean_expression(predicate);
+        match previous {
+            Some(previous) => {
+                this.list_elements.insert(variable, previous);
+            }
+            None => {
+                this.list_elements.remove(&variable);
+            }
+        }
+        let outcome = outcome?;
+        let decision = match kind {
+            ListQuantifier::All => {
+                "WHEN total - trues - nulls > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1"
+            }
+            ListQuantifier::Any => "WHEN trues > 0 THEN 1 WHEN nulls > 0 THEN NULL ELSE 0",
+            ListQuantifier::None => "WHEN trues > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1",
+            ListQuantifier::Single => {
+                "WHEN trues > 1 THEN 0 WHEN nulls > 0 THEN NULL WHEN trues = 1 THEN 1 ELSE 0"
+            }
+        };
+        Ok(format!(
+            "(CASE              WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL              ELSE (SELECT CASE {decision} END FROM                    (SELECT count(*) AS total,                            count(*) FILTER (WHERE outcome) AS trues,                            count(*) FILTER (WHERE outcome IS NULL) AS nulls                     FROM (SELECT ({outcome}) AS outcome                           FROM json_each({list_value}) AS {alias}))) END)"
         ))
+        })
     }
 
     fn string_predicate(
@@ -1773,26 +2005,28 @@ impl Compiler {
         right: &Expr,
         operator: BinaryOp,
     ) -> Result<String> {
-        let (left_value, left_type) = self.scalar_parts(left)?;
-        let (right_value, right_type) = self.scalar_parts(right)?;
-        let predicate = match operator {
-            BinaryOp::StartsWith => format!("instr(({left_value}), ({right_value})) = 1"),
-            BinaryOp::EndsWith => format!(
-                "length(({left_value})) >= length(({right_value})) AND \
+        self.scoped(&[left, right], |_, parts| {
+            let (left_value, left_type) = &parts[0];
+            let (right_value, right_type) = &parts[1];
+            let predicate = match operator {
+                BinaryOp::StartsWith => format!("instr(({left_value}), ({right_value})) = 1"),
+                BinaryOp::EndsWith => format!(
+                    "length(({left_value})) >= length(({right_value})) AND \
                  substr(({left_value}), length(({left_value})) - length(({right_value})) + 1) \
                  = (({right_value}) COLLATE BINARY)"
-            ),
-            BinaryOp::Contains => format!("instr(({left_value}), ({right_value})) > 0"),
-            _ => unreachable!("only string predicates reach string_predicate"),
-        };
+                ),
+                BinaryOp::Contains => format!("instr(({left_value}), ({right_value})) > 0"),
+                _ => unreachable!("only string predicates reach string_predicate"),
+            };
 
-        Ok(format!(
-            "(CASE \
+            Ok(format!(
+                "(CASE \
              WHEN ({left_type}) IS NULL OR ({left_type}) = 'null' \
                OR ({right_type}) IS NULL OR ({right_type}) = 'null' THEN NULL \
              WHEN ({left_type}) <> 'text' OR ({right_type}) <> 'text' THEN NULL \
              ELSE ({predicate}) END)"
-        ))
+            ))
+        })
     }
 
     fn entity_property_parts(&mut self, slot: SlotId, key: &str) -> Result<(String, String)> {
@@ -1936,17 +2170,35 @@ fn is_native_boolean(expression: &Expr) -> bool {
             operator: UnaryOp::Not,
             ..
         }
-        | Expr::IsNull { .. } => true,
+        | Expr::IsNull { .. }
+        | Expr::Quantified { .. } => true,
         _ => false,
     }
 }
 
-fn boolean_parts(value: String) -> (String, String) {
-    let value_type = format!(
+// Whether an operand is cheap enough to repeat inline rather than compute
+// once in a scalar-subquery scope. Aggregates must stay inline: moving them
+// into a subquery would aggregate over that subquery's single row instead of
+// over the group.
+fn is_inline_operand(expression: &Expr) -> bool {
+    expression.contains_aggregate()
+        || matches!(
+            expression,
+            Expr::Value(_)
+                | Expr::Scalar(_)
+                | Expr::Property(_, _)
+                | Expr::ElementId(_)
+                | Expr::RelationshipType(_)
+                | Expr::ListElement(_)
+        )
+}
+
+// The JSON type name of a three-valued SQL boolean.
+fn boolean_type(value: &str) -> String {
+    format!(
         "(CASE WHEN ({value}) IS NULL THEN 'null' \
          WHEN ({value}) THEN 'true' ELSE 'false' END)"
-    );
-    (value, value_type)
+    )
 }
 
 fn boolean_value(value_type: &str) -> String {
@@ -1956,12 +2208,12 @@ fn boolean_value(value_type: &str) -> String {
     )
 }
 
-fn numeric_parts(value: String) -> (String, String) {
-    let value_type = format!(
+// The JSON type name of a SQL number or null.
+fn numeric_type(value: &str) -> String {
+    format!(
         "(CASE WHEN ({value}) IS NULL THEN 'null' \
          WHEN typeof(({value})) = 'integer' THEN 'integer' ELSE 'real' END)"
-    );
-    (value, value_type)
+    )
 }
 
 fn typed_sql_comparison(
