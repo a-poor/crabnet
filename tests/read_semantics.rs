@@ -701,7 +701,7 @@ fn graph_functions_validate_arity_arguments_and_entity_kinds() {
     for query in [
         "MATCH (node:Node) RETURN madeUp()",
         "MATCH (node:Node) RETURN madeUp(node, node)",
-        "MATCH (node:Node) RETURN coalesce(node.name, 'fallback')",
+        "MATCH (node:Node) RETURN madeUpToo(node.name, 'fallback')",
     ] {
         assert!(
             matches!(database.execute(query), Err(Error::Unsupported(_))),

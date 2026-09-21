@@ -1321,6 +1321,82 @@ fn register_functions(connection: &Connection) -> Result<()> {
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |context| Ok(context.get::<Option<f64>>(0)?.map(json_real_text)),
     )?;
+    // The bundled SQLite is built without its math library, so the numeric
+    // functions come from Rust. Non-finite results read as null.
+    type MathFunction = fn(f64) -> f64;
+    let math: [(&str, MathFunction); 12] = [
+        ("crabnet_ceil", f64::ceil),
+        ("crabnet_floor", f64::floor),
+        ("crabnet_sqrt", f64::sqrt),
+        ("crabnet_exp", f64::exp),
+        ("crabnet_ln", f64::ln),
+        ("crabnet_log10", f64::log10),
+        ("crabnet_sin", f64::sin),
+        ("crabnet_cos", f64::cos),
+        ("crabnet_tan", f64::tan),
+        ("crabnet_asin", f64::asin),
+        ("crabnet_acos", f64::acos),
+        ("crabnet_atan", f64::atan),
+    ];
+    for (name, function) in math {
+        connection.create_scalar_function(
+            name,
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            move |context| {
+                Ok(context
+                    .get::<Option<f64>>(0)?
+                    .map(function)
+                    .filter(|value| value.is_finite()))
+            },
+        )?;
+    }
+    // Text conversions and string helpers that SQLite lacks. Each takes text
+    // (the generated SQL gates the argument type) and returns NULL when the
+    // text does not convert.
+    connection.create_scalar_function(
+        "crabnet_to_integer",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .and_then(|text| text_to_integer(&text)))
+        },
+    )?;
+    connection.create_scalar_function(
+        "crabnet_to_float",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .and_then(|text| text_to_float(&text)))
+        },
+    )?;
+    connection.create_scalar_function(
+        "crabnet_reverse",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            Ok(context
+                .get::<Option<String>>(0)?
+                .map(|text| text.chars().rev().collect::<String>()))
+        },
+    )?;
+    connection.create_scalar_function(
+        "crabnet_split",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let text = context.get::<Option<String>>(0)?;
+            let delimiter = context.get::<Option<String>>(1)?;
+            Ok(match (text, delimiter) {
+                (Some(text), Some(delimiter)) => Some(split_text(&text, &delimiter)),
+                _ => None,
+            })
+        },
+    )?;
     // Generated SQL calls this from a CASE branch to raise a runtime argument
     // error (for example a zero `range()` step) instead of producing a value.
     connection.create_scalar_function(
@@ -1335,6 +1411,38 @@ fn register_functions(connection: &Connection) -> Result<()> {
         },
     )?;
     Ok(())
+}
+
+/// `toInteger()` of a string: an integer literal, or a finite float literal
+/// truncated toward zero; anything else is null.
+fn text_to_integer(text: &str) -> Option<i64> {
+    let text = text.trim();
+    if let Ok(integer) = text.parse::<i64>() {
+        return Some(integer);
+    }
+    let float = text.parse::<f64>().ok().filter(|float| float.is_finite())?;
+    let truncated = float.trunc();
+    (truncated >= i64::MIN as f64 && truncated < i64::MAX as f64).then_some(truncated as i64)
+}
+
+/// `toFloat()` of a string: a finite float literal, else null.
+fn text_to_float(text: &str) -> Option<f64> {
+    text.trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|float| float.is_finite())
+}
+
+/// `split()`: the pieces between delimiters as a JSON array of strings. An
+/// empty delimiter splits into characters.
+fn split_text(text: &str, delimiter: &str) -> String {
+    let pieces = if delimiter.is_empty() {
+        text.chars().map(String::from).collect::<Vec<_>>()
+    } else {
+        text.split(delimiter).map(str::to_owned).collect()
+    };
+    serde_json::Value::Array(pieces.into_iter().map(serde_json::Value::String).collect())
+        .to_string()
 }
 
 /// Formats a float as the shortest JSON number text that parses back to the

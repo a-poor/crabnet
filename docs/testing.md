@@ -305,3 +305,10 @@ falling back to a generic `expression` bucket, which is what lets
 `cut -f2 tests/tck/exclusions.txt | sort | uniq -c | sort -rn` serve as the
 ranked backlog. Concurrent external-writer behavior remains outside the test
 goal.
+
+`tests/case_expressions.rs` and `tests/functions.rs` are the direct semantic
+suites for `CASE` and the scalar function library. Two of their checks guard
+design decisions rather than results: nested `CASE` results must keep the
+generated SQL linear, and `rand()` must produce one draw per call site per
+row whose value and type agree, which is why it compiles to a joined
+`json_each(json_array(random()))` source instead of an inline expression.

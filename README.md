@@ -101,6 +101,13 @@ Within those shapes, the first iteration supports:
   `[n.a, n.b + 1]` or `{key: n.a}`
 - `list[i]`, `map[k]`, `entity[k]`, `list[a..b]`, `range()`, and string and
   list concatenation with `+`
+- `CASE` expressions in the simple and generic forms
+- scalar functions: `coalesce`, `keys`, `properties`, `head`, `last`, `tail`,
+  `reverse`, `toInteger`, `toFloat`, `toString`, `toBoolean`, `toLower`,
+  `toUpper`, `trim`, `ltrim`, `rtrim`, `substring`, `left`, `right`,
+  `replace`, `split`, `abs`, `sign`, `ceil`, `floor`, `round`, `sqrt`, `exp`,
+  `log`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `pi`, `e`, and
+  `rand`
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
   including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
   `elementId`, `labels`, and `type`

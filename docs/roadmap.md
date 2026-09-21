@@ -414,12 +414,23 @@ answers rather than rejections, then the largest `unsupported` buckets, before
 adding deterministic differential cases. Every unsupported expression kind and
 operator is now named in its rejection, so the exclusions file ranks the gaps
 directly. List quantifiers, map key access, list comprehensions, `size`,
-computed list and map literals, indexing, slicing, `range`, and string and
-list concatenation with `+` are in, which also cleared the concatenation
-rows out of `result-mismatch`; the ranking now reads qualified function
-calls, the `CREATE` clause sequences that gate setup for other features, the
-temporal functions, `rand`, `CASE`, `MERGE`, and the stored-value expressions
-that gate setup for the `WITH ... ORDER BY` scenarios. The generated-SQL blowup that made
+computed list and map literals, indexing, slicing, `range`, string and list
+concatenation with `+`, `CASE`, `rand`, and a scalar function library
+(`coalesce`, `keys`, `properties`, conversions, string and math functions)
+are in; the ranking now reads qualified function calls (all temporal), the
+`CREATE` clause sequences that gate setup for other features, expected errors
+that are not raised (mostly wrong-kind arguments that read as null where
+Cypher raises a type error, a deliberate choice that a future strict-types
+pass could revisit in one place), the temporal functions, the stored-value
+expressions that gate setup for the `WITH ... ORDER BY` scenarios, and
+`MERGE`. `rand()` is compiled as a one-row `json_each(json_array(random()))`
+source joined after the row sources rather than as an expression, because
+SQLite evaluates an uncorrelated scalar subquery once per statement; that
+gives one draw per call site per row that the value and type SQL share.
+One upstream parser gap is worth knowing: open-cypher 0.2.1 fails to parse a
+second function-call projection item after a `CASE` earlier in the statement
+(`RETURN CASE WHEN true THEN 1 END AS a, collect(1) AS c`), and the tests
+here avoid that shape. The generated-SQL blowup that made
 nested operators grow exponentially (a five-operator arithmetic expression
 reached 3 MB) is fixed by computing non-trivial operands once in a
 scalar-subquery scope and composing result types from operand types, so

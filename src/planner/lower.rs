@@ -20,11 +20,11 @@ use crate::{Error, Result};
 
 use super::UnionKind;
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, ListVariableId,
-    MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
+    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
+    ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
     PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage,
-    RelationshipUse, ScalarSlotId, SlotId, SortDirection, SortItem, TraversalId, UnaryOp,
-    UnwindStage, ValueExpr, WithBinding, WithStage,
+    RelationshipUse, ScalarFunction, ScalarSlotId, SlotId, SortDirection, SortItem, TraversalId,
+    UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
@@ -1550,6 +1550,10 @@ impl<'source> Lowerer<'source> {
                         | Expr::DynamicProperty(_, _)
                         | Expr::Slice { .. }
                         | Expr::Range { .. }
+                        | Expr::Case { .. }
+                        | Expr::Function { .. }
+                        | Expr::EntityKeys(_)
+                        | Expr::EntityProperties(_)
                 )
             {
                 return Err(unsupported(
@@ -1991,7 +1995,57 @@ impl<'source> Lowerer<'source> {
                     upper: bound(upper)?,
                 })
             }
-            ExprKind::Case(_) => Err(unsupported(expression.span, "CASE expression")),
+            ExprKind::Case(case) => {
+                let operand = case
+                    .operand
+                    .as_deref()
+                    .map(|operand| {
+                        self.scalar_expression_with_aliases_at_depth(
+                            operand,
+                            aliases,
+                            expression_depth + 1,
+                        )
+                        .map(Box::new)
+                    })
+                    .transpose()?;
+                let mut alternatives = Vec::with_capacity(case.alternatives.len());
+                for alternative in &case.alternatives {
+                    let conditions = alternative
+                        .when
+                        .iter()
+                        .map(|condition| {
+                            self.scalar_expression_with_aliases_at_depth(
+                                condition,
+                                aliases,
+                                expression_depth + 1,
+                            )
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    let result = self.scalar_expression_with_aliases_at_depth(
+                        &alternative.then,
+                        aliases,
+                        expression_depth + 1,
+                    )?;
+                    alternatives.push(CaseAlternative { conditions, result });
+                }
+                let otherwise = case
+                    .else_expression
+                    .as_deref()
+                    .map(|otherwise| {
+                        self.scalar_expression_with_aliases_at_depth(
+                            otherwise,
+                            aliases,
+                            expression_depth + 1,
+                        )
+                        .map(Box::new)
+                    })
+                    .transpose()?;
+                Ok(Expr::Case {
+                    operand,
+                    alternatives,
+                    otherwise,
+                })
+            }
             ExprKind::ListComprehension(comprehension) => {
                 // As with quantifiers, the list is evaluated in the enclosing
                 // scope while the predicate and projection see the bound
@@ -2175,7 +2229,91 @@ impl<'source> Lowerer<'source> {
                 span,
                 aliases,
             ),
-            _ => Err(unsupported(span, format!("function `{name}`"))),
+            "keys" | "properties" => {
+                let [argument] = function.arguments.as_slice() else {
+                    return Err(semantic(
+                        span,
+                        format!("{name}() requires exactly one argument"),
+                    ));
+                };
+                let argument = self.output_expression_with_aliases(argument, aliases)?;
+                let function = if name == "keys" {
+                    ScalarFunction::Keys
+                } else {
+                    ScalarFunction::Properties
+                };
+                match argument {
+                    Expr::Entity(slot) if function == ScalarFunction::Keys => {
+                        Ok(Expr::EntityKeys(slot))
+                    }
+                    Expr::Entity(slot) => Ok(Expr::EntityProperties(slot)),
+                    Expr::Path(_) | Expr::PathFunction { .. } => Err(semantic(
+                        span,
+                        format!("{name}() requires a node, relationship, or map, not a path"),
+                    )),
+                    argument => Ok(Expr::Function {
+                        function,
+                        arguments: vec![argument],
+                    }),
+                }
+            }
+            // `head`, `last`, and `tail` are list indexing and slicing.
+            "head" | "last" | "tail" => {
+                let [argument] = function.arguments.as_slice() else {
+                    return Err(semantic(
+                        span,
+                        format!("{name}() requires exactly one argument"),
+                    ));
+                };
+                let base = Box::new(self.scalar_expression_with_aliases(argument, aliases)?);
+                let literal =
+                    |value: i64| Box::new(Expr::Value(ValueExpr::Literal(Value::from(value))));
+                Ok(match name.as_str() {
+                    "head" => Expr::Index {
+                        base,
+                        index: literal(0),
+                    },
+                    "last" => Expr::Index {
+                        base,
+                        index: literal(-1),
+                    },
+                    _ => Expr::Slice {
+                        base,
+                        lower: Some(literal(1)),
+                        upper: None,
+                    },
+                })
+            }
+            _ => {
+                let Some(scalar_function) = ScalarFunction::parse(&name) else {
+                    return Err(unsupported(span, format!("function `{name}`")));
+                };
+                let (minimum, maximum) = scalar_function.arity();
+                let count = function.arguments.len();
+                if count < minimum || count > maximum {
+                    let expected = match (minimum, maximum) {
+                        (0, 0) => "no arguments".to_owned(),
+                        (minimum, usize::MAX) => format!("at least {minimum} argument(s)"),
+                        (minimum, maximum) if minimum == maximum => {
+                            format!("exactly {minimum} argument(s)")
+                        }
+                        (minimum, maximum) => format!("{minimum} to {maximum} arguments"),
+                    };
+                    return Err(semantic(
+                        span,
+                        format!("{}() requires {expected}", scalar_function.name()),
+                    ));
+                }
+                let arguments = function
+                    .arguments
+                    .iter()
+                    .map(|argument| self.scalar_expression_with_aliases(argument, aliases))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Expr::Function {
+                    function: scalar_function,
+                    arguments,
+                })
+            }
         }
     }
 
@@ -2236,6 +2374,12 @@ impl<'source> Lowerer<'source> {
             let argument = self.output_expression_with_aliases(argument, aliases)?;
             if argument.contains_aggregate() {
                 return Err(semantic(span, "aggregate functions cannot be nested"));
+            }
+            if argument.contains_rand() {
+                return Err(semantic(
+                    span,
+                    "rand() is not allowed inside an aggregate function",
+                ));
             }
             if matches!(argument, Expr::Entity(_)) && kind != AggregateKind::Count {
                 return Err(unsupported(

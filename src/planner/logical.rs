@@ -265,11 +265,268 @@ pub(crate) enum Expr {
         predicate: Option<Box<Self>>,
         projection: Option<Box<Self>>,
     },
+    /// `CASE operand WHEN a, b THEN x ... ELSE y END`, where each `WHEN`
+    /// value is compared with the operand for equality, or the generic
+    /// `CASE WHEN predicate THEN x ... END` without an operand. The first
+    /// alternative whose condition is true selects the result; a missing
+    /// `ELSE` yields null.
+    Case {
+        operand: Option<Box<Self>>,
+        alternatives: Vec<CaseAlternative>,
+        otherwise: Option<Box<Self>>,
+    },
+    /// A built-in scalar function over scalar arguments.
+    Function {
+        function: ScalarFunction,
+        arguments: Vec<Self>,
+    },
+    /// `keys(entity)`: the entity's property names as a list.
+    EntityKeys(SlotId),
+    /// `properties(entity)`: the entity's properties as a map.
+    EntityProperties(SlotId),
+}
+
+/// Built-in scalar functions with fixed SQL translations. Arguments of the
+/// wrong kind yield null, matching the arithmetic operators.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScalarFunction {
+    Rand,
+    Pi,
+    E,
+    Abs,
+    Sign,
+    Ceil,
+    Floor,
+    Round,
+    Sqrt,
+    Exp,
+    Log,
+    Log10,
+    Sin,
+    Cos,
+    Tan,
+    Asin,
+    Acos,
+    Atan,
+    ToInteger,
+    ToFloat,
+    ToString,
+    ToBoolean,
+    ToLower,
+    ToUpper,
+    Trim,
+    LTrim,
+    RTrim,
+    Reverse,
+    Substring,
+    Left,
+    Right,
+    Replace,
+    Split,
+    Coalesce,
+    Keys,
+    Properties,
+}
+
+impl ScalarFunction {
+    /// Looks a function up by its lower-cased Cypher name.
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "rand" => Self::Rand,
+            "pi" => Self::Pi,
+            "e" => Self::E,
+            "abs" => Self::Abs,
+            "sign" => Self::Sign,
+            "ceil" => Self::Ceil,
+            "floor" => Self::Floor,
+            "round" => Self::Round,
+            "sqrt" => Self::Sqrt,
+            "exp" => Self::Exp,
+            "log" => Self::Log,
+            "log10" => Self::Log10,
+            "sin" => Self::Sin,
+            "cos" => Self::Cos,
+            "tan" => Self::Tan,
+            "asin" => Self::Asin,
+            "acos" => Self::Acos,
+            "atan" => Self::Atan,
+            "tointeger" => Self::ToInteger,
+            "tofloat" => Self::ToFloat,
+            "tostring" => Self::ToString,
+            "toboolean" => Self::ToBoolean,
+            "tolower" => Self::ToLower,
+            "toupper" => Self::ToUpper,
+            "trim" => Self::Trim,
+            "ltrim" => Self::LTrim,
+            "rtrim" => Self::RTrim,
+            "reverse" => Self::Reverse,
+            "substring" => Self::Substring,
+            "left" => Self::Left,
+            "right" => Self::Right,
+            "replace" => Self::Replace,
+            "split" => Self::Split,
+            "coalesce" => Self::Coalesce,
+            "keys" => Self::Keys,
+            "properties" => Self::Properties,
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Rand => "rand",
+            Self::Pi => "pi",
+            Self::E => "e",
+            Self::Abs => "abs",
+            Self::Sign => "sign",
+            Self::Ceil => "ceil",
+            Self::Floor => "floor",
+            Self::Round => "round",
+            Self::Sqrt => "sqrt",
+            Self::Exp => "exp",
+            Self::Log => "log",
+            Self::Log10 => "log10",
+            Self::Sin => "sin",
+            Self::Cos => "cos",
+            Self::Tan => "tan",
+            Self::Asin => "asin",
+            Self::Acos => "acos",
+            Self::Atan => "atan",
+            Self::ToInteger => "toInteger",
+            Self::ToFloat => "toFloat",
+            Self::ToString => "toString",
+            Self::ToBoolean => "toBoolean",
+            Self::ToLower => "toLower",
+            Self::ToUpper => "toUpper",
+            Self::Trim => "trim",
+            Self::LTrim => "ltrim",
+            Self::RTrim => "rtrim",
+            Self::Reverse => "reverse",
+            Self::Substring => "substring",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::Replace => "replace",
+            Self::Split => "split",
+            Self::Coalesce => "coalesce",
+            Self::Keys => "keys",
+            Self::Properties => "properties",
+        }
+    }
+
+    /// The accepted argument counts, inclusive.
+    pub(crate) fn arity(self) -> (usize, usize) {
+        match self {
+            Self::Rand | Self::Pi | Self::E => (0, 0),
+            Self::Substring => (2, 3),
+            Self::Left | Self::Right | Self::Split => (2, 2),
+            Self::Replace => (3, 3),
+            Self::Coalesce => (1, usize::MAX),
+            _ => (1, 1),
+        }
+    }
+}
+
+/// One `WHEN ... THEN ...` arm of a `CASE` expression. Several comma
+/// separated `WHEN` values share a result.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CaseAlternative {
+    pub(crate) conditions: Vec<Expr>,
+    pub(crate) result: Expr,
 }
 
 impl Expr {
+    /// The sub-expressions of a `CASE` expression, in evaluation order.
+    fn case_parts<'a>(
+        operand: &'a Option<Box<Self>>,
+        alternatives: &'a [CaseAlternative],
+        otherwise: &'a Option<Box<Self>>,
+    ) -> impl Iterator<Item = &'a Self> {
+        operand
+            .iter()
+            .map(Box::as_ref)
+            .chain(alternatives.iter().flat_map(|alternative| {
+                alternative
+                    .conditions
+                    .iter()
+                    .chain(std::iter::once(&alternative.result))
+            }))
+            .chain(otherwise.iter().map(Box::as_ref))
+    }
+
+    /// The direct sub-expressions, in evaluation order.
+    pub(crate) fn children(&self) -> Vec<&Self> {
+        match self {
+            Self::Value(_)
+            | Self::Entity(_)
+            | Self::Scalar(_)
+            | Self::Path(_)
+            | Self::PathFunction { .. }
+            | Self::Property(_, _)
+            | Self::ElementId(_)
+            | Self::Labels(_)
+            | Self::RelationshipType(_)
+            | Self::ListElement(_)
+            | Self::EntityKeys(_)
+            | Self::EntityProperties(_) => Vec::new(),
+            Self::Binary { left, right, .. } => vec![left, right],
+            Self::Unary { operand, .. } => vec![operand],
+            Self::IsNull { expression, .. } => vec![expression],
+            Self::Aggregate { argument, .. } => argument.iter().map(Box::as_ref).collect(),
+            Self::Quantified {
+                list, predicate, ..
+            } => vec![list, predicate],
+            Self::MapProperty { base, .. } => vec![base],
+            Self::Size(operand) => vec![operand],
+            Self::List(items) => items.iter().collect(),
+            Self::Map(entries) => entries.iter().map(|(_, value)| value).collect(),
+            Self::Index { base, index } => vec![base, index],
+            Self::DynamicProperty(_, key) => vec![key],
+            Self::Slice { base, lower, upper } => std::iter::once(base.as_ref())
+                .chain(lower.as_deref())
+                .chain(upper.as_deref())
+                .collect(),
+            Self::Range { start, end, step } => [start, end]
+                .into_iter()
+                .map(Box::as_ref)
+                .chain(step.as_deref())
+                .collect(),
+            Self::ListComprehension {
+                list,
+                predicate,
+                projection,
+                ..
+            } => std::iter::once(list.as_ref())
+                .chain(predicate.as_deref())
+                .chain(projection.as_deref())
+                .collect(),
+            Self::Case {
+                operand,
+                alternatives,
+                otherwise,
+            } => Self::case_parts(operand, alternatives, otherwise).collect(),
+            Self::Function { arguments, .. } => arguments.iter().collect(),
+        }
+    }
+
+    /// Whether `rand()` occurs anywhere in the expression.
+    pub(crate) fn contains_rand(&self) -> bool {
+        matches!(
+            self,
+            Self::Function {
+                function: ScalarFunction::Rand,
+                ..
+            }
+        ) || self.children().into_iter().any(Self::contains_rand)
+    }
+
     pub(crate) fn contains_aggregate(&self) -> bool {
         match self {
+            Self::Function { arguments, .. } => arguments.iter().any(Self::contains_aggregate),
+            Self::Case {
+                operand,
+                alternatives,
+                otherwise,
+            } => Self::case_parts(operand, alternatives, otherwise).any(Self::contains_aggregate),
             Self::Aggregate { .. } => true,
             Self::Binary { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
@@ -348,6 +605,15 @@ impl Expr {
                     || predicate.as_deref().is_some_and(Self::is_row_dependent)
                     || projection.as_deref().is_some_and(Self::is_row_dependent)
             }
+            Self::Case {
+                operand,
+                alternatives,
+                otherwise,
+            } => Self::case_parts(operand, alternatives, otherwise).any(Self::is_row_dependent),
+            // `rand()` is a fresh value per evaluation, not a row attribute,
+            // so it never becomes an implicit grouping key on its own.
+            Self::Function { arguments, .. } => arguments.iter().any(Self::is_row_dependent),
+            Self::EntityKeys(_) | Self::EntityProperties(_) => true,
             Self::Entity(_)
             | Self::Scalar(_)
             | Self::Path(_)
@@ -424,6 +690,18 @@ impl Expr {
                         .as_deref()
                         .is_none_or(|projection| projection.uses_only_grouped_values(grouping))
             }
+            Self::Case {
+                operand,
+                alternatives,
+                otherwise,
+            } => Self::case_parts(operand, alternatives, otherwise)
+                .all(|part| part.uses_only_grouped_values(grouping)),
+            Self::Function { arguments, .. } => arguments
+                .iter()
+                .all(|argument| argument.uses_only_grouped_values(grouping)),
+            Self::EntityKeys(slot) | Self::EntityProperties(slot) => grouping
+                .iter()
+                .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
             Self::Property(slot, _)
             | Self::ElementId(slot)
             | Self::Labels(slot)

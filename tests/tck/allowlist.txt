@@ -408,6 +408,7 @@ clauses/return/Return5.feature::[2] DISTINCT on nullable values
 clauses/return/Return5.feature::[3] DISTINCT inside aggregation should work with nested lists in maps
 clauses/return/Return5.feature::[4] DISTINCT inside aggregation should work with nested lists of maps in maps
 clauses/return/Return6.feature::[14] Aggregates in aggregates
+clauses/return/Return6.feature::[15] Using `rand()` in aggregations
 clauses/return/Return6.feature::[1] Return count aggregation over nodes
 clauses/return/Return6.feature::[3] Aggregating by a list property has a correct definition of equality
 clauses/return/Return8.feature::[1] Return aggregation after With filtering
@@ -710,6 +711,9 @@ expressions/comparison/Comparison1.feature::[13] Handling explicit equality of l
 expressions/comparison/Comparison1.feature::[15] It is unknown - i.e. null - if a null is equal to a null
 expressions/comparison/Comparison1.feature::[16] It is unknown - i.e. null - if a null is not equal to a null
 expressions/comparison/Comparison1.feature::[17] Failing when comparing to an undefined variable
+expressions/comparison/Comparison1.feature::[1] Number-typed integer comparison
+expressions/comparison/Comparison1.feature::[2] Number-typed float comparison
+expressions/comparison/Comparison1.feature::[3] Any-typed string comparison
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 1
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 3
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 4
@@ -739,6 +743,19 @@ expressions/comparison/Comparison2.feature::[6] Comparability between numbers an
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 3
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 4
 expressions/comparison/Comparison3.feature::[9] Handling empty range
+expressions/conditional/Conditional1.feature::[1] Run coalesce
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 1
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 10
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 11
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 12
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 2
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 3
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 4
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 5
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 6
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 7
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 8
+expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 9
 expressions/graph/Graph3.feature::[1] Creating node without label
 expressions/graph/Graph3.feature::[4] Create node with label in pattern
 expressions/graph/Graph3.feature::[5] Using `labels()` in return clauses
@@ -758,10 +775,23 @@ expressions/graph/Graph6.feature::[5] Statically access a property of a non-null
 expressions/graph/Graph6.feature::[6] Statically access a property of a optional non-null relationship
 expressions/graph/Graph6.feature::[7] Statically access a property of a null relationship
 expressions/graph/Graph7.feature::[1] Execute n['name'] in read queries
+expressions/graph/Graph8.feature::[1] Using `keys()` on a single node, non-empty result
+expressions/graph/Graph8.feature::[2] Using `keys()` on multiple nodes, non-empty result
+expressions/graph/Graph8.feature::[3] Using `keys()` on a single node, empty result
+expressions/graph/Graph8.feature::[4] Using `keys()` on an optionally matched node
+expressions/graph/Graph8.feature::[5] Using `keys()` on a relationship, non-empty result
+expressions/graph/Graph8.feature::[6] Using `keys()` on a relationship, empty result
+expressions/graph/Graph8.feature::[7] Using `keys()` on an optionally matched relationship
+expressions/graph/Graph8.feature::[8] Using `keys()` and `IN` to check property existence
+expressions/graph/Graph9.feature::[1] `properties()` on a node
+expressions/graph/Graph9.feature::[2] `properties()` on a relationship
+expressions/graph/Graph9.feature::[3] `properties()` on null
+expressions/graph/Graph9.feature::[4] `properties()` on a map
 expressions/list/List1.feature::[1] Indexing into literal list
 expressions/list/List1.feature::[2] Indexing into nested literal lists
 expressions/list/List1.feature::[3] Use list lookup based on parameters when there is no type information
 expressions/list/List1.feature::[4] Use list lookup based on parameters when there is lhs type information
+expressions/list/List1.feature::[5] Use list lookup based on parameters when there is rhs type information
 expressions/list/List11.feature::[1] Create list from `range()` with default step::example 1
 expressions/list/List11.feature::[1] Create list from `range()` with default step::example 10
 expressions/list/List11.feature::[1] Create list from `range()` with default step::example 11
@@ -1015,6 +1045,7 @@ expressions/map/Map1.feature::[5] Statically access a field with a delimited ide
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 5
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 6
 expressions/map/Map2.feature::[1] Dynamically access a field based on parameters when there is no type information
+expressions/map/Map2.feature::[2] Dynamically access a field based on parameters when there is rhs type information
 expressions/map/Map2.feature::[3] Dynamically access a field on null results in null
 expressions/map/Map2.feature::[4] Dynamically access a field with null results in null
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 1
@@ -1024,6 +1055,19 @@ expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 5
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 6
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 7
+expressions/map/Map3.feature::[1] Using `keys()` on a literal map
+expressions/map/Map3.feature::[2] Using `keys()` on a parameter map
+expressions/map/Map3.feature::[3] Using `keys()` on null map
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 1
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 2
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 3
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 4
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 5
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 6
+expressions/map/Map3.feature::[4] Using `keys()` on map with null values::example 7
+expressions/map/Map3.feature::[5] Using `keys()` and `IN` to check field existence
+expressions/mathematical/Mathematical11.feature::[1] Absolute function
+expressions/mathematical/Mathematical13.feature::[1] `sqrt()` returning float values
 expressions/mathematical/Mathematical2.feature::[1] Allow addition
 expressions/mathematical/Mathematical3.feature::[1] Fail for invalid Unicode hyphen in subtraction
 expressions/mathematical/Mathematical8.feature::[1] Arithmetic precedence test
@@ -1261,7 +1305,53 @@ expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal 
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 7
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 8
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 9
+expressions/quantifier/Quantifier10.feature::[1] Single quantifier is always false if the predicate is statically false and the list is not empty
+expressions/quantifier/Quantifier10.feature::[2] Single quantifier is always false if the predicate is statically true and the list has more than one element
 expressions/quantifier/Quantifier10.feature::[3] Single quantifier is always true if the predicate is statically true and the list has exactly one non-null element
+expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 1
+expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 2
+expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 3
+expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 4
+expressions/quantifier/Quantifier10.feature::[4] Single quantifier is always equal whether the size of the list filtered with same the predicate is one::example 5
+expressions/quantifier/Quantifier11.feature::[1] Any quantifier is always false if the predicate is statically false and the list is not empty
+expressions/quantifier/Quantifier11.feature::[2] Any quantifier is always true if the predicate is statically true and the list is not empty
+expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 1
+expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 2
+expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 3
+expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 4
+expressions/quantifier/Quantifier11.feature::[3] Any quantifier is always true if the single or the all quantifier is true::example 5
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 1
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 2
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 3
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 4
+expressions/quantifier/Quantifier11.feature::[4] Any quantifier is always equal the boolean negative of the none quantifier::example 5
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 1
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 2
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 3
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 4
+expressions/quantifier/Quantifier11.feature::[5] Any quantifier is always equal the boolean negative of the all quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 1
+expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 2
+expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 3
+expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 4
+expressions/quantifier/Quantifier11.feature::[6] Any quantifier is always equal whether the size of the list filtered with same the predicate is grater zero::example 5
+expressions/quantifier/Quantifier12.feature::[1] All quantifier is always false if the predicate is statically false and the list is not empty
+expressions/quantifier/Quantifier12.feature::[2] All quantifier is always true if the predicate is statically true and the list is not empty
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 1
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 2
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 3
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 4
+expressions/quantifier/Quantifier12.feature::[3] All quantifier is always equal the none quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 1
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 2
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 3
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 4
+expressions/quantifier/Quantifier12.feature::[4] All quantifier is always equal the boolean negative of the any quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 1
+expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 2
+expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3
+expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4
+expressions/quantifier/Quantifier12.feature::[5] All quantifier is always equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5
 expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 1
 expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 2
 expressions/quantifier/Quantifier2.feature::[10] Single quantifier on lists containing nulls::example 3
@@ -1573,6 +1663,7 @@ expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself 
 expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 8
 expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 1
 expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 2
+expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 3
 expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 4
 expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 5
 expressions/quantifier/Quantifier5.feature::[2] None quantifier can nest itself and other quantifiers on the same list::example 6
@@ -1664,6 +1755,7 @@ expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself a
 expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 4
 expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 5
 expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 6
+expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 7
 expressions/quantifier/Quantifier8.feature::[2] All quantifier can nest itself and other quantifiers on the same list::example 8
 expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 1
 expressions/quantifier/Quantifier8.feature::[3] All quantifier is equal the none quantifier on the boolean negative of the predicate::example 2
@@ -1680,6 +1772,24 @@ expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether 
 expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 3
 expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 4
 expressions/quantifier/Quantifier8.feature::[5] All quantifier is equal whether the size of the list filtered with same the predicate is equal the size of the unfiltered list::example 5
+expressions/quantifier/Quantifier9.feature::[1] None quantifier is always true if the predicate is statically false and the list is not empty
+expressions/quantifier/Quantifier9.feature::[2] None quantifier is always false if the predicate is statically true and the list is not empty
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 1
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 2
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 3
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 4
+expressions/quantifier/Quantifier9.feature::[3] None quantifier is always equal the boolean negative of the any quantifier::example 5
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 1
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 2
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 3
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 4
+expressions/quantifier/Quantifier9.feature::[4] None quantifier is always equal the all quantifier on the boolean negative of the predicate::example 5
+expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 1
+expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 2
+expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 3
+expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 4
+expressions/quantifier/Quantifier9.feature::[5] None quantifier is always equal whether the size of the list filtered with same the predicate is zero::example 5
+expressions/string/String1.feature::[1] `substring()` with default second argument
 expressions/string/String10.feature::[1] Finding exact matches with non-proper substring
 expressions/string/String10.feature::[2] Finding substring of string
 expressions/string/String10.feature::[3] Finding the empty substring
@@ -1691,6 +1801,8 @@ expressions/string/String10.feature::[8] Handling non-string operands for CONTAI
 expressions/string/String10.feature::[9] NOT with CONTAINS
 expressions/string/String11.feature::[1] Combining prefix and suffix search
 expressions/string/String11.feature::[2] Combining prefix, suffix, and substring search
+expressions/string/String3.feature::[1] `reverse()`
+expressions/string/String4.feature::[1] `split()`
 expressions/string/String8.feature::[1] Finding exact matches with non-proper prefix
 expressions/string/String8.feature::[2] Finding beginning of string
 expressions/string/String8.feature::[3] Finding the empty prefix
@@ -1709,18 +1821,40 @@ expressions/string/String9.feature::[6] No string ends with null
 expressions/string/String9.feature::[7] No string does not end with null
 expressions/string/String9.feature::[8] Handling non-string operands for ENDS WITH
 expressions/string/String9.feature::[9] NOT with ENDS WITH
+expressions/typeConversion/TypeConversion1.feature::[1] `toBoolean()` on booleans
+expressions/typeConversion/TypeConversion1.feature::[2] `toBoolean()` on valid literal string
+expressions/typeConversion/TypeConversion1.feature::[3] `toBoolean()` on variables with valid string values
+expressions/typeConversion/TypeConversion1.feature::[4] `toBoolean()` on invalid strings
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 5
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 6
+expressions/typeConversion/TypeConversion2.feature::[1] `toInteger()` on float
+expressions/typeConversion/TypeConversion2.feature::[2] `toInteger()` returning null on non-numerical string
+expressions/typeConversion/TypeConversion2.feature::[3] `toInteger()` handling mixed number types
+expressions/typeConversion/TypeConversion2.feature::[4] `toInteger()` handling Any type
+expressions/typeConversion/TypeConversion2.feature::[5] `toInteger()` on a list of strings
+expressions/typeConversion/TypeConversion2.feature::[6] `toInteger()` on a complex-typed expression
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 3
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 5
+expressions/typeConversion/TypeConversion3.feature::[1] `toFloat()` on mixed number types
+expressions/typeConversion/TypeConversion3.feature::[2] `toFloat()` returning null on non-numerical string
+expressions/typeConversion/TypeConversion3.feature::[3] `toFloat()` handling Any type
+expressions/typeConversion/TypeConversion3.feature::[4] `toFloat()` on a list of strings
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 5
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 6
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 3
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 5
+expressions/typeConversion/TypeConversion4.feature::[1] `toString()` handling integer literal
+expressions/typeConversion/TypeConversion4.feature::[2] `toString()` handling boolean literal
+expressions/typeConversion/TypeConversion4.feature::[3] `toString()` handling inlined boolean
+expressions/typeConversion/TypeConversion4.feature::[4] `toString()` handling boolean properties
+expressions/typeConversion/TypeConversion4.feature::[5] `toString()` should work on Any type
+expressions/typeConversion/TypeConversion4.feature::[6] `toString()` on a list of integers
+expressions/typeConversion/TypeConversion4.feature::[8] `toString()` should accept potentially correct types 1
+expressions/typeConversion/TypeConversion4.feature::[9] `toString()` should accept potentially correct types 2
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[10] Mixing directed and undirected pattern parts with self-relationship, count
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[11] Mixing directed and undirected pattern parts with self-relationship, undirected count
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[1] Undirected match in self-relationship graph, count

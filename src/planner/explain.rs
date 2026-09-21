@@ -624,6 +624,48 @@ fn render_expr(expression: &Expr) -> String {
         Expr::MapProperty { base, key } => {
             format!("map-property({}, {})", render_expr(base), quote(key))
         }
+        Expr::Case {
+            operand,
+            alternatives,
+            otherwise,
+        } => {
+            let mut rendered = String::from("case");
+            if let Some(operand) = operand {
+                rendered.push(' ');
+                rendered.push_str(&render_expr(operand));
+            }
+            for alternative in alternatives {
+                let conditions = alternative
+                    .conditions
+                    .iter()
+                    .map(render_expr)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                rendered.push_str(&format!(
+                    " when {conditions} then {}",
+                    render_expr(&alternative.result)
+                ));
+            }
+            if let Some(otherwise) = otherwise {
+                rendered.push_str(&format!(" else {}", render_expr(otherwise)));
+            }
+            rendered.push_str(" end");
+            rendered
+        }
+        Expr::Function {
+            function,
+            arguments,
+        } => format!(
+            "{}({})",
+            function.name(),
+            arguments
+                .iter()
+                .map(render_expr)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Expr::EntityKeys(slot) => format!("keys({})", slot_name(*slot)),
+        Expr::EntityProperties(slot) => format!("properties({})", slot_name(*slot)),
     }
 }
 

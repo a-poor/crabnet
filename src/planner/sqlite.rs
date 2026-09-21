@@ -7,10 +7,10 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, ListVariableId,
-    MatchOperator, MatchPlan, PathFunctionKind, PathId, PathSegment, Projection, ReadStage,
-    RelationshipUse, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage,
-    ValueExpr, WithBinding, WithStage,
+    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
+    ListVariableId, MatchOperator, MatchPlan, PathFunctionKind, PathId, PathSegment, Projection,
+    ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId,
+    UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
@@ -348,6 +348,9 @@ enum ScalarType {
     Sql(String),
     /// A three-valued SQL boolean whose type name follows from its value.
     Boolean,
+    /// A value of one fixed JSON type when present and null otherwise, such
+    /// as `toInteger()`'s integer-or-null.
+    Nullable(&'static str),
 }
 
 impl Scalar {
@@ -365,6 +368,13 @@ impl Scalar {
         }
     }
 
+    fn nullable(value: String, type_name: &'static str) -> Self {
+        Self {
+            value,
+            kind: ScalarType::Nullable(type_name),
+        }
+    }
+
     /// The type SQL, given SQL that yields this scalar's value. Derived
     /// kinds are computed from `value` rather than from the scalar's own
     /// value text, so a scope can compute the value once and type it by name.
@@ -372,6 +382,9 @@ impl Scalar {
         match &self.kind {
             ScalarType::Sql(sql) => sql.clone(),
             ScalarType::Boolean => boolean_type(value),
+            ScalarType::Nullable(type_name) => {
+                format!("(CASE WHEN ({value}) IS NULL THEN 'null' ELSE '{type_name}' END)")
+            }
         }
     }
 
@@ -398,6 +411,16 @@ struct Compiler {
     paths: HashMap<PathId, String>,
     scanned: Vec<(SlotId, EntityKind)>,
     from: Vec<String>,
+    // One `json_each(json_array(random()))` source per `rand()` call site,
+    // joined after the row sources so each row draws a fresh value that the
+    // value and type SQL then share by column name.
+    random_sources: Vec<String>,
+    // Sources captured for the `json_each` body being compiled (a list
+    // comprehension or quantifier), innermost last.
+    local_sources: Vec<Vec<String>>,
+    // Inside an OPTIONAL MATCH predicate the joined sources are fixed, so
+    // `rand()` falls back to an inline `random()` there.
+    inline_random: bool,
     filters: Vec<String>,
     ordering: Option<String>,
     bindings: Vec<FragmentArgument>,
@@ -417,6 +440,9 @@ impl Compiler {
             paths: HashMap::new(),
             scanned: Vec::new(),
             from: Vec::new(),
+            random_sources: Vec::new(),
+            local_sources: Vec::new(),
+            inline_random: false,
             filters: Vec::new(),
             inputs: Vec::new(),
             ordering: None,
@@ -1056,7 +1082,10 @@ impl Compiler {
         self.filters.clear();
         self.ordering = inherited_ordering;
 
-        self.compile_match(plan)?;
+        let inline_random = std::mem::replace(&mut self.inline_random, true);
+        let compiled = self.compile_match(plan);
+        self.inline_random = inline_random;
+        compiled?;
         let optional_sources = std::mem::take(&mut self.from);
         let optional_predicates = std::mem::take(&mut self.filters);
         let right = match optional_sources.as_slice() {
@@ -1325,11 +1354,27 @@ impl Compiler {
         Ok(())
     }
 
-    fn select_sql(&self, select: &[String]) -> String {
+    fn select_sql(&mut self, select: &[String]) -> String {
         let mut sql = format!("SELECT {}", select.join(", "));
-        if !self.from.is_empty() {
+        let random_sources = std::mem::take(&mut self.random_sources);
+        if random_sources.is_empty() {
+            if !self.from.is_empty() {
+                sql.push_str(" FROM ");
+                sql.push_str(&self.from.join(", "));
+            }
+        } else {
+            // CROSS JOIN fixes the loop order, so the random sources are
+            // innermost and re-read for every row of the sources before them.
             sql.push_str(" FROM ");
-            sql.push_str(&self.from.join(", "));
+            sql.push_str(
+                &self
+                    .from
+                    .iter()
+                    .chain(random_sources.iter())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" CROSS JOIN "),
+            );
         }
         if !self.filters.is_empty() {
             sql.push_str(" WHERE ");
@@ -1508,6 +1553,58 @@ impl Compiler {
     /// `(SELECT body FROM (SELECT b.v, type(b.v) AS t FROM (SELECT value AS v) AS b) AS s)`.
     /// Leaves are cheap to repeat and stay inline, as do aggregates, which
     /// must remain in the grouping query rather than move into a subquery.
+    /// Compiles a `json_each` body, returning the SQL and the sources that
+    /// `rand()` calls inside it need joined to that body's FROM clause.
+    fn capture_sources<T>(
+        &mut self,
+        body: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Result<(T, String)> {
+        self.local_sources.push(Vec::new());
+        let result = body(self);
+        let sources = self.local_sources.pop().unwrap_or_default();
+        let joined = sources
+            .iter()
+            .map(|source| format!(" CROSS JOIN {source}"))
+            .collect::<String>();
+        Ok((result?, joined))
+    }
+
+    /// A column of the current row, used to correlate a body's random
+    /// source with the enclosing row so SQLite re-evaluates it per row.
+    fn row_anchor(&self) -> Option<String> {
+        let mut entities = self
+            .entities
+            .iter()
+            .map(|(slot, source)| {
+                let sql = match source {
+                    EntitySource::Table { alias, .. } => format!("{alias}.id"),
+                    EntitySource::Encoded { sql, .. } => sql.clone(),
+                };
+                (slot.0, sql)
+            })
+            .collect::<Vec<_>>();
+        entities.sort();
+        if let Some((_, sql)) = entities.into_iter().next() {
+            return Some(sql);
+        }
+        let mut scalars = self
+            .scalars
+            .iter()
+            .map(|(slot, sql)| (slot.0, sql.clone()))
+            .collect::<Vec<_>>();
+        scalars.sort();
+        if let Some((_, sql)) = scalars.into_iter().next() {
+            return Some(sql);
+        }
+        let mut elements = self
+            .list_elements
+            .iter()
+            .map(|(variable, (value, _))| (variable.0, value.clone()))
+            .collect::<Vec<_>>();
+        elements.sort();
+        elements.into_iter().next().map(|(_, sql)| sql)
+    }
+
     fn scoped(
         &mut self,
         operands: &[&Expr],
@@ -1791,6 +1888,47 @@ impl Compiler {
                 predicate.as_deref(),
                 projection.as_deref(),
             ),
+            Expr::Case {
+                operand,
+                alternatives,
+                otherwise,
+            } => self.case_expression(operand.as_deref(), alternatives, otherwise.as_deref()),
+            Expr::Function {
+                function,
+                arguments,
+            } => self.scalar_function(*function, arguments),
+            // Stored maps keep explicit-null entries (see semantics.md), but a
+            // null property does not exist in Cypher, so keys() and
+            // properties() leave those entries out.
+            Expr::EntityKeys(slot) => {
+                let id = self.entity_field(*slot, "id")?;
+                let props = self.entity_props(*slot)?;
+                let alias = format!("ek{}", self.scopes);
+                self.scopes += 1;
+                Ok(Scalar::nullable(
+                    format!(
+                        "(CASE WHEN {id} IS NOT NULL THEN \
+                          (SELECT json_group_array({alias}.key) FROM json_each({props}) AS {alias} \
+                           WHERE {alias}.type <> 'null') END)"
+                    ),
+                    "array",
+                ))
+            }
+            Expr::EntityProperties(slot) => {
+                let id = self.entity_field(*slot, "id")?;
+                let props = self.entity_props(*slot)?;
+                let alias = format!("ep{}", self.scopes);
+                self.scopes += 1;
+                let element = element_json(&alias);
+                Ok(Scalar::nullable(
+                    format!(
+                        "(CASE WHEN {id} IS NOT NULL THEN \
+                          (SELECT json_group_object({alias}.key, json({element})) \
+                           FROM json_each({props}) AS {alias} WHERE {alias}.type <> 'null') END)"
+                    ),
+                    "object",
+                ))
+            }
             Expr::List(items) => {
                 let items = items
                     .iter()
@@ -2032,6 +2170,464 @@ impl Compiler {
         }
     }
 
+    /// Compiles a built-in scalar function. Arguments of the wrong kind
+    /// yield null. Results with one possible type use the `Nullable` kind so
+    /// their type follows from the value without repeating the argument.
+    fn scalar_function(&mut self, function: ScalarFunction, arguments: &[Expr]) -> Result<Scalar> {
+        let operands = arguments.iter().collect::<Vec<_>>();
+        let numeric = |value_type: &str| format!("({value_type}) IN ('integer', 'real')");
+        match function {
+            // random() is a signed 64-bit integer; its top 53 bits become a
+            // real in [0, 1). SQLite evaluates an uncorrelated scalar subquery
+            // once per statement, so the draw is not left inline: each call
+            // site becomes a one-row table-valued source joined after the row
+            // sources, and the value is read from it by column.
+            ScalarFunction::Rand => {
+                let scaled =
+                    |draw: &str| format!("((({draw}) >> 11) * 1.1102230246251565e-16 + 0.5)");
+                if self.inline_random {
+                    return Ok(Scalar::sql(scaled("random()"), "'real'"));
+                }
+                let alias = format!("rnd{}", self.scopes);
+                self.scopes += 1;
+                if self.local_sources.is_empty() {
+                    self.random_sources
+                        .push(format!("json_each(json_array(random())) AS {alias}"));
+                } else {
+                    // A body source mentions the enclosing row so the body
+                    // subquery is correlated and re-run per row.
+                    let anchor = self
+                        .row_anchor()
+                        .map(|anchor| format!(", {anchor}"))
+                        .unwrap_or_default();
+                    let source = format!("json_each(json_array(random(){anchor})) AS {alias}");
+                    if let Some(local) = self.local_sources.last_mut() {
+                        local.push(source);
+                    }
+                }
+                Ok(Scalar::sql(scaled(&format!("{alias}.value")), "'real'"))
+            }
+            ScalarFunction::Pi => Ok(Scalar::sql("3.141592653589793", "'real'")),
+            ScalarFunction::E => Ok(Scalar::sql("2.718281828459045", "'real'")),
+            ScalarFunction::Abs => self.composed(
+                &operands,
+                |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE WHEN {} THEN abs(({value})) END)",
+                        numeric(value_type)
+                    ))
+                },
+                |types| {
+                    format!(
+                        "(CASE WHEN {} THEN ({}) ELSE 'null' END)",
+                        numeric(&types[0]),
+                        types[0]
+                    )
+                },
+            ),
+            ScalarFunction::Sign => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE WHEN {} THEN sign(({value})) END)",
+                        numeric(value_type)
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "integer"))
+            }
+            ScalarFunction::Ceil
+            | ScalarFunction::Floor
+            | ScalarFunction::Round
+            | ScalarFunction::Sqrt
+            | ScalarFunction::Exp
+            | ScalarFunction::Log
+            | ScalarFunction::Log10
+            | ScalarFunction::Sin
+            | ScalarFunction::Cos
+            | ScalarFunction::Tan
+            | ScalarFunction::Asin
+            | ScalarFunction::Acos
+            | ScalarFunction::Atan => {
+                // round() is built in; the rest are registered by the
+                // database since the bundled SQLite omits its math library.
+                let sql_function = match function {
+                    ScalarFunction::Round => "round".to_owned(),
+                    ScalarFunction::Log => "crabnet_ln".to_owned(),
+                    other => format!("crabnet_{}", other.name()),
+                };
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE WHEN {} THEN CAST({sql_function}(({value})) AS REAL) END)",
+                        numeric(value_type)
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "real"))
+            }
+            ScalarFunction::ToInteger => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE ({value_type}) WHEN 'integer' THEN ({value}) \
+                          WHEN 'real' THEN CAST(({value}) AS INTEGER) \
+                          WHEN 'true' THEN 1 WHEN 'false' THEN 0 \
+                          WHEN 'text' THEN crabnet_to_integer(({value})) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "integer"))
+            }
+            ScalarFunction::ToFloat => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE ({value_type}) WHEN 'real' THEN ({value}) \
+                          WHEN 'integer' THEN CAST(({value}) AS REAL) \
+                          WHEN 'text' THEN crabnet_to_float(({value})) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "real"))
+            }
+            ScalarFunction::ToString => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE ({value_type}) WHEN 'text' THEN ({value}) \
+                          WHEN 'integer' THEN CAST(({value}) AS TEXT) \
+                          WHEN 'real' THEN crabnet_json_real(({value})) \
+                          WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "text"))
+            }
+            ScalarFunction::ToBoolean => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE ({value_type}) WHEN 'true' THEN 1 WHEN 'false' THEN 0 \
+                          WHEN 'integer' THEN (({value}) <> 0) \
+                          WHEN 'text' THEN (CASE lower(({value})) \
+                              WHEN 'true' THEN 1 WHEN 'false' THEN 0 END) END)"
+                    ))
+                })?;
+                Ok(Scalar::boolean(value))
+            }
+            ScalarFunction::ToLower
+            | ScalarFunction::ToUpper
+            | ScalarFunction::Trim
+            | ScalarFunction::LTrim
+            | ScalarFunction::RTrim => {
+                let sql_function = match function {
+                    ScalarFunction::ToLower => "lower",
+                    ScalarFunction::ToUpper => "upper",
+                    other => other.name(),
+                };
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE WHEN ({value_type}) = 'text' THEN {sql_function}(({value})) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "text"))
+            }
+            ScalarFunction::Reverse => self.composed(
+                &operands,
+                |this, parts| {
+                    let (value, value_type) = &parts[0];
+                    let alias = format!("rv{}", this.scopes);
+                    let element = element_json(&alias);
+                    Ok(format!(
+                        "(CASE WHEN ({value_type}) = 'text' THEN crabnet_reverse(({value})) \
+                          WHEN ({value_type}) = 'array' THEN \
+                              (SELECT json_group_array(json({element}) ORDER BY {alias}.key DESC) \
+                               FROM json_each(({value})) AS {alias}) END)"
+                    ))
+                },
+                |types| {
+                    format!(
+                        "(CASE WHEN ({}) IN ('text', 'array') THEN ({}) ELSE 'null' END)",
+                        types[0], types[0]
+                    )
+                },
+            ),
+            ScalarFunction::Substring => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (text, text_type) = &parts[0];
+                    let (start, start_type) = &parts[1];
+                    let (length_condition, length) = match parts.get(2) {
+                        Some((length, length_type)) => (
+                            format!(" AND ({length_type}) = 'integer' AND ({length}) >= 0"),
+                            format!(", ({length})"),
+                        ),
+                        None => (String::new(), String::new()),
+                    };
+                    // Cypher rejects negative positions; they read as null.
+                    Ok(format!(
+                        "(CASE WHEN ({text_type}) = 'text' AND ({start_type}) = 'integer' \
+                          AND ({start}) >= 0{length_condition} \
+                          THEN substr(({text}), ({start}) + 1{length}) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "text"))
+            }
+            ScalarFunction::Left | ScalarFunction::Right => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (text, text_type) = &parts[0];
+                    let (count, count_type) = &parts[1];
+                    let taken = if function == ScalarFunction::Left {
+                        format!("substr(({text}), 1, ({count}))")
+                    } else {
+                        format!(
+                            "(CASE WHEN ({count}) <= 0 THEN '' ELSE substr(({text}), -({count})) END)"
+                        )
+                    };
+                    Ok(format!(
+                        "(CASE WHEN ({text_type}) = 'text' AND ({count_type}) = 'integer' \
+                          THEN {taken} END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "text"))
+            }
+            ScalarFunction::Replace => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (text, text_type) = &parts[0];
+                    let (search, search_type) = &parts[1];
+                    let (replacement, replacement_type) = &parts[2];
+                    Ok(format!(
+                        "(CASE WHEN ({text_type}) = 'text' AND ({search_type}) = 'text' \
+                          AND ({replacement_type}) = 'text' \
+                          THEN replace(({text}), ({search}), ({replacement})) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "text"))
+            }
+            ScalarFunction::Split => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (text, text_type) = &parts[0];
+                    let (delimiter, delimiter_type) = &parts[1];
+                    Ok(format!(
+                        "(CASE WHEN ({text_type}) = 'text' AND ({delimiter_type}) = 'text' \
+                          THEN crabnet_split(({text}), ({delimiter})) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "array"))
+            }
+            ScalarFunction::Coalesce => {
+                // The type must follow the value that was picked, and a
+                // statically typed scalar (an element id, say) can still be
+                // null, so both outputs test the bound values.
+                let mut compiled = Vec::with_capacity(arguments.len());
+                for argument in arguments {
+                    compiled.push((self.compile_scalar(argument)?, is_inline_operand(argument)));
+                }
+                let pick = |parts: &[(String, String)],
+                            choose: fn(&(String, String)) -> &String,
+                            default: &str| {
+                    let arms = parts
+                        .iter()
+                        .map(|part| {
+                            format!(" WHEN ({}) IS NOT NULL THEN ({})", part.0, choose(part))
+                        })
+                        .collect::<String>();
+                    format!("(CASE{arms} ELSE {default} END)")
+                };
+                let value = self.scoped_scalars(compiled.clone(), |_, parts| {
+                    Ok(pick(parts, |part| &part.0, "NULL"))
+                })?;
+                let value_type = self.scoped_scalars(compiled, |_, parts| {
+                    Ok(pick(parts, |part| &part.1, "'null'"))
+                })?;
+                Ok(Scalar::sql(value, value_type))
+            }
+            ScalarFunction::Keys => {
+                let value = self.scoped(&operands, |this, parts| {
+                    let (value, value_type) = &parts[0];
+                    let alias = format!("mk{}", this.scopes);
+                    Ok(format!(
+                        "(CASE WHEN ({value_type}) = 'object' THEN \
+                          (SELECT json_group_array({alias}.key) FROM json_each(({value})) AS {alias}) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "array"))
+            }
+            ScalarFunction::Properties => {
+                let value = self.scoped(&operands, |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE WHEN ({value_type}) = 'object' THEN ({value}) END)"
+                    ))
+                })?;
+                Ok(Scalar::nullable(value, "object"))
+            }
+        }
+    }
+
+    /// Compiles a `CASE` expression. With an operand, an alternative matches
+    /// when the operand equals one of its `WHEN` values under Cypher
+    /// equality (so a null operand never matches); without one, it matches
+    /// when its predicate is true.
+    ///
+    /// The selectors (operand and conditions) are evaluated once into a
+    /// branch number that is bound in a scope; the value and the type then
+    /// each pick the matching result from it. Results therefore appear once
+    /// in the value and once, as their standalone types, in the type, which
+    /// keeps `CASE` nested in results linear. When any part aggregates, the
+    /// branch cannot move into a subquery, so the plain inline form is used.
+    fn case_expression(
+        &mut self,
+        operand: Option<&Expr>,
+        alternatives: &[CaseAlternative],
+        otherwise: Option<&Expr>,
+    ) -> Result<Scalar> {
+        struct Part {
+            scalar: Scalar,
+            inline: bool,
+            native_boolean: bool,
+        }
+        let compile = |this: &mut Self, part: &Expr| {
+            let scalar = this.compile_scalar(part)?;
+            Ok::<_, Error>(Part {
+                native_boolean: matches!(scalar.kind, ScalarType::Boolean),
+                inline: is_inline_operand(part),
+                scalar,
+            })
+        };
+        let aggregating = operand.is_some_and(Expr::contains_aggregate)
+            || otherwise.is_some_and(Expr::contains_aggregate)
+            || alternatives.iter().any(|alternative| {
+                alternative.result.contains_aggregate()
+                    || alternative.conditions.iter().any(Expr::contains_aggregate)
+            });
+        let operand = operand.map(|operand| compile(self, operand)).transpose()?;
+        let has_operand = operand.is_some();
+        let mut conditions = Vec::with_capacity(alternatives.len());
+        let mut results = Vec::with_capacity(alternatives.len() + 1);
+        for alternative in alternatives {
+            let arm = alternative
+                .conditions
+                .iter()
+                .map(|condition| compile(self, condition))
+                .collect::<Result<Vec<_>>>()?;
+            conditions.push(arm);
+            results.push(compile(self, &alternative.result)?);
+        }
+        let otherwise = otherwise
+            .map(|otherwise| compile(self, otherwise))
+            .transpose()?;
+
+        // Selector parts are laid out as [operand?] ++ conditions, in order;
+        // this builds each arm's SQL condition over their bound (value, type).
+        let native = conditions
+            .iter()
+            .map(|arm| {
+                arm.iter()
+                    .map(|part| part.native_boolean)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let arm_conditions = move |parts: &[(String, String)]| {
+            let mut next = usize::from(has_operand);
+            native
+                .iter()
+                .map(|arm| {
+                    arm.iter()
+                        .map(|&native_boolean| {
+                            let (value, value_type) = &parts[next];
+                            next += 1;
+                            if has_operand {
+                                let (operand, operand_type) = &parts[0];
+                                typed_sql_comparison(
+                                    operand,
+                                    operand_type,
+                                    value,
+                                    value_type,
+                                    BinaryOp::Equal,
+                                )
+                            } else if native_boolean {
+                                format!("({value})")
+                            } else {
+                                boolean_value(value_type)
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" OR ")
+                })
+                .collect::<Vec<_>>()
+        };
+        let selectors = operand
+            .iter()
+            .chain(conditions.iter().flatten())
+            .map(|part| (part.scalar.clone(), part.inline))
+            .collect::<Vec<_>>();
+
+        if aggregating {
+            // Everything in one scope per output; aggregates stay inline in
+            // the grouping query.
+            let mut parts = selectors;
+            parts.extend(
+                results
+                    .iter()
+                    .chain(otherwise.iter())
+                    .map(|part| (part.scalar.clone(), part.inline)),
+            );
+            let first_result = parts.len() - results.len() - usize::from(otherwise.is_some());
+            let build = |parts: &[(String, String)],
+                         pick: fn(&(String, String)) -> &String,
+                         default: &str| {
+                let mut sql = String::from("(CASE");
+                for (arm, condition) in arm_conditions(parts).into_iter().enumerate() {
+                    let result = pick(&parts[first_result + arm]);
+                    sql.push_str(&format!(" WHEN {condition} THEN ({result})"));
+                }
+                let otherwise = parts[first_result + results.len()..]
+                    .first()
+                    .map_or_else(|| default.to_owned(), |part| pick(part).clone());
+                sql.push_str(&format!(" ELSE ({otherwise}) END)"));
+                sql
+            };
+            let value = self.scoped_scalars(parts.clone(), |_, parts| {
+                Ok(build(parts, |part| &part.0, "NULL"))
+            })?;
+            let value_type =
+                self.scoped_scalars(parts, |_, parts| Ok(build(parts, |part| &part.1, "'null'")))?;
+            return Ok(Scalar::sql(value, value_type));
+        }
+
+        let branch = self.scoped_scalars(selectors, |_, parts| {
+            let arms = arm_conditions(parts)
+                .into_iter()
+                .enumerate()
+                .map(|(arm, condition)| format!(" WHEN {condition} THEN {arm}"))
+                .collect::<String>();
+            Ok(format!("(CASE{arms} ELSE -1 END)"))
+        })?;
+        let mut types = Vec::with_capacity(results.len() + 1);
+        for part in results.iter().chain(otherwise.iter()) {
+            types.push(self.standalone_type(&part.scalar, part.inline)?);
+        }
+        let scope = self.scopes;
+        self.scopes += 1;
+        let pick = |choices: Vec<String>, default: &str| {
+            let mut otherwise = choices[results.len()..].iter();
+            let otherwise = otherwise.next().map_or(default, String::as_str);
+            let arms = choices[..results.len()]
+                .iter()
+                .enumerate()
+                .map(|(arm, choice)| format!(" WHEN {arm} THEN ({choice})"))
+                .collect::<String>();
+            format!(
+                "(SELECT CASE cs{scope}.k{arms} ELSE ({otherwise}) END \
+                 FROM (SELECT ({branch}) AS k) AS cs{scope})"
+            )
+        };
+        let values = results
+            .iter()
+            .chain(otherwise.iter())
+            .map(|part| part.scalar.value.clone())
+            .collect::<Vec<_>>();
+        Ok(Scalar::sql(pick(values, "NULL"), pick(types, "'null'")))
+    }
+
     /// Compiles `[x IN list WHERE predicate | projection]` to a correlated
     /// `json_each` scan that keeps the elements whose predicate is true and
     /// collects their projections, in list order, back into a JSON array.
@@ -2049,7 +2645,7 @@ impl Compiler {
                 variable,
                 (format!("{alias}.value"), format!("{alias}.type")),
             );
-            let compiled = (|| {
+            let compiled = this.capture_sources(|this| {
                 let filter = match predicate {
                     Some(predicate) => format!(" WHERE ({})", this.boolean_expression(predicate)?),
                     None => String::new(),
@@ -2059,7 +2655,7 @@ impl Compiler {
                     None => element_json(&alias),
                 };
                 Ok::<_, Error>((filter, element))
-            })();
+            });
             match previous {
                 Some(previous) => {
                     this.list_elements.insert(variable, previous);
@@ -2068,11 +2664,11 @@ impl Compiler {
                     this.list_elements.remove(&variable);
                 }
             }
-            let (filter, element) = compiled?;
+            let ((filter, element), sources) = compiled?;
             Ok(format!(
                 "(CASE WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL \
                  ELSE (SELECT json_group_array(json({element}) ORDER BY {alias}.key) \
-                       FROM json_each({list_value}) AS {alias}{filter}) END)"
+                       FROM json_each({list_value}) AS {alias}{sources}{filter}) END)"
             ))
         };
         self.composed(&[list], value, |types| array_when_list(&types[0]))
@@ -2368,7 +2964,7 @@ impl Compiler {
             variable,
             (format!("{alias}.value"), format!("{alias}.type")),
         );
-        let outcome = this.boolean_expression(predicate);
+        let outcome = this.capture_sources(|this| this.boolean_expression(predicate));
         match previous {
             Some(previous) => {
                 this.list_elements.insert(variable, previous);
@@ -2377,7 +2973,7 @@ impl Compiler {
                 this.list_elements.remove(&variable);
             }
         }
-        let outcome = outcome?;
+        let (outcome, sources) = outcome?;
         let decision = match kind {
             ListQuantifier::All => {
                 "WHEN total - trues - nulls > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1"
@@ -2389,7 +2985,7 @@ impl Compiler {
             }
         };
         Ok(format!(
-            "(CASE              WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL              ELSE (SELECT CASE {decision} END FROM                    (SELECT count(*) AS total,                            count(*) FILTER (WHERE outcome) AS trues,                            count(*) FILTER (WHERE outcome IS NULL) AS nulls                     FROM (SELECT ({outcome}) AS outcome                           FROM json_each({list_value}) AS {alias}))) END)"
+            "(CASE              WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL              ELSE (SELECT CASE {decision} END FROM                    (SELECT count(*) AS total,                            count(*) FILTER (WHERE outcome) AS trues,                            count(*) FILTER (WHERE outcome IS NULL) AS nulls                     FROM (SELECT ({outcome}) AS outcome                           FROM json_each({list_value}) AS {alias}{sources}))) END)"
         ))
         })
     }
@@ -2611,6 +3207,10 @@ fn is_inline_operand(expression: &Expr) -> bool {
                 | Expr::ElementId(_)
                 | Expr::RelationshipType(_)
                 | Expr::ListElement(_)
+                | Expr::Function {
+                    function: ScalarFunction::Rand,
+                    ..
+                }
         )
 }
 

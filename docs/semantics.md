@@ -394,6 +394,60 @@ Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
 rejections. Computed scalar projections are currently read-only: the
 post-mutation result stage does not yet execute them.
 
+## `CASE` expressions
+
+The simple form `CASE operand WHEN a, b THEN x ... ELSE y END` returns the
+result of the first alternative whose `WHEN` value equals the operand under
+Cypher equality: integers and floats compare numerically, other kinds must
+match exactly, and a null operand or `WHEN` value never matches. The generic
+form `CASE WHEN predicate THEN x ... END` selects the first alternative whose
+predicate is true; a null or non-boolean predicate is not true. Without a
+matching alternative the result is the `ELSE` value, or null when there is
+none. Alternatives may produce different types; the chosen alternative
+decides the type, and the result feeds arithmetic, comparisons, predicates,
+`size()`, and aggregates like any other value. As with other nested
+aggregates, an aggregate used inside a `CASE` must be bound by `WITH` first.
+
+## Scalar functions
+
+Built-in scalar functions follow the same rule as the operators: an argument
+of the wrong kind produces null where Cypher raises a type error. Function
+names are case-insensitive, and calling one with the wrong number of
+arguments is a semantic error.
+
+- `coalesce(a, b, ...)` returns the first non-null argument.
+- `keys(x)` returns the property names of a node, relationship, or map as a
+  list, and `properties(x)` returns them as a map. Stored property maps and
+  map literals keep their keys sorted, so the order is alphabetical. A
+  stored explicit-null entry (see "Values and properties") is not a Cypher
+  property, so the entity forms leave it out even though a returned whole
+  entity still shows it; map values may hold null, so the map forms keep it.
+  Both functions read a null entity (from `OPTIONAL MATCH`) as null.
+- `head(list)`, `last(list)`, and `tail(list)` are `list[0]`, `list[-1]`, and
+  `list[1..]`, with the same null rules.
+- `reverse(x)` reverses a string or a list.
+- `toInteger`, `toFloat`, `toString`, and `toBoolean` convert between
+  numbers, strings, and booleans. `toInteger` truncates floats toward zero,
+  parses integer or float text, and maps booleans to `1`/`0`; `toFloat`
+  parses numeric text; `toString` renders numbers and booleans; `toBoolean`
+  accepts booleans, the strings `true` and `false` in any letter case, and
+  integers (zero is false). Anything else, including text that does not
+  parse, is null.
+- `toLower`, `toUpper`, `trim`, `ltrim`, `rtrim`, `substring(s, start[,
+  length])` (zero-based; a negative position is null), `left(s, n)`,
+  `right(s, n)`, `replace(s, search, replacement)`, and `split(s, delimiter)`
+  operate on strings; `split` with an empty delimiter splits into characters.
+  Case conversion is ASCII-only.
+- `abs` keeps the argument's numeric type and `sign` returns an integer;
+  `ceil`, `floor`, `round`, `sqrt`, `exp`, `log`, `log10`, `sin`, `cos`,
+  `tan`, `asin`, `acos`, and `atan` return floats, and a non-finite result
+  such as `sqrt(-1)` is null. `pi()` and `e()` are constants.
+- `rand()` draws a float in `[0, 1)` once per call site per row, so a value
+  bound in `WITH` is stable across later references and a `CASE` whose
+  condition uses `rand()` is decided once. Inside a list comprehension or
+  quantifier the draw is per element. `rand()` in an aggregate argument is a
+  semantic error, as in Cypher.
+
 ## Names and identifiers
 
 Escaped symbolic names are decoded once and remain exact and case-sensitive.
