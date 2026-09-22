@@ -306,6 +306,11 @@ falling back to a generic `expression` bucket, which is what lets
 ranked backlog. Concurrent external-writer behavior remains outside the test
 goal.
 
+`tests/labels.rs` covers the label list: creation order and repeats, label
+expressions in patterns and `WHERE`, encoded-row label tests after `WITH`,
+`SET`/`REMOVE` labels with their summary counters, `MERGE` label subsets and
+actions, and `XOR`; the version 1 to 2 schema migration is a unit test in
+`src/database.rs`.
 `tests/write_pipelines.rs` covers reading and updating clauses alternating in
 one statement: scalar values feeding writes, aliases keeping entity identity,
 `MATCH` after a write, modifiers and aggregation after a write, multi-segment

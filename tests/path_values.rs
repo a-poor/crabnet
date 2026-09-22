@@ -212,7 +212,7 @@ fn poison_discarded_nodes(path: &Path) {
     let changed = connection
         .execute(
             "UPDATE nodes SET props = 'not-json'
-             WHERE label = 'ShapeEnd'
+             WHERE id IN (SELECT node_id FROM node_labels WHERE label = 'ShapeEnd')
                AND json_extract(props, '$.name') IN ('one', 'three')",
             [],
         )

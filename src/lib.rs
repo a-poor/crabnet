@@ -46,6 +46,10 @@ pub struct QuerySummary {
     pub relationships_created: usize,
     /// Top-level entity properties whose stored value changed or was removed.
     pub properties_set: usize,
+    /// Node labels added by `SET n:Label`, counted per node and label.
+    pub labels_added: usize,
+    /// Node labels removed by `REMOVE n:Label`, counted per node and label.
+    pub labels_removed: usize,
     /// Distinct stored nodes removed by the statement.
     pub nodes_deleted: usize,
     /// Distinct stored relationships removed explicitly or by `DETACH DELETE`.

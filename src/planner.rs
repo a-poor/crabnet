@@ -311,7 +311,7 @@ pub(crate) enum ResolvedStoredValue {
 pub(crate) enum ResolvedMutation {
     CreateNode {
         slot: SlotId,
-        label: Option<String>,
+        labels: Vec<String>,
         properties: ResolvedStoredValue,
     },
     CreateRelationship {
@@ -337,6 +337,14 @@ pub(crate) enum ResolvedMutation {
     RemoveProperty {
         slot: SlotId,
         key: String,
+    },
+    SetLabels {
+        slot: SlotId,
+        labels: Vec<String>,
+    },
+    RemoveLabels {
+        slot: SlotId,
+        labels: Vec<String>,
     },
     Delete {
         targets: Vec<(SlotId, EntityKind)>,
@@ -454,11 +462,11 @@ fn resolve_mutation(
     Ok(match mutation {
         Mutation::CreateNode {
             slot,
-            label,
+            labels,
             properties: value,
         } => ResolvedMutation::CreateNode {
             slot,
-            label,
+            labels,
             properties: properties(value, "node properties")?,
         },
         Mutation::CreateRelationship {
@@ -494,6 +502,8 @@ fn resolve_mutation(
             properties: properties(value, "merged properties")?,
         },
         Mutation::RemoveProperty { slot, key } => ResolvedMutation::RemoveProperty { slot, key },
+        Mutation::SetLabels { slot, labels } => ResolvedMutation::SetLabels { slot, labels },
+        Mutation::RemoveLabels { slot, labels } => ResolvedMutation::RemoveLabels { slot, labels },
         Mutation::Delete { targets, detach } => ResolvedMutation::Delete { targets, detach },
         Mutation::Merge {
             pattern,

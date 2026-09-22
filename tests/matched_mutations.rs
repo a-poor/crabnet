@@ -385,31 +385,44 @@ fn planning_and_parameter_errors_do_not_apply_earlier_set_items() {
 }
 
 #[test]
-fn unsupported_label_set_and_remove_do_not_mutate_properties() {
+fn label_set_and_remove_apply_alongside_property_changes() {
     let mut database = Database::in_memory().unwrap();
     database
         .execute("CREATE (:Item {name: 'original'})")
         .unwrap();
 
-    assert!(matches!(
-        database.execute(
+    let changed = database
+        .execute(
             "MATCH (item:Item) \
-             SET item.changed = true, item:Changed"
-        ),
-        Err(Error::Unsupported(_))
-    ));
-    assert!(matches!(
-        database.execute(
+             SET item.changed = true, item:Changed \
+             RETURN labels(item) AS labels",
+        )
+        .unwrap();
+    assert_eq!(changed.rows, [vec![json!(["Item", "Changed"])]]);
+    assert_eq!(changed.summary.properties_set, 1);
+    assert_eq!(changed.summary.labels_added, 1);
+
+    let removed = database
+        .execute(
             "MATCH (item:Item) \
-             SET item.changed = true REMOVE item:Item"
-        ),
-        Err(Error::Unsupported(_))
-    ));
+             SET item.changed = false REMOVE item:Item \
+             RETURN labels(item) AS labels, item.changed AS changed",
+        )
+        .unwrap();
+    assert_eq!(removed.rows, [vec![json!(["Changed"]), json!(false)]]);
+    assert_eq!(removed.summary.labels_removed, 1);
 
     let stored = database
-        .execute("MATCH (item:Item) RETURN item.name, item.changed")
+        .execute("MATCH (item:Changed) RETURN item.name, item.changed")
         .unwrap();
-    assert_eq!(stored.rows, [vec![json!("original"), json!(null)]]);
+    assert_eq!(stored.rows, [vec![json!("original"), json!(false)]]);
+    assert!(
+        database
+            .execute("MATCH (item:Item) RETURN item")
+            .unwrap()
+            .rows
+            .is_empty()
+    );
 }
 
 #[test]

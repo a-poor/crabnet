@@ -134,6 +134,7 @@ pub(crate) enum Direction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BinaryOp {
     Or,
+    Xor,
     And,
     Equal,
     NotEqual,
@@ -195,6 +196,8 @@ pub(crate) enum Expr {
     Property(SlotId, String),
     ElementId(SlotId),
     Labels(SlotId),
+    /// Whether the node has the label; null for a null node.
+    HasLabel(SlotId, String),
     RelationshipType(SlotId),
     Binary {
         left: Box<Self>,
@@ -464,6 +467,7 @@ impl Expr {
             | Self::Property(_, _)
             | Self::ElementId(_)
             | Self::Labels(_)
+            | Self::HasLabel(_, _)
             | Self::RelationshipType(_)
             | Self::ListElement(_)
             | Self::EntityKeys(_)
@@ -621,6 +625,7 @@ impl Expr {
             | Self::Property(_, _)
             | Self::ElementId(_)
             | Self::Labels(_)
+            | Self::HasLabel(_, _)
             | Self::RelationshipType(_) => true,
         }
     }
@@ -705,6 +710,7 @@ impl Expr {
             Self::Property(slot, _)
             | Self::ElementId(slot)
             | Self::Labels(slot)
+            | Self::HasLabel(slot, _)
             | Self::RelationshipType(slot) => grouping
                 .iter()
                 .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
@@ -923,7 +929,7 @@ pub(crate) enum StoredValue {
 pub(crate) enum Mutation {
     CreateNode {
         slot: SlotId,
-        label: Option<String>,
+        labels: Vec<String>,
         properties: StoredValue,
     },
     CreateRelationship {
@@ -949,6 +955,16 @@ pub(crate) enum Mutation {
     RemoveProperty {
         slot: SlotId,
         key: String,
+    },
+    /// `SET n:A:B`: adds the labels the node does not have yet.
+    SetLabels {
+        slot: SlotId,
+        labels: Vec<String>,
+    },
+    /// `REMOVE n:A:B`: removes the labels the node has.
+    RemoveLabels {
+        slot: SlotId,
+        labels: Vec<String>,
     },
     Delete {
         targets: Vec<(SlotId, EntityKind)>,

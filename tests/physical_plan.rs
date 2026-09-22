@@ -113,10 +113,10 @@ fn constrained_trail_endpoints_expose_bound_node_domains() {
     assert_precedes(&explanation, "edge-source:", "start-domain:");
     assert_precedes(&explanation, "start-domain:", "end-domain:");
     assert!(explanation.contains(
-        "start-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.label = ?1"
+        "start-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.id IN (SELECT node_id FROM node_labels WHERE label = ?1)"
     ));
     assert!(explanation.contains(
-        "end-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.label = ?1 ORDER BY trail_node.id"
+        "end-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.id IN (SELECT node_id FROM node_labels WHERE label = ?1) ORDER BY trail_node.id"
     ));
     assert!(
         !explanation.contains("unrestricted"),

@@ -924,10 +924,7 @@ impl<'source> Lowerer<'source> {
             plan.operators.push(MatchOperator::ScanNode { slot });
         }
         if let Some(label) = &node.labels {
-            plan.operators.push(MatchOperator::HasLabel {
-                slot,
-                label: single_label(label, "multiple or boolean node labels")?,
-            });
+            self.pattern_labels(plan, slot, label)?;
         }
         self.match_properties(plan, slot, node.properties.as_deref())?;
         if let Some(predicate) = &node.where_clause {
@@ -1226,15 +1223,16 @@ impl<'source> Lowerer<'source> {
             EntityKind::Node,
             span,
         )?;
-        let label = node
+        let labels = node
             .labels
             .as_ref()
-            .map(|label| single_label(label, "multiple or boolean node labels"))
-            .transpose()?;
+            .map(|label| label_names(label, "boolean label expressions in MERGE"))
+            .transpose()?
+            .unwrap_or_default();
         if is_fresh {
             plan.operators.push(MatchOperator::ScanNode { slot });
         }
-        if let Some(label) = &label {
+        for label in &labels {
             plan.operators.push(MatchOperator::HasLabel {
                 slot,
                 label: label.clone(),
@@ -1245,7 +1243,7 @@ impl<'source> Lowerer<'source> {
             fresh.push((slot, EntityKind::Node));
             creates.push(Mutation::CreateNode {
                 slot,
-                label,
+                labels,
                 properties: self.stored_properties(node.properties.as_deref())?,
             });
         } else if node.labels.is_some() || node.properties.is_some() {
@@ -1403,16 +1401,17 @@ impl<'source> Lowerer<'source> {
             return Ok(slot);
         }
 
-        let label = node
+        let labels = node
             .labels
             .as_ref()
-            .map(|label| single_label(label, "multiple or boolean node labels"))
-            .transpose()?;
+            .map(|label| label_names(label, "boolean label expressions in CREATE"))
+            .transpose()?
+            .unwrap_or_default();
         let properties = self.stored_properties(node.properties.as_deref())?;
         let slot = self.allocate(EntityKind::Node);
         self.mutations.push(Mutation::CreateNode {
             slot,
-            label,
+            labels,
             properties,
         });
         if let Some(variable) = &node.variable {
@@ -1502,8 +1501,12 @@ impl<'source> Lowerer<'source> {
                         properties: self.stored_value(value, property_map_input, true)?,
                     });
                 }
-                SetItemKind::Labels { .. } => {
-                    return Err(unsupported(item.span, "setting labels"));
+                SetItemKind::Labels { target, labels } => {
+                    let slot = self.label_target(target)?;
+                    self.mutations.push(Mutation::SetLabels {
+                        slot,
+                        labels: label_names(labels, "boolean label expressions in SET")?,
+                    });
                 }
                 _ => return Err(unsupported(item.span, "SET item")),
             }
@@ -1566,8 +1569,12 @@ impl<'source> Lowerer<'source> {
                     let (slot, key) = self.property_target(target)?;
                     self.mutations.push(Mutation::RemoveProperty { slot, key });
                 }
-                RemoveItemKind::Labels { .. } => {
-                    return Err(unsupported(item.span, "removing labels"));
+                RemoveItemKind::Labels { target, labels } => {
+                    let slot = self.label_target(target)?;
+                    self.mutations.push(Mutation::RemoveLabels {
+                        slot,
+                        labels: label_names(labels, "boolean label expressions in REMOVE")?,
+                    });
                 }
                 _ => return Err(unsupported(item.span, "REMOVE item")),
             }
@@ -1614,6 +1621,89 @@ impl<'source> Lowerer<'source> {
             self.resolve_entity_variable(expression)?,
             key.kind.text.clone(),
         ))
+    }
+
+    /// The node a `SET`/`REMOVE` label item targets.
+    fn label_target(&self, name: &open_cypher::ast::Name) -> Result<SlotId> {
+        let slot = self.resolve_entity_name(name)?;
+        match self.kind(slot) {
+            EntityKind::Node => Ok(slot),
+            EntityKind::Relationship => Err(semantic(
+                name.span,
+                format!(
+                    "`{}` is a relationship and cannot have labels",
+                    name.kind.text
+                ),
+            )),
+        }
+    }
+
+    /// Node labels in a pattern: a plain conjunction becomes one `HasLabel`
+    /// operator per label, any other label expression becomes a filter.
+    fn pattern_labels(
+        &self,
+        plan: &mut MatchPlan,
+        slot: SlotId,
+        label: &LabelExpression,
+    ) -> Result<()> {
+        match label_names(label, "label expression") {
+            Ok(names) => {
+                for label in names {
+                    plan.operators.push(MatchOperator::HasLabel { slot, label });
+                }
+                Ok(())
+            }
+            Err(_) => {
+                let predicate = self.label_predicate(slot, label)?;
+                plan.operators.push(MatchOperator::Filter(predicate));
+                Ok(())
+            }
+        }
+    }
+
+    /// A label expression as a boolean over the node's labels.
+    fn label_predicate(&self, slot: SlotId, label: &LabelExpression) -> Result<Expr> {
+        self.label_expression(label, &|name| Expr::HasLabel(slot, name))
+    }
+
+    /// A label expression as a boolean over the relationship's type.
+    fn relationship_type_predicate(&self, slot: SlotId, label: &LabelExpression) -> Result<Expr> {
+        self.label_expression(label, &|name| Expr::Binary {
+            left: Box::new(Expr::RelationshipType(slot)),
+            operator: BinaryOp::Equal,
+            right: Box::new(Expr::Value(ValueExpr::Literal(Value::String(name)))),
+        })
+    }
+
+    fn label_expression(
+        &self,
+        label: &LabelExpression,
+        leaf: &dyn Fn(String) -> Expr,
+    ) -> Result<Expr> {
+        let join = |parts: &[LabelExpression], operator: BinaryOp| -> Result<Expr> {
+            let mut lowered = parts
+                .iter()
+                .map(|part| self.label_expression(part, leaf))
+                .collect::<Result<Vec<_>>>()?;
+            let first = lowered.remove(0);
+            Ok(lowered.into_iter().fold(first, |left, right| Expr::Binary {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+            }))
+        };
+        match &label.kind {
+            LabelExpressionKind::Name(name) => Ok(leaf(name.kind.text.clone())),
+            LabelExpressionKind::And(parts) if !parts.is_empty() => join(parts, BinaryOp::And),
+            LabelExpressionKind::Or(parts) if !parts.is_empty() => join(parts, BinaryOp::Or),
+            LabelExpressionKind::Not(inner) => Ok(Expr::Unary {
+                operator: UnaryOp::Not,
+                operand: Box::new(self.label_expression(inner, leaf)?),
+            }),
+            LabelExpressionKind::Parenthesized(inner) => self.label_expression(inner, leaf),
+            LabelExpressionKind::Wildcard => Err(unsupported(label.span, "label wildcard `%`")),
+            _ => Err(unsupported(label.span, "label expression")),
+        }
     }
 
     fn resolve_entity_name(&self, name: &open_cypher::ast::Name) -> Result<SlotId> {
@@ -2204,7 +2294,7 @@ impl<'source> Lowerer<'source> {
                     BinaryOperator::Multiply => BinaryOp::Multiply,
                     BinaryOperator::Divide => BinaryOp::Divide,
                     BinaryOperator::Remainder => BinaryOp::Remainder,
-                    BinaryOperator::Xor => return Err(unsupported(operator.span, "XOR")),
+                    BinaryOperator::Xor => BinaryOp::Xor,
                     BinaryOperator::RegexMatch => {
                         return Err(unsupported(operator.span, "regular-expression match `=~`"));
                     }
@@ -2254,6 +2344,31 @@ impl<'source> Lowerer<'source> {
                 )?),
                 negated: *negated,
             }),
+            ExprKind::Is {
+                expression: target,
+                negated,
+                predicate: IsPredicate::Label(label),
+            } => {
+                let Expr::Entity(slot) = self.output_expression_with_aliases(target, aliases)?
+                else {
+                    return Err(semantic(
+                        target.span,
+                        "a label predicate requires a node or relationship variable",
+                    ));
+                };
+                let predicate = match self.kind(slot) {
+                    EntityKind::Node => self.label_predicate(slot, label)?,
+                    EntityKind::Relationship => self.relationship_type_predicate(slot, label)?,
+                };
+                Ok(if *negated {
+                    Expr::Unary {
+                        operator: UnaryOp::Not,
+                        operand: Box::new(predicate),
+                    }
+                } else {
+                    predicate
+                })
+            }
             ExprKind::Is { .. } => Err(unsupported(expression.span, "IS predicate")),
             ExprKind::Function(function) => self
                 .function_expression(function, expression.span, aliases)
@@ -3232,6 +3347,30 @@ fn legacy_quantifier_bounds(quantifier: &Quantifier) -> Result<(usize, Option<us
     };
 
     Ok((minimum, maximum))
+}
+
+/// The label names of a plain conjunction such as `:A:B` or `:A&B`, in
+/// order and without repeats. Any other label expression is `feature`,
+/// reported as unsupported.
+fn label_names(label: &LabelExpression, feature: &str) -> Result<Vec<String>> {
+    fn collect(label: &LabelExpression, names: &mut Vec<String>, feature: &str) -> Result<()> {
+        match &label.kind {
+            LabelExpressionKind::Name(name) => {
+                if !names.contains(&name.kind.text) {
+                    names.push(name.kind.text.clone());
+                }
+                Ok(())
+            }
+            LabelExpressionKind::And(parts) => parts
+                .iter()
+                .try_for_each(|part| collect(part, names, feature)),
+            LabelExpressionKind::Parenthesized(inner) => collect(inner, names, feature),
+            _ => Err(unsupported(label.span, feature)),
+        }
+    }
+    let mut names = Vec::new();
+    collect(label, &mut names, feature)?;
+    Ok(names)
 }
 
 fn single_label(label: &LabelExpression, feature: &str) -> Result<String> {

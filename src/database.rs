@@ -22,14 +22,15 @@ use crate::{
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const INITIAL_SCHEMA: &str = "
 BEGIN IMMEDIATE;
 
 CREATE TABLE nodes (
     id TEXT PRIMARY KEY NOT NULL,
-    label TEXT,
+    labels TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(labels) AND json_type(labels) = 'array'),
     props TEXT NOT NULL DEFAULT '{}'
         CHECK (json_valid(props) AND json_type(props) = 'object')
 ) STRICT;
@@ -45,15 +46,61 @@ CREATE TABLE edges (
         CHECK (json_valid(props) AND json_type(props) = 'object')
 ) STRICT;
 
-CREATE INDEX nodes_by_label
-    ON nodes(label);
+CREATE TABLE node_labels (
+    label TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    PRIMARY KEY (label, node_id)
+) STRICT;
+CREATE TRIGGER nodes_labels_insert AFTER INSERT ON nodes BEGIN
+    INSERT INTO node_labels (label, node_id)
+        SELECT value, NEW.id FROM json_each(NEW.labels);
+END;
+CREATE TRIGGER nodes_labels_update AFTER UPDATE OF labels ON nodes BEGIN
+    DELETE FROM node_labels WHERE node_id = NEW.id;
+    INSERT INTO node_labels (label, node_id)
+        SELECT value, NEW.id FROM json_each(NEW.labels);
+END;
+CREATE TRIGGER nodes_labels_delete AFTER DELETE ON nodes BEGIN
+    DELETE FROM node_labels WHERE node_id = OLD.id;
+END;
 CREATE INDEX edges_from_type_to
     ON edges(from_node, edge_type, to_node);
 CREATE INDEX edges_to_type_from
     ON edges(to_node, edge_type, from_node);
 
 PRAGMA application_id = 1129464130;
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
+COMMIT;
+";
+
+/// Upgrades a version 1 file: the single `label` column becomes the
+/// `labels` JSON list backed by the `node_labels` index table.
+const MIGRATE_V1_TO_V2: &str = "
+BEGIN IMMEDIATE;
+ALTER TABLE nodes ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';
+UPDATE nodes SET labels = CASE WHEN label IS NULL THEN '[]' ELSE json_array(label) END;
+DROP INDEX nodes_by_label;
+ALTER TABLE nodes DROP COLUMN label;
+CREATE TABLE node_labels (
+    label TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    PRIMARY KEY (label, node_id)
+) STRICT;
+CREATE TRIGGER nodes_labels_insert AFTER INSERT ON nodes BEGIN
+    INSERT INTO node_labels (label, node_id)
+        SELECT value, NEW.id FROM json_each(NEW.labels);
+END;
+CREATE TRIGGER nodes_labels_update AFTER UPDATE OF labels ON nodes BEGIN
+    DELETE FROM node_labels WHERE node_id = NEW.id;
+    INSERT INTO node_labels (label, node_id)
+        SELECT value, NEW.id FROM json_each(NEW.labels);
+END;
+CREATE TRIGGER nodes_labels_delete AFTER DELETE ON nodes BEGIN
+    DELETE FROM node_labels WHERE node_id = OLD.id;
+END;
+INSERT INTO node_labels (label, node_id)
+    SELECT labels.value, nodes.id FROM nodes, json_each(nodes.labels) AS labels;
+PRAGMA user_version = 2;
 COMMIT;
 ";
 
@@ -412,6 +459,59 @@ fn delete_entities(
     Ok(())
 }
 
+/// Adds (`add`) or removes the labels on the node in `slot` of every row
+/// that binds it, returning the number of node/label pairs that changed.
+fn update_labels(
+    transaction: &Transaction<'_>,
+    rows: &mut [ExecutionRow],
+    slot: SlotId,
+    labels: &[String],
+    add: bool,
+) -> Result<usize> {
+    let mut changed = 0;
+    for target_index in 0..rows.len() {
+        if !rows[target_index].binds(slot) {
+            continue;
+        }
+        let id = rows[target_index].node_id(slot)?.to_owned();
+        let encoded = transaction.query_row(
+            "SELECT labels FROM nodes WHERE id = ?1",
+            params![id],
+            |record| record.get::<_, String>(0),
+        )?;
+        let mut current = serde_json::from_str::<Vec<String>>(&encoded).map_err(|error| {
+            crate::Error::Data(format!("stored node labels are malformed JSON: {error}"))
+        })?;
+        let before = current.len();
+        if add {
+            for label in labels {
+                if !current.contains(label) {
+                    current.push(label.clone());
+                }
+            }
+        } else {
+            current.retain(|label| !labels.contains(label));
+        }
+        if current.len() != before {
+            changed += before.abs_diff(current.len());
+            transaction.execute(
+                "UPDATE nodes SET labels = json(?1) WHERE id = ?2",
+                params![serde_json::Value::from(current.clone()).to_string(), id],
+            )?;
+        }
+        for row in rows.iter_mut() {
+            for entity in row.entities.iter_mut().flatten() {
+                if let EntityValue::Node(node) = entity
+                    && node.element_id == id
+                {
+                    node.labels = current.clone();
+                }
+            }
+        }
+    }
+    Ok(changed)
+}
+
 fn update_properties(
     transaction: &Transaction<'_>,
     rows: &mut [ExecutionRow],
@@ -736,17 +836,18 @@ fn apply_mutation(
     match mutation {
         ResolvedMutation::CreateNode {
             slot,
-            label,
+            labels,
             properties,
         } => {
             let values = row_values(transaction, layout, rows, properties, true)?;
+            let encoded_labels = serde_json::Value::from(labels.clone()).to_string();
             for (index, input_row) in rows.iter_mut().enumerate() {
                 let properties = values.get(index);
                 let id = transaction.query_row(
-                    "INSERT INTO nodes (id, label, props)
-                     VALUES (lower(hex(randomblob(16))), ?1, json(?2))
+                    "INSERT INTO nodes (id, labels, props)
+                     VALUES (lower(hex(randomblob(16))), json(?1), json(?2))
                      RETURNING id",
-                    params![label.as_deref(), properties.to_string()],
+                    params![encoded_labels, properties.to_string()],
                     |row| row.get::<_, String>(0),
                 )?;
                 input_row.set(
@@ -754,11 +855,12 @@ fn apply_mutation(
                     *slot,
                     EntityValue::Node(NodeValue {
                         element_id: id,
-                        labels: label.iter().cloned().collect(),
+                        labels: labels.clone(),
                         properties: cypher_properties(properties.clone())?,
                     }),
                 )?;
                 summary.nodes_created += 1;
+                summary.labels_added += labels.len();
             }
         }
         ResolvedMutation::CreateRelationship {
@@ -839,6 +941,12 @@ fn apply_mutation(
                 update_properties(transaction, rows, *slot, |_, properties| {
                     properties.remove(key);
                 })?;
+        }
+        ResolvedMutation::SetLabels { slot, labels } => {
+            summary.labels_added += update_labels(transaction, rows, *slot, labels, true)?;
+        }
+        ResolvedMutation::RemoveLabels { slot, labels } => {
+            summary.labels_removed += update_labels(transaction, rows, *slot, labels, false)?;
         }
         ResolvedMutation::Delete { targets, detach } => {
             delete_entities(transaction, rows, targets, *detach, summary)?;
@@ -1096,7 +1204,7 @@ fn encode_entity(entity: &EntityValue) -> String {
     let record = match entity {
         EntityValue::Node(node) => serde_json::json!({
             "id": node.element_id,
-            "label": node.labels.first(),
+            "labels": node.labels,
             "props": json_from_properties(&node.properties),
         }),
         EntityValue::Relationship(relationship) => serde_json::json!({
@@ -1203,12 +1311,20 @@ fn decode_entity(encoded: &str, kind: EntityKind) -> Result<EntityValue> {
 
     match kind {
         EntityKind::Node => {
-            let labels = match fields.remove("label") {
-                Some(serde_json::Value::String(label)) => vec![label],
-                Some(serde_json::Value::Null) => Vec::new(),
+            let labels = match fields.remove("labels") {
+                Some(serde_json::Value::Array(labels)) => labels
+                    .into_iter()
+                    .map(|label| match label {
+                        serde_json::Value::String(label) => Ok(label),
+                        _ => Err(crate::Error::Data(
+                            "matched node has an invalid label".into(),
+                        )),
+                    })
+                    .collect::<Result<Vec<_>>>()?,
+                Some(serde_json::Value::Null) | None => Vec::new(),
                 _ => {
                     return Err(crate::Error::Data(
-                        "matched node has an invalid label".into(),
+                        "matched node has an invalid label list".into(),
                     ));
                 }
             };
@@ -1288,7 +1404,7 @@ impl PathHydrator {
         let encoded_nodes = {
             let mut statement = connection.prepare(
                 "SELECT json_object(
-                    'id', n.id, 'label', n.label, 'props', json(n.props)
+                    'id', n.id, 'labels', json(n.labels), 'props', json(n.props)
                  )
                  FROM json_each(?1) AS wanted
                  JOIN nodes AS n ON n.id = wanted.value
@@ -1601,6 +1717,11 @@ fn initialize(connection: &mut Connection) -> Result<()> {
     let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if application_id == APPLICATION_ID {
+        if schema_version == 1 {
+            connection.execute_batch(MIGRATE_V1_TO_V2)?;
+            validate_schema(connection)?;
+            return Ok(());
+        }
         if schema_version != SCHEMA_VERSION {
             return Err(crate::Error::Data(format!(
                 "unsupported Crabnet schema version {schema_version}; expected {SCHEMA_VERSION}"
@@ -1872,7 +1993,8 @@ fn semantic_json_key(value: &serde_json::Value) -> Vec<u8> {
 }
 
 fn validate_schema(connection: &Connection) -> Result<()> {
-    connection.prepare("SELECT id, label, props FROM nodes LIMIT 0")?;
+    connection.prepare("SELECT id, labels, props FROM nodes LIMIT 0")?;
+    connection.prepare("SELECT label, node_id FROM node_labels LIMIT 0")?;
     connection.prepare("SELECT id, edge_type, from_node, to_node, props FROM edges LIMIT 0")?;
     Ok(())
 }
@@ -2579,7 +2701,7 @@ mod tests {
         database
             .connection
             .execute(
-                "INSERT INTO nodes (id, label) VALUES ('one', 'Thing'), ('two', 'Thing')",
+                "INSERT INTO nodes (id, labels) VALUES ('one', '[\"Thing\"]'), ('two', '[\"Thing\"]')",
                 [],
             )
             .unwrap();
@@ -2641,6 +2763,87 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(props, "{}");
+    }
+
+    #[test]
+    fn version_one_files_migrate_to_the_label_list_schema() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(&format!(
+                "CREATE TABLE nodes (
+                     id TEXT PRIMARY KEY NOT NULL,
+                     label TEXT,
+                     props TEXT NOT NULL DEFAULT '{{}}'
+                         CHECK (json_valid(props) AND json_type(props) = 'object')
+                 ) STRICT;
+                 CREATE TABLE edges (
+                     id TEXT PRIMARY KEY NOT NULL,
+                     edge_type TEXT NOT NULL CHECK (edge_type <> ''),
+                     from_node TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+                     to_node TEXT NOT NULL REFERENCES nodes(id) ON DELETE RESTRICT,
+                     props TEXT NOT NULL DEFAULT '{{}}'
+                         CHECK (json_valid(props) AND json_type(props) = 'object')
+                 ) STRICT;
+                 CREATE INDEX nodes_by_label ON nodes(label);
+                 INSERT INTO nodes (id, label, props)
+                     VALUES ('labeled', 'Thing', '{{\"n\": 1}}'), ('bare', NULL, '{{}}');
+                 INSERT INTO edges (id, edge_type, from_node, to_node)
+                     VALUES ('link', 'LINK', 'labeled', 'bare');
+                 PRAGMA application_id = {APPLICATION_ID};
+                 PRAGMA user_version = 1;"
+            ))
+            .unwrap();
+
+        initialize(&mut connection).unwrap();
+
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        let labels: Vec<(String, String)> = connection
+            .prepare("SELECT id, labels FROM nodes ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            labels,
+            vec![
+                ("bare".to_owned(), "[]".to_owned()),
+                ("labeled".to_owned(), "[\"Thing\"]".to_owned()),
+            ]
+        );
+        let indexed: Vec<(String, String)> = connection
+            .prepare("SELECT label, node_id FROM node_labels")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(indexed, vec![("Thing".to_owned(), "labeled".to_owned())]);
+        let edges: i64 = connection
+            .query_row("SELECT count(*) FROM edges", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(edges, 1);
+
+        // Opening again is a no-op on the migrated file, and the triggers
+        // maintain the index table from here on.
+        initialize(&mut connection).unwrap();
+        connection
+            .execute(
+                "UPDATE nodes SET labels = '[\"Thing\", \"Other\"]' WHERE id = 'bare'",
+                [],
+            )
+            .unwrap();
+        let things: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM node_labels WHERE label = 'Thing'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(things, 2);
     }
 
     #[test]
@@ -2740,7 +2943,7 @@ mod tests {
         let sinks: i64 = database
             .connection
             .query_row(
-                "SELECT count(*) FROM nodes WHERE label = 'Sink'",
+                "SELECT count(*) FROM node_labels WHERE label = 'Sink'",
                 [],
                 |row| row.get(0),
             )
@@ -2748,7 +2951,7 @@ mod tests {
         let sources: i64 = database
             .connection
             .query_row(
-                "SELECT count(*) FROM nodes WHERE label = 'Source'",
+                "SELECT count(*) FROM node_labels WHERE label = 'Source'",
                 [],
                 |row| row.get(0),
             )

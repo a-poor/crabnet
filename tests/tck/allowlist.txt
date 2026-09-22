@@ -15,6 +15,8 @@ clauses/create/Create1.feature::[20] Fail when creating a node using undefined v
 clauses/create/Create1.feature::[2] Create two nodes
 clauses/create/Create1.feature::[3] Create a single node with a label
 clauses/create/Create1.feature::[4] Create two nodes with same label
+clauses/create/Create1.feature::[5] Create a single node with multiple labels
+clauses/create/Create1.feature::[6] Create three nodes with multiple labels
 clauses/create/Create1.feature::[7] Create a single node with a property
 clauses/create/Create1.feature::[8] Create a single node with a property and return it
 clauses/create/Create1.feature::[9] Create a single node with two properties
@@ -106,6 +108,8 @@ clauses/match-where/MatchWhere1.feature::[12] Filter path with path length predi
 clauses/match-where/MatchWhere1.feature::[13] Filter path with false path length predicate on multi variables with one binding
 clauses/match-where/MatchWhere1.feature::[14] Fail when filtering path with property predicate
 clauses/match-where/MatchWhere1.feature::[15] Fail on aggregation in WHERE
+clauses/match-where/MatchWhere1.feature::[1] Filter node with node label predicate on multi variables with multiple bindings
+clauses/match-where/MatchWhere1.feature::[2] Filter node with node label predicate on multi variables without any bindings
 clauses/match-where/MatchWhere1.feature::[3] Filter node with property predicate on a single variable with multiple bindings
 clauses/match-where/MatchWhere1.feature::[4] Filter start node of relationship with property predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[5] Filter end node of relationship with property predicate on multi variables with multiple bindings
@@ -117,8 +121,11 @@ clauses/match-where/MatchWhere2.feature::[1] Filter nodes with conjunctive two-p
 clauses/match-where/MatchWhere3.feature::[2] Join between node properties of disconnected nodes
 clauses/match-where/MatchWhere3.feature::[3] Join between node properties of adjacent nodes
 clauses/match-where/MatchWhere5.feature::[1] Filter out on null
+clauses/match-where/MatchWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false
 clauses/match-where/MatchWhere5.feature::[3] Filter out on null if the AND'd predicate evaluates to true
 clauses/match-where/MatchWhere5.feature::[4] Do not filter out on null if the OR'd predicate evaluates to true
+clauses/match-where/MatchWhere6.feature::[1] Filter node with node label predicate on multi variables with multiple bindings after MATCH and OPTIONAL MATCH
+clauses/match-where/MatchWhere6.feature::[2] Filter node with false node label predicate after OPTIONAL MATCH
 clauses/match-where/MatchWhere6.feature::[3] Filter node with property predicate on multi variables with multiple bindings after OPTIONAL MATCH
 clauses/match-where/MatchWhere6.feature::[4] Do not fail when predicates on optionally matched and missed nodes are invalid
 clauses/match-where/MatchWhere6.feature::[6] Join nodes on non-equality of properties – OPTIONAL MATCH and WHERE
@@ -154,6 +161,7 @@ clauses/match/Match1.feature::[11] Fail when matching a node variable bound to a
 clauses/match/Match1.feature::[11] Fail when matching a node variable bound to a value::example 8
 clauses/match/Match1.feature::[1] Match non-existent nodes returns empty
 clauses/match/Match1.feature::[2] Matching all nodes
+clauses/match/Match1.feature::[3] Matching nodes using multiple labels
 clauses/match/Match1.feature::[4] Simple node inline property predicate
 clauses/match/Match1.feature::[5] Use multiple MATCH clauses to do a Cartesian product
 clauses/match/Match1.feature::[7] Fail when a relationship has the same variable in a preceding MATCH::example 1
@@ -308,6 +316,7 @@ clauses/match/Match3.feature::[22] Returning bound nodes that are not part of th
 clauses/match/Match3.feature::[23] Matching disconnected patterns
 clauses/match/Match3.feature::[24] Matching twice with duplicate relationship types on same relationship
 clauses/match/Match3.feature::[25] Matching twice with an additional node label
+clauses/match/Match3.feature::[26] Matching twice with a duplicate predicate
 clauses/match/Match3.feature::[27] Matching from null nodes should return no results owing to finding no matches
 clauses/match/Match3.feature::[28] Matching from null nodes should return no results owing to matches being filtered out
 clauses/match/Match3.feature::[29] Fail when re-using a relationship in the same pattern
@@ -317,11 +326,13 @@ clauses/match/Match3.feature::[3] Undirected match on simple relationship graph
 clauses/match/Match3.feature::[4] Get two related nodes
 clauses/match/Match3.feature::[5] Return two subgraphs with bound undirected relationship
 clauses/match/Match3.feature::[6] Matching a relationship pattern using a label predicate
+clauses/match/Match3.feature::[7] Matching nodes with many labels
 clauses/match/Match3.feature::[9] Get related to related to
 clauses/match/Match4.feature::[10] Fail on negative bound
 clauses/match/Match4.feature::[1] Handling fixed-length variable length pattern
 clauses/match/Match4.feature::[2] Simple variable length pattern
 clauses/match/Match4.feature::[3] Zero-length variable length pattern in the middle of the pattern
+clauses/match/Match4.feature::[5] Matching variable length pattern with property predicate
 clauses/match/Match4.feature::[6] Matching variable length patterns from a bound node
 clauses/match/Match4.feature::[9] Fail when asterisk operator is missing
 clauses/match/Match5.feature::[10] Handling symmetrically bounded variable length match, bounds are two
@@ -449,7 +460,9 @@ clauses/match/Match6.feature::[9] Longer path query should return results in wri
 clauses/match/Match7.feature::[10] Optionally matching from null nodes should return null
 clauses/match/Match7.feature::[1] Simple OPTIONAL MATCH on empty graph
 clauses/match/Match7.feature::[21] Handling optional matches between nulls
+clauses/match/Match7.feature::[23] OPTIONAL MATCH with labels on the optional end node
 clauses/match/Match7.feature::[24] Optionally matching self-loops
+clauses/match/Match7.feature::[25] Optionally matching self-loops without matches
 clauses/match/Match7.feature::[26] Handling correlated optional matches; first does not match implies second does not match
 clauses/match/Match7.feature::[27] Handling optional matches between optionally matched entities
 clauses/match/Match7.feature::[28] Handling optional matches with inline label predicate
@@ -478,14 +491,18 @@ clauses/merge/Merge1.feature::[6] Merge node with prop and label
 clauses/merge/Merge1.feature::[7] Merge should work when finding multiple elements
 clauses/merge/Merge1.feature::[8] Merge should handle argument properly
 clauses/merge/Merge1.feature::[9] Merge should support updates while merging
+clauses/merge/Merge2.feature::[1] Merge node with label add label on create
 clauses/merge/Merge2.feature::[2] ON CREATE on created nodes
 clauses/merge/Merge2.feature::[3] Merge node with label add property on create
 clauses/merge/Merge2.feature::[4] Merge node with label add property on update when it exists
 clauses/merge/Merge2.feature::[5] Merge should be able to use properties of bound node in ON CREATE
 clauses/merge/Merge2.feature::[6] Fail when using undefined variable in ON CREATE
+clauses/merge/Merge3.feature::[1] Merge should be able to set labels on match
+clauses/merge/Merge3.feature::[2] Merge node with label add label on match when it exists
 clauses/merge/Merge3.feature::[3] Merge node and set property on match
 clauses/merge/Merge3.feature::[4] Merge should be able to use properties of bound node in ON MATCH
 clauses/merge/Merge3.feature::[5] Fail when using undefined variable in ON MATCH
+clauses/merge/Merge4.feature::[1] Merge should be able to set labels on match and on create
 clauses/merge/Merge4.feature::[2] Merge should be able to use properties of bound node in ON MATCH and ON CREATE
 clauses/merge/Merge5.feature::[12] Match outgoing relationship when direction unspecified
 clauses/merge/Merge5.feature::[13] Match both incoming and outgoing relationships when direction unspecified
@@ -530,6 +547,16 @@ clauses/remove/Remove1.feature::[4] Remove multiple relationship properties
 clauses/remove/Remove1.feature::[5] Ignore null when removing property from a node
 clauses/remove/Remove1.feature::[6] Ignore null when removing property from a relationship
 clauses/remove/Remove1.feature::[7] Remove a missing node property
+clauses/remove/Remove2.feature::[1] Remove a single label from a node with a single label
+clauses/remove/Remove2.feature::[2] Remove a single label from a node with two labels
+clauses/remove/Remove2.feature::[3] Remove two labels from a node with three labels
+clauses/remove/Remove2.feature::[4] Remove a non-existent node label
+clauses/remove/Remove2.feature::[5] Ignore null when removing a node label
+clauses/remove/Remove3.feature::[10] Skipping and limiting to a few results after removing a label from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[11] Skipping zero result and limiting to all results after removing a label from nodes does not affect the result set nor the side effects
+clauses/remove/Remove3.feature::[12] Filtering after removing a label from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[13] Aggregating in `RETURN` after removing a label from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[14] Aggregating in `WITH` after removing a label from nodes affects the result set but not the side effects
 clauses/remove/Remove3.feature::[15] Limiting to zero results after removing a property from relationships affects the result set but not the side effects
 clauses/remove/Remove3.feature::[16] Skipping all results after removing a property from relationships affects the result set but not the side effects
 clauses/remove/Remove3.feature::[17] Skipping and limiting to a few results after removing a property from relationships affects the result set but not the side effects
@@ -544,6 +571,8 @@ clauses/remove/Remove3.feature::[4] Skipping zero results and limiting to all re
 clauses/remove/Remove3.feature::[5] Filtering after removing a property from nodes affects the result set but not the side effects
 clauses/remove/Remove3.feature::[6] Aggregating in `RETURN` after removing a property from nodes affects the result set but not the side effects
 clauses/remove/Remove3.feature::[7] Aggregating in `WITH` after removing a property from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[8] Limiting to zero results after removing a label from nodes affects the result set but not the side effects
+clauses/remove/Remove3.feature::[9] Skipping all results after removing a label from nodes affects the result set but not the side effects
 clauses/return-orderby/ReturnOrderBy1.feature::[1] ORDER BY should order booleans in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[2] ORDER BY DESC should order booleans in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[3] ORDER BY should order strings in the expected order
@@ -605,6 +634,7 @@ clauses/return/Return2.feature::[4] Returning a relationship property value
 clauses/return/Return2.feature::[5] Missing relationship property should become null
 clauses/return/Return2.feature::[6] Adding a property and a literal in projection
 clauses/return/Return2.feature::[7] Adding list properties in projection
+clauses/return/Return2.feature::[8] Returning label predicate expression
 clauses/return/Return2.feature::[9] Returning a projected map
 clauses/return/Return3.feature::[2] Returning multiple node property values
 clauses/return/Return3.feature::[3] Projecting nodes and relationships
@@ -644,6 +674,14 @@ clauses/set/Set1.feature::[9] Failing when using undefined variable in SET
 clauses/set/Set2.feature::[1] Setting a node property to null removes the existing property
 clauses/set/Set2.feature::[2] Setting a node property to null removes the existing property, but not before SET
 clauses/set/Set2.feature::[3] Setting a relationship property to null removes the existing property
+clauses/set/Set3.feature::[1] Add a single label to a node with no label
+clauses/set/Set3.feature::[2] Adding multiple labels to a node with no label
+clauses/set/Set3.feature::[3] Add a single label to a node with an existing label
+clauses/set/Set3.feature::[4] Adding multiple labels to a node with an existing label
+clauses/set/Set3.feature::[5] Ignore whitespace before colon 1
+clauses/set/Set3.feature::[6] Ignore whitespace before colon 2
+clauses/set/Set3.feature::[7] Ignore whitespace before colon 3
+clauses/set/Set3.feature::[8] Ignore null when setting label
 clauses/set/Set4.feature::[1] Set multiple properties with a property map
 clauses/set/Set4.feature::[2] Non-existent values in a property map are removed with SET
 clauses/set/Set4.feature::[4] All properties are removed if node is set to empty property map
@@ -653,6 +691,11 @@ clauses/set/Set5.feature::[2] Overwrite values when using +=
 clauses/set/Set5.feature::[3] Retain old values when using +=
 clauses/set/Set5.feature::[4] Explicit null values in a map remove old values
 clauses/set/Set5.feature::[5] Set an empty map when using += has no effect
+clauses/set/Set6.feature::[10] Skipping and limiting to a few results after adding a label on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[11] Skipping zero result and limiting to all results after adding a label on nodes does not affect the result set nor the side effects
+clauses/set/Set6.feature::[12] Filtering after adding a label on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[13] Aggregating in `RETURN` after adding a label on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[14] Aggregating in `WITH` after adding a label on nodes affects the result set but not the side effects
 clauses/set/Set6.feature::[15] Limiting to zero results after setting a property on relationships affects the result set but not the side effects
 clauses/set/Set6.feature::[16] Skipping all results after setting a property on relationships affects the result set but not the side effects
 clauses/set/Set6.feature::[17] Skipping and limiting to a few results after setting a property on relationships affects the result set but not the side effects
@@ -667,6 +710,8 @@ clauses/set/Set6.feature::[4] Skipping zero results and limiting to all results 
 clauses/set/Set6.feature::[5] Filtering after setting a property on nodes affects the result set but not the side effects
 clauses/set/Set6.feature::[6] Aggregating in `RETURN` after setting a property on nodes affects the result set but not the side effects
 clauses/set/Set6.feature::[7] Aggregating in `WITH` after setting a property on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[8] Limiting to zero results after adding a label on nodes affects the result set but not the side effects
+clauses/set/Set6.feature::[9] Skipping all results after adding a label on nodes affects the result set but not the side effects
 clauses/union/Union1.feature::[1] Two elements, both unique, distinct
 clauses/union/Union1.feature::[2] Three elements, two unique, distinct
 clauses/union/Union1.feature::[3] Two single-column inputs, one with duplicates, distinct
@@ -908,6 +953,7 @@ clauses/with-where/WithWhere2.feature::[1] Filter nodes with conjunctive two-par
 clauses/with-where/WithWhere3.feature::[2] Join between node properties of disconnected nodes
 clauses/with-where/WithWhere3.feature::[3] Join between node properties of adjacent nodes
 clauses/with-where/WithWhere5.feature::[1] Filter out on null
+clauses/with-where/WithWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false
 clauses/with-where/WithWhere5.feature::[3] Filter out on null if the AND'd predicate evaluates to true
 clauses/with-where/WithWhere5.feature::[4] Do not filter out on null if the OR'd predicate evaluates to true
 clauses/with-where/WithWhere6.feature::[1] Filter a single aggregate
@@ -961,6 +1007,13 @@ expressions/boolean/Boolean2.feature::[4] Disjunction is commutative on non-null
 expressions/boolean/Boolean2.feature::[5] Disjunction is commutative on null
 expressions/boolean/Boolean2.feature::[6] Disjunction is associative on non-null
 expressions/boolean/Boolean2.feature::[7] Disjunction is associative on null
+expressions/boolean/Boolean3.feature::[1] Exclusive disjunction of two truth values
+expressions/boolean/Boolean3.feature::[2] Exclusive disjunction of three truth values
+expressions/boolean/Boolean3.feature::[3] Exclusive disjunction of many truth values
+expressions/boolean/Boolean3.feature::[4] Exclusive disjunction is commutative on non-null
+expressions/boolean/Boolean3.feature::[5] Exclusive disjunction is commutative on null
+expressions/boolean/Boolean3.feature::[6] Exclusive disjunction is associative on non-null
+expressions/boolean/Boolean3.feature::[7] Exclusive disjunction is associative on null
 expressions/boolean/Boolean4.feature::[1] Logical negation of truth values
 expressions/boolean/Boolean4.feature::[2] Double logical negation of truth values
 expressions/boolean/Boolean4.feature::[3] NOT and false
@@ -968,6 +1021,8 @@ expressions/boolean/Boolean5.feature::[1] Disjunction is distributive over conju
 expressions/boolean/Boolean5.feature::[2] Disjunction is distributive over conjunction on null
 expressions/boolean/Boolean5.feature::[3] Conjunction is distributive over disjunction on non-null
 expressions/boolean/Boolean5.feature::[4] Conjunction is distributive over disjunction on null
+expressions/boolean/Boolean5.feature::[5] Conjunction is distributive over exclusive disjunction on non-null
+expressions/boolean/Boolean5.feature::[6] Conjunction is not distributive over exclusive disjunction on null
 expressions/boolean/Boolean5.feature::[7] De Morgan's law on non-null: the negation of a disjunction is the conjunction of the negations
 expressions/boolean/Boolean5.feature::[8] De Morgan's law on non-null: the negation of a conjunction is the disjunction of the negations
 expressions/comparison/Comparison1.feature::[10] Handling inlined equality of large integer
@@ -1032,8 +1087,12 @@ expressions/conditional/Conditional2.feature::[1] Simple cases over integers::ex
 expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 8
 expressions/conditional/Conditional2.feature::[1] Simple cases over integers::example 9
 expressions/graph/Graph3.feature::[1] Creating node without label
+expressions/graph/Graph3.feature::[2] Creating node with two labels
+expressions/graph/Graph3.feature::[3] Ignore space when creating node with labels
 expressions/graph/Graph3.feature::[4] Create node with label in pattern
 expressions/graph/Graph3.feature::[5] Using `labels()` in return clauses
+expressions/graph/Graph3.feature::[8] `labels()` failing on a path
+expressions/graph/Graph3.feature::[9] `labels()` failing on invalid arguments
 expressions/graph/Graph4.feature::[1] `type()`
 expressions/graph/Graph4.feature::[2] `type()` on two relationships
 expressions/graph/Graph4.feature::[4] `type()` on mixed null and non-null relationships
@@ -1043,6 +1102,15 @@ expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::exa
 expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 4
 expressions/graph/Graph4.feature::[6] `type()` failing on invalid arguments::example 5
 expressions/graph/Graph4.feature::[7] Failing when using `type()` on a node
+expressions/graph/Graph5.feature::[1] Single-labels expression on nodes
+expressions/graph/Graph5.feature::[2] Single-labels expression on relationships
+expressions/graph/Graph5.feature::[3] Conjunctive labels expression on nodes
+expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 1
+expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 2
+expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 3
+expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 4
+expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 5
+expressions/graph/Graph5.feature::[5] Label expression on null
 expressions/graph/Graph6.feature::[1] Statically access a property of a non-null node
 expressions/graph/Graph6.feature::[2] Statically access a property of a optional non-null node
 expressions/graph/Graph6.feature::[3] Statically access a property of a null node
@@ -1407,13 +1475,18 @@ expressions/precedence/Precedence1.feature::[10] Null predicate takes precedence
 expressions/precedence/Precedence1.feature::[11] List predicate takes precedence over comparison operator
 expressions/precedence/Precedence1.feature::[12] List predicate takes precedence over negation
 expressions/precedence/Precedence1.feature::[13] List predicate takes precedence over boolean operator
+expressions/precedence/Precedence1.feature::[14] Exclusive disjunction takes precedence over inclusive disjunction in every combination of truth values
+expressions/precedence/Precedence1.feature::[15] Conjunction takes precedence over exclusive disjunction in every combination of truth values
 expressions/precedence/Precedence1.feature::[16] Conjunction takes precedence over inclusive disjunction in every combination of truth values
 expressions/precedence/Precedence1.feature::[17] Negation takes precedence over conjunction in every combination of truth values
 expressions/precedence/Precedence1.feature::[18] Negation takes precedence over inclusive disjunction in every combination of truth values
+expressions/precedence/Precedence1.feature::[1] Exclusive disjunction takes precedence over inclusive disjunction
 expressions/precedence/Precedence1.feature::[20] Pairs of comparison operators and boolean negation that are associative in every combination of truth values::example 1
 expressions/precedence/Precedence1.feature::[20] Pairs of comparison operators and boolean negation that are associative in every combination of truth values::example 2
+expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 1
 expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 2
 expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 3
+expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 4
 expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 1
 expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 10
 expressions/precedence/Precedence1.feature::[23] Null predicates take precedence over comparison operators in every combination of truth values::example 11
@@ -1430,6 +1503,8 @@ expressions/precedence/Precedence1.feature::[24] Null predicates take precedence
 expressions/precedence/Precedence1.feature::[24] Null predicates take precedence over boolean negation on every truth values::example 2
 expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 1
 expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 2
+expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 3
+expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 4
 expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 5
 expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 6
 expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 1
@@ -1440,7 +1515,9 @@ expressions/precedence/Precedence1.feature::[26] List predicate takes precedence
 expressions/precedence/Precedence1.feature::[26] List predicate takes precedence over comparison operators in every combination of truth values::example 6
 expressions/precedence/Precedence1.feature::[27] List predicate takes precedence over negation in every combination of truth values
 expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 1
+expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 2
 expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 3
+expressions/precedence/Precedence1.feature::[2] Conjunction disjunction takes precedence over exclusive disjunction
 expressions/precedence/Precedence1.feature::[3] Conjunction disjunction takes precedence over inclusive disjunction
 expressions/precedence/Precedence1.feature::[4] Negation takes precedence over conjunction
 expressions/precedence/Precedence1.feature::[5] Negation takes precedence over inclusive disjunction
@@ -1484,6 +1561,8 @@ expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence 
 expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 3
 expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 4
 expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 5
+expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 6
+expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 7
 expressions/precedence/Precedence4.feature::[4] String predicate takes precedence over binary boolean operator
 expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 1
 expressions/quantifier/Quantifier1.feature::[10] None quantifier on lists containing nulls::example 2

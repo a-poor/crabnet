@@ -90,15 +90,19 @@ Within those shapes, the first iteration supports:
   `DISTINCT`/`UNION` equality before hydration
 - fixed-length `OPTIONAL MATCH`, including whole-pattern null extension and
   optional-local `WHERE` predicates
-- at most one node label; zero or one relationship type in `MATCH`, and exactly
-  one type for each created relationship
+- any number of node labels: `:A:B` and `:A&B` conjunctions in patterns and
+  writes, `|`, `!`, and parentheses in `MATCH` patterns, and `n:Label`
+  predicates in `WHERE`; zero or one relationship type in `MATCH` (with
+  `r:T|U` as a predicate), and exactly one type for each created relationship
+- `SET n:Label` and `REMOVE n:Label`
 - literal maps and named `$parameters` for properties
 - exact, case-sensitive escaped identifiers and named parameters, including
   whitespace, punctuation, Unicode, embedded backticks, and contextual words
 - recursive JSON list/map inputs through 100 nested containers, with deeper
   values rejected during preflight before they can become unreadable stored
   properties
-- inline property matching and `WHERE` typed comparisons, boolean expressions,
+- inline property matching and `WHERE` typed comparisons, boolean expressions
+  (`AND`, `OR`, `XOR`, `NOT`),
   `IN`, `STARTS WITH`, `CONTAINS`, `ENDS WITH`, and the list quantifiers
   `all`, `any`, `none`, and `single`
 - `.key` access on map values: projected maps, parameters, nested properties,
@@ -273,8 +277,8 @@ integer range, map shape, and recursive depth. Match materialization, every
 mutation, and post-write result evaluation then share one immediate transaction;
 any runtime failure rolls the whole statement back.
 
-Notable omissions include multiple or boolean labels/types, label mutations,
-postfix graph quantifiers, modern path selectors, expression-position
+Notable omissions include multiple or boolean relationship types in patterns,
+the label wildcard `%`, postfix graph quantifiers, modern path selectors, expression-position
 shortest-path calls, and path property access. Legacy shortest-path factors are also rejected in
 `OPTIONAL MATCH`, with a same-clause `WHERE` or another comma-separated pattern
 part, with a lower bound above one, or in a write query. Named paths or
@@ -362,7 +366,8 @@ The experiment stays close to the original two-table sketch:
 ```sql
 CREATE TABLE nodes (
   id TEXT PRIMARY KEY NOT NULL,
-  label TEXT,
+  labels TEXT NOT NULL DEFAULT '[]'
+    CHECK (json_valid(labels) AND json_type(labels) = 'array'),
   props TEXT NOT NULL DEFAULT '{}'
     CHECK (json_valid(props) AND json_type(props) = 'object')
 ) STRICT;
@@ -379,8 +384,10 @@ CREATE TABLE edges (
 
 For now, each `edges` row represents one relationship rather than a computed
 multi-edge Cypher path. `edge_type` is relationship data, while both endpoints
-are foreign keys. Foreign-key enforcement is enabled per connection, and
-indexes cover label and endpoint/type lookups.
+are foreign keys. Foreign-key enforcement is enabled per connection. A
+trigger-maintained `node_labels (label, node_id)` table indexes label lookups,
+and indexes cover endpoint/type lookups. Files written by schema version 1
+(one nullable `label` column) are migrated in place when opened.
 
 Run the full acceptance suite with:
 

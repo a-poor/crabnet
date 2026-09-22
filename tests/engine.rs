@@ -336,7 +336,7 @@ fn parse_semantic_and_unsupported_errors_are_distinct() {
     assert!(matches!(database.execute("  ;"), Err(Error::EmptyQuery)));
     assert!(matches!(database.execute(";;"), Err(Error::Parse(_))));
     assert!(matches!(
-        database.execute("CREATE (:Person:Author)"),
+        database.execute("CREATE (:Person|Author)"),
         Err(Error::Unsupported(_))
     ));
     assert!(matches!(

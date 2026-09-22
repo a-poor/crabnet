@@ -249,8 +249,9 @@ remove the row. Comparisons involving null, including `null = null`, evaluate
 to null. `IS NULL` and `IS NOT NULL` are the supported way to test for null.
 Boolean contexts accept only JSON booleans: null, missing, numeric, string,
 list, and map values become null rather than inheriting SQLite truthiness.
-Supported `AND`, `OR`, and `NOT` expressions then propagate those values with
-three-valued boolean logic.
+Supported `AND`, `OR`, `XOR`, and `NOT` expressions then propagate those
+values with three-valued boolean logic; `XOR` is null when either side is
+null and otherwise true when the sides differ.
 
 Comparisons chain: `1 < n.num < 3` means `1 < n.num AND n.num < 3`, and any
 run of `=`, `<>`, `<`, `<=`, `>`, `>=` compares each adjacent pair. Parentheses
@@ -476,14 +477,28 @@ is the supported spelling until an upstream parser fix is released.
 
 ## Labels and relationship types
 
-A node has zero or one label. An unlabeled node stores a null label;
-`labels(node)` returns an empty list for it and a singleton list for a labeled
-node. Multiple labels and boolean label expressions are unsupported.
+A node has any number of labels, stored as a JSON list in creation order
+without repeats; `labels(node)` returns that list, empty for an unlabeled
+node. `CREATE`, `MERGE`, `SET`, and `REMOVE` take a plain conjunction of
+labels (`:A:B` or `:A&B`) and ignore repeats, so `CREATE (:B:A:B)` stores
+`["B", "A"]`. `SET n:A:B` adds the labels the node lacks and `REMOVE n:A`
+removes the ones it has; `QuerySummary::labels_added` and `labels_removed`
+count the node/label pairs that actually changed, and creating a labeled node
+counts its labels as added. A null target is skipped.
+
+A `MATCH` node pattern accepts any label expression: a conjunction is a set of
+label tests, and `|`, `!`, and parentheses become a filter over the same
+tests, so `(n:A|B)` and `(n:(A|Z)&B)` work. `n:Label`, `n:A:B`, and `n:A|B`
+are also boolean predicates in `WHERE` and projections, null for a null
+node. Matching by label is served by the `node_labels` index table. The
+label wildcard `%` is unsupported.
 
 A stored relationship has exactly one nonempty type. A `MATCH` relationship
-pattern may omit its type or specify one type. A created relationship must
-specify exactly one type. Multiple and boolean relationship-type expressions
-are unsupported. `type(relationship)` returns the relationship's single type.
+pattern may omit its type or specify one type; `r:T` and `r:T|U` work as
+predicates on a bound relationship. A created relationship must specify
+exactly one type. Multiple and boolean relationship-type expressions inside
+patterns are unsupported. `type(relationship)` returns the relationship's
+single type.
 
 ## Paths, direction, and variable-length traversal
 
@@ -712,9 +727,10 @@ A `CREATE` may precede `SET`, `REMOVE`, and `DELETE` in the same statement.
 A computed value is evaluated once per input row, over the rows as they stand
 when that `SET` item or `CREATE` pattern starts, so later items see earlier
 writes. It must not contain aggregates, nodes, relationships, or paths; a
-whole-map form must evaluate to a map. Those are semantic errors. Label
-mutation remains a planning-time rejection, as are writes fed by
-variable-length traversal or by any named path.
+whole-map form must evaluate to a map. Those are semantic errors. Writes fed
+by variable-length traversal or by any named path remain planning-time
+rejections. `SET n:Label` and `REMOVE n:Label` are described under labels
+below.
 
 Reading and updating clauses may alternate freely within one statement:
 `UNWIND`, `WITH`, `MATCH`, and `OPTIONAL MATCH` may precede, separate, or
@@ -810,6 +826,6 @@ Semantics for unsupported constructs—including modern path selectors,
 expression-position shortest-path calls, other path expressions beyond the
 three path functions above, optional-bound paths or relationship lists,
 postfix graph quantifiers,
-the deferred legacy shortest forms listed above, quantified optional matching,
-and label mutation—remain unresolved until those constructs are designed and
+the deferred legacy shortest forms listed above, and quantified optional
+matching—remain unresolved until those constructs are designed and
 implemented.

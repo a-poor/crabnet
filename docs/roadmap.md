@@ -197,8 +197,8 @@ Multi-stage queries are inspectable through `crabnet::explain` and
   path over a stable, materialized input bag.
 - `SET entity.key = value` and `REMOVE entity.key` update node or relationship
   properties. Whole-map `=` replacement and shallow `+=` merge accept literal
-  or parameter maps; label mutation and computed right-hand sides remain
-  rejected.
+  or parameter maps. Computed right-hand sides and label mutation arrived
+  later (see the TCK notes below).
 - `DELETE` removes matched relationships or unconnected nodes. Explicit
   relationships are scheduled before nodes and targets are deduplicated across
   duplicate match rows. `DETACH DELETE` additionally removes every incident
@@ -442,7 +442,12 @@ mutations; the executor re-materializes the rows between segments. That
 closed the "writes in a read pipeline" bucket and the remaining `MERGE`
 forms, and brought `WITH *`, `RETURN *`, chained comparisons
 (`1 < n.num < 3`), and null-skipping updates after `OPTIONAL MATCH` along
-with it, since the newly reachable scenarios needed them. `rand()` is
+with it, since the newly reachable scenarios needed them. Labels came next:
+schema version 2 stores a node's labels as a JSON list and keeps a
+trigger-maintained `node_labels (label, node_id)` table for indexed label
+lookups (version 1 files migrate on open), which gave multiple labels, label
+expressions in patterns and predicates, `SET`/`REMOVE` labels with summary
+counters, and `XOR` in one slice. `rand()` is
 compiled as a one-row `json_each(json_array(random()))`
 source joined after the row sources rather than as an expression, because
 SQLite evaluates an uncorrelated scalar subquery once per statement; that

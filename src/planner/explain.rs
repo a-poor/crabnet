@@ -442,17 +442,38 @@ fn render_stored_value(value: &StoredValue) -> String {
     }
 }
 
+fn render_labels(labels: &[String]) -> String {
+    format!(
+        "[{}]",
+        labels
+            .iter()
+            .map(|label| quote(label))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 fn render_mutation(mutation: &Mutation) -> String {
     match mutation {
         Mutation::CreateNode {
             slot,
-            label,
+            labels,
             properties,
         } => format!(
-            "create-node slot={} label={} properties={}",
+            "create-node slot={} labels={} properties={}",
             slot_name(*slot),
-            label.as_deref().map_or_else(|| "none".to_owned(), quote),
+            render_labels(labels),
             render_stored_value(properties)
+        ),
+        Mutation::SetLabels { slot, labels } => format!(
+            "set-labels slot={} labels={}",
+            slot_name(*slot),
+            render_labels(labels)
+        ),
+        Mutation::RemoveLabels { slot, labels } => format!(
+            "remove-labels slot={} labels={}",
+            slot_name(*slot),
+            render_labels(labels)
         ),
         Mutation::CreateRelationship {
             slot,
@@ -594,6 +615,7 @@ fn render_expr(expression: &Expr) -> String {
         }
         Expr::ElementId(slot) => format!("element-id({})", slot_name(*slot)),
         Expr::Labels(slot) => format!("labels({})", slot_name(*slot)),
+        Expr::HasLabel(slot, label) => format!("has-label({}, {})", slot_name(*slot), quote(label)),
         Expr::RelationshipType(slot) => format!("relationship-type({})", slot_name(*slot)),
         Expr::Binary {
             left,
@@ -874,6 +896,7 @@ fn direction_name(direction: Direction) -> &'static str {
 fn binary_op_name(operator: BinaryOp) -> &'static str {
     match operator {
         BinaryOp::Or => "or",
+        BinaryOp::Xor => "xor",
         BinaryOp::And => "and",
         BinaryOp::Equal => "equal",
         BinaryOp::NotEqual => "not-equal",
@@ -970,7 +993,7 @@ mod tests {
       has-label %0 "Person"
       property-equals %0 "id" parameter("person_id")
   mutations:
-    create-node slot=%1 label="Person" properties=map{"name": parameter("friend")}
+    create-node slot=%1 labels=["Person"] properties=map{"name": parameter("friend")}
     create-relationship slot=%2 type="KNOWS" from=%0 to=%1 properties=map{"metadata": map{"source": literal("seed")}, "since": literal(2024)}
   projection:
     distinct: false
@@ -1121,8 +1144,25 @@ mod tests {
             .map(|(_, tail)| tail)
             .expect("physical plan should null-extend with a left join");
         assert!(optional_tail.contains(" ON ("));
+        // Label tests are subqueries with their own WHERE; only a top-level
+        // WHERE would turn the optional predicate into an outer filter.
+        let mut depth = 0usize;
+        let top_level = optional_tail
+            .chars()
+            .filter(|character| match character {
+                '(' => {
+                    depth += 1;
+                    false
+                }
+                ')' => {
+                    depth -= 1;
+                    false
+                }
+                _ => depth == 0,
+            })
+            .collect::<String>();
         assert!(
-            !optional_tail.contains(" WHERE "),
+            !top_level.contains(" WHERE "),
             "the optional predicate must not become an outer WHERE filter: {physical}"
         );
     }

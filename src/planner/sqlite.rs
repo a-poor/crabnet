@@ -562,9 +562,9 @@ impl Compiler {
                     self.from.push(format!("edges AS {alias}"));
                 }
                 MatchOperator::HasLabel { slot, label } => {
-                    let label_sql = self.entity_field(*slot, "label")?;
                     let value = self.push_binding(SqlParameter::Text(label.clone()));
-                    self.filters.push(format!("{label_sql} = {value}"));
+                    let test = self.label_test(*slot, &value)?;
+                    self.filters.push(test);
                 }
                 MatchOperator::HasRelationshipType {
                     slot,
@@ -1000,7 +1000,9 @@ impl Compiler {
             match operator {
                 MatchOperator::HasLabel { slot, label } if *slot == endpoint => {
                     let expected = compiler.push_binding(SqlParameter::Text(label.clone()));
-                    filters.push(format!("{node}.label = {expected}"));
+                    filters.push(format!(
+                        "{node}.id IN (SELECT node_id FROM node_labels WHERE label = {expected})"
+                    ));
                 }
                 MatchOperator::PropertyEquals { slot, key, value } if *slot == endpoint => {
                     let (property, property_type) =
@@ -1517,7 +1519,6 @@ impl Compiler {
         let source = self.entity_source(slot)?;
         let column = match (source.kind(), field) {
             (_, "id") => "id",
-            (EntityKind::Node, "label") => "label",
             (EntityKind::Relationship, "type") => "edge_type",
             (EntityKind::Relationship, "from") => "from_node",
             (EntityKind::Relationship, "to") => "to_node",
@@ -1531,6 +1532,28 @@ impl Compiler {
         Ok(match source {
             EntitySource::Table { alias, .. } => format!("{alias}.{column}"),
             EntitySource::Encoded { sql, .. } => format!("json_extract({sql}, '$.{field}')"),
+        })
+    }
+
+    /// The node's label list as JSON array text.
+    fn entity_labels(&self, slot: SlotId) -> Result<String> {
+        Ok(match self.entity_source(slot)? {
+            EntitySource::Table { alias, .. } => format!("{alias}.labels"),
+            EntitySource::Encoded { sql, .. } => format!("json_extract({sql}, '$.labels')"),
+        })
+    }
+
+    /// Whether the node in `slot` carries the label bound at `value`. A
+    /// stored node is tested through the `node_labels` index table; an
+    /// encoded one through its label list.
+    fn label_test(&self, slot: SlotId, value: &str) -> Result<String> {
+        Ok(match self.entity_source(slot)? {
+            EntitySource::Table { alias, .. } => {
+                format!("{alias}.id IN (SELECT node_id FROM node_labels WHERE label = {value})")
+            }
+            EntitySource::Encoded { sql, .. } => {
+                format!("EXISTS (SELECT 1 FROM json_each({sql}, '$.labels') WHERE value = {value})")
+            }
         })
     }
 
@@ -1555,8 +1578,8 @@ impl Compiler {
         let props = self.entity_props(slot)?;
         let record = match kind {
             EntityKind::Node => {
-                let label = self.entity_field(slot, "label")?;
-                format!("json_object('id', {id}, 'label', {label}, 'props', json({props}))")
+                let labels = self.entity_labels(slot)?;
+                format!("json_object('id', {id}, 'labels', json({labels}), 'props', json({props}))")
             }
             EntityKind::Relationship => format!(
                 "json_object('id', {id}, 'type', {}, 'from', {}, 'to', {}, \
@@ -1835,14 +1858,19 @@ impl Compiler {
             }
             Expr::Labels(slot) => {
                 let id = self.entity_field(*slot, "id")?;
-                let label = self.entity_field(*slot, "label")?;
+                let labels = self.entity_labels(*slot)?;
                 Ok(Scalar::sql(
-                    format!(
-                        "CASE WHEN {id} IS NULL THEN NULL \
-                         WHEN {label} IS NULL THEN '[]' ELSE json_array({label}) END"
-                    ),
+                    format!("CASE WHEN {id} IS NULL THEN NULL ELSE json({labels}) END"),
                     "'array'",
                 ))
+            }
+            Expr::HasLabel(slot, label) => {
+                let id = self.entity_field(*slot, "id")?;
+                let value = self.push_binding(SqlParameter::Text(label.clone()));
+                let test = self.label_test(*slot, &value)?;
+                Ok(Scalar::boolean(format!(
+                    "(CASE WHEN {id} IS NULL THEN NULL ELSE ({test}) END)"
+                )))
             }
             Expr::Binary {
                 left,
@@ -1890,6 +1918,17 @@ impl Compiler {
                             _ => unreachable!(),
                         };
                         format!("({left} {operator} {right})")
+                    }
+                    BinaryOp::Xor => {
+                        // Null if either side is null, else whether they
+                        // differ. Each side is computed once in a scope.
+                        let left = self.boolean_expression(left)?;
+                        let right = self.boolean_expression(right)?;
+                        format!(
+                            "(SELECT CASE WHEN xr.l IS NULL OR xr.r IS NULL THEN NULL \
+                             ELSE xr.l <> xr.r END \
+                             FROM (SELECT ({left}) AS l, ({right}) AS r) AS xr)"
+                        )
                     }
                     BinaryOp::Add
                     | BinaryOp::Subtract
@@ -3581,7 +3620,11 @@ mod tests {
                     .sql
                     .starts_with("SELECT trail_node.id FROM nodes AS trail_node WHERE ")
             );
-            assert!(start.sql.contains("trail_node.label = ?1"));
+            assert!(
+                start.sql.contains(
+                    "trail_node.id IN (SELECT node_id FROM node_labels WHERE label = ?1)"
+                )
+            );
             assert!(start.sql.contains("json_type(trail_node.props"));
             assert!(start.sql.ends_with(" ORDER BY trail_node.id"));
             assert_eq!(

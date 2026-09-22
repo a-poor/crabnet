@@ -52,8 +52,6 @@ clauses/call/Call6.feature::[1] Calling the same STRING procedure twice using th
 clauses/call/Call6.feature::[2] Project procedure results between query scopes with WITH clause	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: STRING?):
 clauses/call/Call6.feature::[3] Project procedure results between query scopes with WITH clause and rename the projection	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: STRING?):
 clauses/create/Create1.feature::[11] Create a single node with null properties should not return those properties	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 2, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
-clauses/create/Create1.feature::[5] Create a single node with multiple labels	unsupported: multiple or boolean node labels
-clauses/create/Create1.feature::[6] Create three nodes with multiple labels	unsupported: multiple or boolean node labels
 clauses/create/Create2.feature::[17] Create a single relationship with null properties should not return those properties	side-effects-mismatch: observed SideEffects { nodes_added: 2, nodes_removed: 0, relationships_added: 1, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 2, properties_removed: 0 }, expected SideEffects { nodes_added: 2, nodes_removed: 0, relationships_added: 1, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
 clauses/create/Create2.feature::[19] Fail when creating a relationship without a direction	wrong-error-kind: unsupported: undirected relationships in CREATE
 clauses/create/Create2.feature::[20] Fail when creating a relationship with two directions	wrong-error-kind: unsupported: undirected relationships in CREATE
@@ -71,30 +69,21 @@ clauses/delete/Delete5.feature::[4] Delete relationships from a map	semantic-err
 clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
-clauses/match-where/MatchWhere1.feature::[1] Filter node with node label predicate on multi variables with multiple bindings	unsupported: IS predicate
-clauses/match-where/MatchWhere1.feature::[2] Filter node with node label predicate on multi variables without any bindings	unsupported: IS predicate
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/match-where/MatchWhere3.feature::[1] Join between node identities	semantic-error: graph variable `a` is not a scalar expression
 clauses/match-where/MatchWhere4.feature::[1] Join nodes on inequality	semantic-error: graph variable `a` is not a scalar expression
 clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: pattern predicate
-clauses/match-where/MatchWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false	unsupported: IS predicate
-clauses/match-where/MatchWhere6.feature::[1] Filter node with node label predicate on multi variables with multiple bindings after MATCH and OPTIONAL MATCH	unsupported: IS predicate
-clauses/match-where/MatchWhere6.feature::[2] Filter node with false node label predicate after OPTIONAL MATCH	unsupported: IS predicate
 clauses/match-where/MatchWhere6.feature::[5] Matching and optionally matching with unbound nodes and equality predicate in reverse direction	semantic-error: graph variable `a1` is not a scalar expression
-clauses/match/Match1.feature::[3] Matching nodes using multiple labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match1.feature::[6] Fail when using parameter as node predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/match/Match2.feature::[6] Match relationships with multiple types	unsupported: multiple or boolean relationship types
 clauses/match/Match2.feature::[8] Fail when using parameter as relationship predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/match/Match3.feature::[19] Two bound nodes pointing to the same node	unsupported: bidirectional relationship patterns
-clauses/match/Match3.feature::[26] Matching twice with a duplicate predicate	setup-failed: unsupported: multiple or boolean node labels
-clauses/match/Match3.feature::[7] Matching nodes with many labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match3.feature::[8] Matching using relationship predicate with multiples of the same type	unsupported: multiple or boolean relationship types
 clauses/match/Match4.feature::[4] Matching longer variable length paths	setup-failed: semantic-error: graph variable `a` is not a scalar expression
-clauses/match/Match4.feature::[5] Matching variable length pattern with property predicate	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match4.feature::[7] Matching variable length patterns including a bound relationship	unsupported: path values or path collections in aggregate functions
 clauses/match/Match4.feature::[8] Matching relationships into a list and matching variable length using the list	semantic-error: graph variable `r1` is not a scalar expression
 clauses/match/Match5.feature::[26] Handling mixed relationship patterns and directions 1	setup-failed: unsupported: mutation clause after DELETE
-clauses/match/Match5.feature::[27] Handling mixed relationship patterns and directions 2	setup-failed: unsupported: IS predicate
+clauses/match/Match5.feature::[27] Handling mixed relationship patterns and directions 2	setup-failed: unsupported: mutation clause after DELETE
 clauses/match/Match6.feature::[12] Matching path with multiple bidirectional relationships	unsupported: bidirectional relationship patterns
 clauses/match/Match6.feature::[13] Matching path with both directions should respect other directions	unsupported: bidirectional relationship patterns
 clauses/match/Match7.feature::[11] Return two subgraphs with bound undirected relationship and optional relationship	semantic-error: graph variable `r` is not a scalar expression
@@ -108,8 +97,6 @@ clauses/match/Match7.feature::[18] Named paths inside optional matches with node
 clauses/match/Match7.feature::[19] Optionally matching named paths with single and variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[20] Variable length optional relationships with bound nodes, no matches	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[22] MATCH after OPTIONAL MATCH	semantic-error: graph variable `b` is not a scalar expression
-clauses/match/Match7.feature::[23] OPTIONAL MATCH with labels on the optional end node	setup-failed: unsupported: multiple or boolean node labels
-clauses/match/Match7.feature::[25] Optionally matching self-loops without matches	unsupported: IS predicate
 clauses/match/Match7.feature::[29] Satisfies the open world assumption, relationships between same nodes	semantic-error: graph variable `s` is not a scalar expression
 clauses/match/Match7.feature::[30] Satisfies the open world assumption, single relationship	semantic-error: graph variable `s` is not a scalar expression
 clauses/match/Match7.feature::[31] Satisfies the open world assumption, relationships between different nodes	semantic-error: graph variable `s` is not a scalar expression
@@ -119,16 +106,12 @@ clauses/match/Match9.feature::[6] Matching relationships into a list and matchin
 clauses/match/Match9.feature::[7] Matching relationships into a list and matching variable length using the list, with bound nodes, wrong direction	semantic-error: graph variable `r1` is not a scalar expression
 clauses/match/Match9.feature::[8] Variable length relationship in OPTIONAL MATCH	unsupported: path collections in scalar expressions
 clauses/match/Match9.feature::[9] Optionally matching named paths with variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
-clauses/merge/Merge1.feature::[10] Merge must properly handle multiple labels	setup-failed: unsupported: multiple or boolean node labels
+clauses/merge/Merge1.feature::[10] Merge must properly handle multiple labels	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 2, labels_removed: 0, properties_added: 1, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 1, labels_removed: 0, properties_added: 1, properties_removed: 0 }
 clauses/merge/Merge1.feature::[13] Merge should bind a path	unsupported: path bindings and selectors in MERGE
 clauses/merge/Merge1.feature::[14] Merges should not be able to match on deleted nodes	unsupported: mutation clause after DELETE
 clauses/merge/Merge1.feature::[16] Fail when using parameter as node predicate in MERGE	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/merge/Merge1.feature::[17] Fail on merging node with null property	expected-error-not-raised
 clauses/merge/Merge1.feature::[5] Merge node should create when it doesn't match, properties and label	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 1, labels_removed: 0, properties_added: 1, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
-clauses/merge/Merge2.feature::[1] Merge node with label add label on create	unsupported: setting labels
-clauses/merge/Merge3.feature::[1] Merge should be able to set labels on match	unsupported: setting labels
-clauses/merge/Merge3.feature::[2] Merge node with label add label on match when it exists	unsupported: setting labels
-clauses/merge/Merge4.feature::[1] Merge should be able to set labels on match and on create	unsupported: setting labels
 clauses/merge/Merge5.feature::[10] Merge should bind a path	unsupported: path bindings and selectors in MERGE
 clauses/merge/Merge5.feature::[11] Use outgoing direction when unspecified	unsupported: function `startnode`
 clauses/merge/Merge5.feature::[20] Do not match on deleted entities	unsupported: mutation clause after DELETE
@@ -138,18 +121,6 @@ clauses/merge/Merge5.feature::[27] Fail when using parameter as relationship pre
 clauses/merge/Merge5.feature::[28] Fail when using variable length relationship in MERGE	wrong-error-kind: unsupported: variable-length relationships in MERGE
 clauses/merge/Merge5.feature::[29] Fail on merging relationship with null property	expected-error-not-raised
 clauses/merge/Merge9.feature::[4] MERGE after WITH with predicate and WITH with aggregation	unsupported: WITH DISTINCT
-clauses/remove/Remove2.feature::[1] Remove a single label from a node with a single label	unsupported: removing labels
-clauses/remove/Remove2.feature::[2] Remove a single label from a node with two labels	setup-failed: unsupported: multiple or boolean node labels
-clauses/remove/Remove2.feature::[3] Remove two labels from a node with three labels	setup-failed: unsupported: multiple or boolean node labels
-clauses/remove/Remove2.feature::[4] Remove a non-existent node label	unsupported: removing labels
-clauses/remove/Remove2.feature::[5] Ignore null when removing a node label	unsupported: removing labels
-clauses/remove/Remove3.feature::[10] Skipping and limiting to a few results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[11] Skipping zero result and limiting to all results after removing a label from nodes does not affect the result set nor the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[12] Filtering after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[13] Aggregating in `RETURN` after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[14] Aggregating in `WITH` after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[8] Limiting to zero results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[9] Skipping all results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/return-orderby/ReturnOrderBy1.feature::[10] ORDER BY DESC should order lists in the expected order	result-mismatch: row values differ
 clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
 clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
@@ -173,7 +144,6 @@ clauses/return/Return2.feature::[16] Fail when returning labels of deleted nodes
 clauses/return/Return2.feature::[17] Fail when returning properties of deleted relationships	expected-error-not-raised
 clauses/return/Return2.feature::[18] Fail on projecting a non-existent function	wrong-error-kind: unsupported: function `foo`
 clauses/return/Return2.feature::[1] Arithmetic expressions should propagate null values	unsupported: `^`
-clauses/return/Return2.feature::[8] Returning label predicate expression	unsupported: IS predicate
 clauses/return/Return3.feature::[1] Returning multiple expressions	semantic-error: graph variable `a` is not a scalar expression
 clauses/return/Return4.feature::[11] Reusing variable names in RETURN	unsupported: aggregate calls nested in WITH expressions
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
@@ -193,22 +163,7 @@ clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: agg
 clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
-clauses/set/Set3.feature::[1] Add a single label to a node with no label	unsupported: setting labels
-clauses/set/Set3.feature::[2] Adding multiple labels to a node with no label	unsupported: setting labels
-clauses/set/Set3.feature::[3] Add a single label to a node with an existing label	unsupported: setting labels
-clauses/set/Set3.feature::[4] Adding multiple labels to a node with an existing label	unsupported: setting labels
-clauses/set/Set3.feature::[5] Ignore whitespace before colon 1	unsupported: setting labels
-clauses/set/Set3.feature::[6] Ignore whitespace before colon 2	unsupported: setting labels
-clauses/set/Set3.feature::[7] Ignore whitespace before colon 3	unsupported: setting labels
-clauses/set/Set3.feature::[8] Ignore null when setting label	unsupported: setting labels
 clauses/set/Set4.feature::[3] Null values in a property map are removed with SET	result-mismatch: row values differ
-clauses/set/Set6.feature::[10] Skipping and limiting to a few results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[11] Skipping zero result and limiting to all results after adding a label on nodes does not affect the result set nor the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[12] Filtering after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[13] Aggregating in `RETURN` after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[14] Aggregating in `WITH` after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[8] Limiting to zero results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[9] Skipping all results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/union/Union3.feature::[1] Failing when mixing UNION and UNION ALL	expected-error-not-raised
 clauses/union/Union3.feature::[2] Failing when mixing UNION ALL and UNION	expected-error-not-raised
 clauses/unwind/Unwind1.feature::[12] Unwind does not remove variables from scope	unsupported: whole entities in aggregates other than count()
@@ -307,7 +262,6 @@ clauses/with-where/WithWhere2.feature::[2] Filter node with conjunctive multi-pa
 clauses/with-where/WithWhere3.feature::[1] Join between node identities	semantic-error: graph or path variable `a` is not a scalar expression
 clauses/with-where/WithWhere4.feature::[1] Join nodes on inequality	semantic-error: graph or path variable `a` is not a scalar expression
 clauses/with-where/WithWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: pattern predicate
-clauses/with-where/WithWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false	unsupported: IS predicate
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
 clauses/with/With4.feature::[6] Reusing variable names in WITH	unsupported: aggregate calls nested in WITH expressions
 clauses/with/With5.feature::[1] DISTINCT on an expression	unsupported: WITH DISTINCT
@@ -385,36 +339,29 @@ expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one no
 expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 7	expected-error-not-raised
 expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 8	expected-error-not-raised
 expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 9	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[1] Exclusive disjunction of two truth values	unsupported: XOR
-expressions/boolean/Boolean3.feature::[2] Exclusive disjunction of three truth values	unsupported: XOR
-expressions/boolean/Boolean3.feature::[3] Exclusive disjunction of many truth values	unsupported: XOR
-expressions/boolean/Boolean3.feature::[4] Exclusive disjunction is commutative on non-null	unsupported: XOR
-expressions/boolean/Boolean3.feature::[5] Exclusive disjunction is commutative on null	unsupported: XOR
-expressions/boolean/Boolean3.feature::[6] Exclusive disjunction is associative on non-null	unsupported: XOR
-expressions/boolean/Boolean3.feature::[7] Exclusive disjunction is associative on null	unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 1	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 10	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 11	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 12	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 13	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 14	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 15	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 16	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 17	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 18	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 19	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 2	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 20	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 21	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 22	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 23	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 3	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 4	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 5	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 6	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 7	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 8	wrong-error-kind: unsupported: XOR
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 9	wrong-error-kind: unsupported: XOR
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 1	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 10	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 11	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 12	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 13	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 14	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 15	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 16	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 17	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 18	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 19	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 2	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 20	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 21	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 22	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 23	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 3	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 4	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 5	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 6	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 7	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 8	expected-error-not-raised
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 9	expected-error-not-raised
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 1	expected-error-not-raised
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 10	expected-error-not-raised
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 11	expected-error-not-raised
@@ -464,8 +411,6 @@ expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean l
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 7	expected-error-not-raised
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 8	expected-error-not-raised
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 9	expected-error-not-raised
-expressions/boolean/Boolean5.feature::[5] Conjunction is distributive over exclusive disjunction on non-null	unsupported: XOR
-expressions/boolean/Boolean5.feature::[6] Conjunction is not distributive over exclusive disjunction on null	unsupported: XOR
 expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path variable `p1` is not a scalar expression
 expressions/comparison/Comparison1.feature::[4] Comparing nodes to nodes	semantic-error: graph variable `a` is not a scalar expression
 expressions/comparison/Comparison1.feature::[5] Comparing relationships to relationships	semantic-error: graph variable `a` is not a scalar expression
@@ -500,23 +445,10 @@ expressions/existentialSubqueries/ExistentialSubquery2.feature::[3] Full existen
 expressions/existentialSubqueries/ExistentialSubquery3.feature::[1] Nested simple existential subquery	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery3.feature::[2] Nested full existential subquery	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery3.feature::[3] Nested full existential subquery with pattern predicate	unsupported: subquery expression
-expressions/graph/Graph3.feature::[2] Creating node with two labels	unsupported: multiple or boolean node labels
-expressions/graph/Graph3.feature::[3] Ignore space when creating node with labels	unsupported: multiple or boolean node labels
-expressions/graph/Graph3.feature::[6] `labels()` should accept type Any	setup-failed: unsupported: multiple or boolean node labels
+expressions/graph/Graph3.feature::[6] `labels()` should accept type Any	semantic-error: graph variable `a` is not a scalar expression
 expressions/graph/Graph3.feature::[7] `labels()` on null node	semantic-error: graph function argument must be a variable
-expressions/graph/Graph3.feature::[8] `labels()` failing on a path	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph3.feature::[9] `labels()` failing on invalid arguments	setup-failed: unsupported: multiple or boolean node labels
 expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-error: graph function argument must be a variable
 expressions/graph/Graph4.feature::[5] `type()` handling Any type	semantic-error: graph variable `r` is not a scalar expression
-expressions/graph/Graph5.feature::[1] Single-labels expression on nodes	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[2] Single-labels expression on relationships	unsupported: IS predicate
-expressions/graph/Graph5.feature::[3] Conjunctive labels expression on nodes	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 1	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 2	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 3	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 4	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[4] Conjunctive labels expression on nodes with varying order and repeating labels::example 5	setup-failed: unsupported: multiple or boolean node labels
-expressions/graph/Graph5.feature::[5] Label expression on null	unsupported: IS predicate
 expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	semantic-error: graph variable `n` is not a scalar expression
 expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	semantic-error: graph variable `r` is not a scalar expression
 expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 1	expected-error-not-raised
@@ -656,18 +588,9 @@ expressions/pattern/Pattern2.feature::[6] Aggregate on a pattern comprehension	u
 expressions/pattern/Pattern2.feature::[7] Use a pattern comprehension inside a list comprehension	unsupported: path collections in scalar expressions
 expressions/pattern/Pattern2.feature::[8] Use a pattern comprehension in WITH	unsupported: pattern comprehension
 expressions/pattern/Pattern2.feature::[9] Use a variable-length pattern comprehension in WITH	unsupported: pattern comprehension
-expressions/precedence/Precedence1.feature::[14] Exclusive disjunction takes precedence over inclusive disjunction in every combination of truth values	unsupported: XOR
-expressions/precedence/Precedence1.feature::[15] Conjunction takes precedence over exclusive disjunction in every combination of truth values	unsupported: XOR
 expressions/precedence/Precedence1.feature::[19] Comparison operators takes precedence over boolean negation in every combination of truth values::example 1	semantic-error: unknown variable `comp`
 expressions/precedence/Precedence1.feature::[19] Comparison operators takes precedence over boolean negation in every combination of truth values::example 2	semantic-error: unknown variable `comp`
 expressions/precedence/Precedence1.feature::[19] Comparison operators takes precedence over boolean negation in every combination of truth values::example 3	semantic-error: unknown variable `comp`
-expressions/precedence/Precedence1.feature::[1] Exclusive disjunction takes precedence over inclusive disjunction	unsupported: XOR
-expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 1	unsupported: XOR
-expressions/precedence/Precedence1.feature::[22] Pairs of comparison operators and binary boolean operators that are associative in every combination of truth values::example 4	unsupported: XOR
-expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 3	unsupported: XOR
-expressions/precedence/Precedence1.feature::[25] Null predicates take precedence over binary boolean operators in every combination of truth values::example 4	unsupported: XOR
-expressions/precedence/Precedence1.feature::[28] List predicate takes precedence over binary boolean operators in every combination of truth values::example 2	unsupported: XOR
-expressions/precedence/Precedence1.feature::[2] Conjunction disjunction takes precedence over exclusive disjunction	unsupported: XOR
 expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence over numeric multiplicative operations::example 1	unsupported: `^`
 expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence over numeric multiplicative operations::example 2	unsupported: `^`
 expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence over numeric multiplicative operations::example 3	unsupported: `^`
@@ -678,8 +601,6 @@ expressions/precedence/Precedence3.feature::[6] List element containment takes p
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 4	result-mismatch: row values differ
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 5	result-mismatch: row values differ
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 6	result-mismatch: row values differ
-expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 6	unsupported: XOR
-expressions/precedence/Precedence4.feature::[3] Null predicate takes precedence over binary boolean operator::example 7	unsupported: XOR
 expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
 expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
 expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
