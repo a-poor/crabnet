@@ -43,13 +43,16 @@ pub(super) fn render(query: &Query) -> String {
     renderer.line(1, "input:");
     match &query.input {
         Input::Unit => renderer.line(2, "unit"),
-        Input::Rows { slots, .. } => {
-            let names = slots
-                .iter()
-                .map(|(slot, _)| slot_name(*slot))
-                .collect::<Vec<_>>()
-                .join(", ");
-            renderer.line(2, format!("materialized-rows {names}"));
+        Input::Rows {
+            slots,
+            scalars,
+            stages,
+        } => {
+            renderer.line(
+                2,
+                format!("materialized-rows {}", render_bindings(slots, scalars)),
+            );
+            render_stages(&mut renderer, stages);
         }
         Input::Match(plan) => {
             renderer.line(2, "match");
@@ -63,43 +66,7 @@ pub(super) fn render(query: &Query) -> String {
         }
         Input::Pipeline(pipeline) => {
             renderer.line(2, "pipeline");
-            for (index, stage) in pipeline.stages.iter().enumerate() {
-                match stage {
-                    ReadStage::Match(plan) => {
-                        renderer.line(3, format!("stage {index}: match"));
-                        if plan.operators.is_empty() {
-                            renderer.line(4, "none");
-                        } else {
-                            for operator in &plan.operators {
-                                renderer.line(4, render_match_operator(operator));
-                            }
-                        }
-                    }
-                    ReadStage::OptionalMatch(plan) => {
-                        renderer.line(3, format!("stage {index}: optional-match"));
-                        if plan.operators.is_empty() {
-                            renderer.line(4, "none");
-                        } else {
-                            for operator in &plan.operators {
-                                renderer.line(4, render_match_operator(operator));
-                            }
-                        }
-                    }
-                    ReadStage::With(stage) => {
-                        renderer.line(3, format!("stage {index}: with"));
-                        render_with_stage(&mut renderer, stage);
-                    }
-                    ReadStage::Unwind(stage) => renderer.line(
-                        3,
-                        format!(
-                            "stage {index}: unwind {} = scalar({}) <- {}",
-                            quote(&stage.name),
-                            scalar_slot_name(stage.slot),
-                            render_expr(&stage.expression)
-                        ),
-                    ),
-                }
-            }
+            render_stages(&mut renderer, &pipeline.stages);
         }
     }
 
@@ -112,6 +79,28 @@ pub(super) fn render(query: &Query) -> String {
         }
     }
 
+    if !query.segments.is_empty() {
+        renderer.line(1, "segments:");
+        for (index, segment) in query.segments.iter().enumerate() {
+            renderer.line(
+                2,
+                format!(
+                    "segment {index}: rows {}",
+                    render_bindings(&segment.slots, &segment.scalars)
+                ),
+            );
+            render_stages(&mut renderer, &segment.stages);
+            renderer.line(3, "mutations:");
+            if segment.mutations.is_empty() {
+                renderer.line(4, "none");
+            } else {
+                for mutation in &segment.mutations {
+                    renderer.line(4, render_mutation(mutation));
+                }
+            }
+        }
+    }
+
     renderer.line(1, "projection:");
     match &query.projection {
         None => renderer.line(2, "none"),
@@ -119,6 +108,55 @@ pub(super) fn render(query: &Query) -> String {
     }
 
     renderer.finish()
+}
+
+fn render_bindings(slots: &[(SlotId, EntityKind)], scalars: &[ScalarSlotId]) -> String {
+    slots
+        .iter()
+        .map(|(slot, _)| slot_name(*slot))
+        .chain(scalars.iter().map(|slot| scalar_slot_name(*slot)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn render_stages(renderer: &mut Renderer, stages: &[ReadStage]) {
+    for (index, stage) in stages.iter().enumerate() {
+        match stage {
+            ReadStage::Match(plan) => {
+                renderer.line(3, format!("stage {index}: match"));
+                if plan.operators.is_empty() {
+                    renderer.line(4, "none");
+                } else {
+                    for operator in &plan.operators {
+                        renderer.line(4, render_match_operator(operator));
+                    }
+                }
+            }
+            ReadStage::OptionalMatch(plan) => {
+                renderer.line(3, format!("stage {index}: optional-match"));
+                if plan.operators.is_empty() {
+                    renderer.line(4, "none");
+                } else {
+                    for operator in &plan.operators {
+                        renderer.line(4, render_match_operator(operator));
+                    }
+                }
+            }
+            ReadStage::With(stage) => {
+                renderer.line(3, format!("stage {index}: with"));
+                render_with_stage(renderer, stage);
+            }
+            ReadStage::Unwind(stage) => renderer.line(
+                3,
+                format!(
+                    "stage {index}: unwind {} = scalar({}) <- {}",
+                    quote(&stage.name),
+                    scalar_slot_name(stage.slot),
+                    render_expr(&stage.expression)
+                ),
+            ),
+        }
+    }
 }
 
 fn render_with_stage(renderer: &mut Renderer, stage: &WithStage) {

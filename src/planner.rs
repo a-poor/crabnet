@@ -9,7 +9,10 @@ use crate::{Error, Parameters, Result};
 pub(crate) use logical::{
     EntityKind, SlotId, require_object, validate_storable_properties, validate_storable_value,
 };
-use logical::{Expr, Input, MatchPlan, Mutation, Projection, Query, ROW_INDEX_SLOT, StoredValue};
+use logical::{
+    Expr, Input, MatchPlan, Mutation, Projection, Query, ROW_INDEX_SLOT, ScalarSlotId, Segment,
+    StoredValue,
+};
 pub(crate) use physical::{
     OutputShape, PhysicalOperator, PreparedFragmentArgument, PreparedPhysicalOperator,
     PreparedSqlFragment, PreparedValueOperator, ResolvedNodeDomain, ResolvedTrailExpansion,
@@ -118,7 +121,7 @@ pub(crate) fn explain_physical(source: &str) -> Result<String> {
 }
 
 fn compile_logical(query: Query) -> Result<Plan> {
-    if query.mutations.is_empty() {
+    if query.mutations.is_empty() && query.segments.is_empty() {
         return compile_read_query(query)
             .map(ReadPlan::single)
             .map(Plan::Read);
@@ -132,13 +135,37 @@ fn compile_logical(query: Query) -> Result<Plan> {
 
     let input = match &query.input {
         Input::Unit => None,
-        Input::Match(plan) => Some(sqlite::compile_row_source(plan)?),
-        Input::Pipeline(_) | Input::Rows { .. } => {
+        Input::Match(_) | Input::Pipeline(_) => Some(sqlite::compile_row_source(&query.input)?),
+        Input::Rows { .. } => {
             return Err(Error::Data(
-                "a mutation plan cannot contain a read-only WITH pipeline".into(),
+                "a mutation plan cannot start from materialized rows".into(),
             ));
         }
     };
+    let layout = RowLayout {
+        slots: query.slots.clone(),
+        scalar_slots: query.scalar_slots,
+    };
+    // Every later read segment continues from the rows the mutations before
+    // it leave behind, seeing the variables live at that point.
+    let segments = query
+        .segments
+        .into_iter()
+        .map(|segment| {
+            let Segment {
+                slots,
+                scalars,
+                stages,
+                mutations,
+            } = segment;
+            let source = sqlite::compile_row_source(&Input::Rows {
+                slots,
+                scalars,
+                stages,
+            })?;
+            Ok(CompiledSegment { source, mutations })
+        })
+        .collect::<Result<Vec<_>>>()?;
     // The post-mutation RETURN is an ordinary read over the rows the
     // mutations leave behind, so it supports everything a read projection
     // does: computed expressions, aggregates, DISTINCT, ordering, and paging.
@@ -146,26 +173,14 @@ fn compile_logical(query: Query) -> Result<Plan> {
         .projection
         .as_ref()
         .map(|projection| {
-            let slots = query
-                .slots
-                .iter()
-                .enumerate()
-                .map(|(index, kind)| (SlotId(index), *kind))
-                .collect();
-            sqlite::compile_read(
-                &Input::Rows {
-                    slots,
-                    pattern: None,
-                },
-                projection,
-            )
-            .map(ReadPlan::single)
+            sqlite::compile_read(&layout.rows_input(Vec::new()), projection).map(ReadPlan::single)
         })
         .transpose()?;
     Ok(Plan::Mutate(Box::new(MutationPlan {
         input,
-        slots: query.slots,
+        layout,
         mutations: query.mutations,
+        segments,
         result,
     })))
 }
@@ -236,9 +251,52 @@ fn compile_read_query(query: Query) -> Result<sqlite::CompiledRead> {
 
 pub(crate) struct MutationPlan {
     input: Option<sqlite::RowSource>,
-    slots: Vec<EntityKind>,
+    layout: RowLayout,
     mutations: Vec<Mutation>,
+    segments: Vec<CompiledSegment>,
     result: Option<ReadPlan>,
+}
+
+/// The shape of a mutation pipeline's rows: the kind of every entity slot
+/// and the number of scalar slots, whether or not a given row binds them.
+#[derive(Clone, Debug)]
+pub(crate) struct RowLayout {
+    pub(crate) slots: Vec<EntityKind>,
+    pub(crate) scalar_slots: usize,
+}
+
+impl RowLayout {
+    fn entity_slots(&self) -> Vec<(SlotId, EntityKind)> {
+        self.slots
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| (SlotId(index), *kind))
+            .collect()
+    }
+
+    fn scalar_slot_ids(&self) -> Vec<ScalarSlotId> {
+        (0..self.scalar_slots).map(ScalarSlotId).collect()
+    }
+
+    /// A read over the materialized rows with every slot exposed, continuing
+    /// through `stages`.
+    fn rows_input(&self, stages: Vec<logical::ReadStage>) -> Input {
+        Input::Rows {
+            slots: self.entity_slots(),
+            scalars: self.scalar_slot_ids(),
+            stages,
+        }
+    }
+}
+
+struct CompiledSegment {
+    source: sqlite::RowSource,
+    mutations: Vec<Mutation>,
+}
+
+pub(crate) struct ResolvedSegment {
+    pub(crate) source: ResolvedRowSource,
+    pub(crate) mutations: Vec<ResolvedMutation>,
 }
 
 /// A stored value ready to execute: resolved once, or a prepared read over
@@ -297,8 +355,9 @@ pub(crate) enum ResolvedMutation {
 
 pub(crate) struct ResolvedMutationPlan {
     pub(crate) input: Option<ResolvedRowSource>,
-    pub(crate) slots: Vec<EntityKind>,
+    pub(crate) layout: RowLayout,
     pub(crate) mutations: Vec<ResolvedMutation>,
+    pub(crate) segments: Vec<ResolvedSegment>,
     pub(crate) result: Option<PreparedReadPlan>,
 }
 
@@ -311,16 +370,23 @@ impl MutationPlan {
             .input
             .map(|input| input.resolve(parameters))
             .transpose()?;
-        let slots = self
-            .slots
-            .iter()
-            .enumerate()
-            .map(|(index, kind)| (SlotId(index), *kind))
-            .collect::<Vec<_>>();
-        let mutations = self
-            .mutations
+        let layout = self.layout;
+        let resolve_all = |mutations: Vec<Mutation>| {
+            mutations
+                .into_iter()
+                .map(|mutation| resolve_mutation(mutation, parameters, &layout))
+                .collect::<Result<Vec<_>>>()
+        };
+        let mutations = resolve_all(self.mutations)?;
+        let segments = self
+            .segments
             .into_iter()
-            .map(|mutation| resolve_mutation(mutation, parameters, &slots))
+            .map(|segment| {
+                Ok(ResolvedSegment {
+                    source: segment.source.resolve(parameters)?,
+                    mutations: resolve_all(segment.mutations)?,
+                })
+            })
             .collect::<Result<Vec<_>>>()?;
         let result = self
             .result
@@ -329,8 +395,9 @@ impl MutationPlan {
 
         Ok(ResolvedMutationPlan {
             input,
-            slots: self.slots,
+            layout,
             mutations,
+            segments,
             result,
         })
     }
@@ -338,10 +405,7 @@ impl MutationPlan {
 
 /// Compiles a computed stored value as a one-column read over the
 /// materialized rows; row order follows the rows table.
-fn compile_stored_expression(
-    slots: &[(SlotId, EntityKind)],
-    expression: logical::Expr,
-) -> Result<ReadPlan> {
+fn compile_stored_expression(layout: &RowLayout, expression: logical::Expr) -> Result<ReadPlan> {
     let projection = Projection {
         columns: vec!["value".to_owned()],
         expressions: vec![expression],
@@ -350,23 +414,16 @@ fn compile_stored_expression(
         offset: None,
         limit: None,
     };
-    sqlite::compile_read(
-        &Input::Rows {
-            slots: slots.to_vec(),
-            pattern: None,
-        },
-        &projection,
-    )
-    .map(ReadPlan::single)
+    sqlite::compile_read(&layout.rows_input(Vec::new()), &projection).map(ReadPlan::single)
 }
 
 fn resolve_mutation(
     mutation: Mutation,
     parameters: &Parameters,
-    slots: &[(SlotId, EntityKind)],
+    layout: &RowLayout,
 ) -> Result<ResolvedMutation> {
     let computed = |expression| -> Result<ResolvedStoredValue> {
-        compile_stored_expression(slots, expression)?
+        compile_stored_expression(layout, expression)?
             .prepare(parameters)
             .map(ResolvedStoredValue::Computed)
     };
@@ -391,7 +448,7 @@ fn resolve_mutation(
     let resolve_all = |mutations: Vec<Mutation>| {
         mutations
             .into_iter()
-            .map(|mutation| resolve_mutation(mutation, parameters, slots))
+            .map(|mutation| resolve_mutation(mutation, parameters, layout))
             .collect::<Result<Vec<_>>>()
     };
     Ok(match mutation {
@@ -445,7 +502,7 @@ fn resolve_mutation(
             on_create,
             on_match,
         } => ResolvedMutation::Merge {
-            matcher: compile_merge_matcher(slots, &fresh, pattern)?.prepare(parameters)?,
+            matcher: compile_merge_matcher(layout, &fresh, pattern)?.prepare(parameters)?,
             fresh,
             creates: resolve_all(creates)?,
             on_create: resolve_all(on_create)?,
@@ -458,14 +515,14 @@ fn resolve_mutation(
 /// pattern does not introduce already bound, every match of the pattern as
 /// the row index followed by the fresh slots' entities.
 fn compile_merge_matcher(
-    slots: &[(SlotId, EntityKind)],
+    layout: &RowLayout,
     fresh: &[(SlotId, EntityKind)],
     pattern: MatchPlan,
 ) -> Result<ReadPlan> {
-    let bound = slots
-        .iter()
+    let bound = layout
+        .entity_slots()
+        .into_iter()
         .filter(|(slot, _)| !fresh.iter().any(|(fresh, _)| fresh == slot))
-        .copied()
         .collect::<Vec<_>>();
     let mut columns = vec!["k".to_owned()];
     let mut expressions = vec![Expr::Scalar(ROW_INDEX_SLOT)];
@@ -484,7 +541,8 @@ fn compile_merge_matcher(
     sqlite::compile_read(
         &Input::Rows {
             slots: bound,
-            pattern: Some(pattern),
+            scalars: layout.scalar_slot_ids(),
+            stages: vec![logical::ReadStage::Match(pattern)],
         },
         &projection,
     )

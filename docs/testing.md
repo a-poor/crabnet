@@ -306,6 +306,11 @@ falling back to a generic `expression` bucket, which is what lets
 ranked backlog. Concurrent external-writer behavior remains outside the test
 goal.
 
+`tests/write_pipelines.rs` covers reading and updating clauses alternating in
+one statement: scalar values feeding writes, aliases keeping entity identity,
+`MATCH` after a write, modifiers and aggregation after a write, multi-segment
+statements (with the logical explanation's `segments:` section), `MERGE`
+after `UNWIND`/`WITH`, wildcard projections, and chained comparisons.
 `tests/case_expressions.rs` and `tests/functions.rs` are the direct semantic
 suites for `CASE` and the scalar function library. Two of their checks guard
 design decisions rather than results: nested `CASE` results must keep the

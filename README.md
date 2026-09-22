@@ -55,6 +55,10 @@ The accepted statement shapes are:
 - `MATCH ... DELETE/DETACH DELETE ... [RETURN ...]`
 - `MERGE ... [ON CREATE SET ...] [ON MATCH SET ...]`, alone, after `MATCH`,
   or mixed with `CREATE`, `SET`, `REMOVE`, and `DELETE`
+- any sequence of those reading and updating clauses, such as
+  `UNWIND ... CREATE ...`, `MATCH ... WITH ... MERGE ...`, or
+  `CREATE ... WITH ... MATCH ... SET ... RETURN ...`, ending with an updating
+  clause or `RETURN`
 
 Within those shapes, the first iteration supports:
 
@@ -114,9 +118,9 @@ Within those shapes, the first iteration supports:
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
   including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
   `elementId`, `labels`, and `type`
-- read-only `WITH` stages carrying aliased entities, paths, and scalars, with
-  scope loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later
-  clauses
+- `WITH` stages carrying aliased entities, paths, and scalars, with scope
+  loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later
+  clauses, plus `WITH *` and `RETURN *`
 - implicit grouping with top-level `count`, `sum`, `avg`, `min`, `max`, and
   `collect` projections in `RETURN` or `WITH`
 - list expansion with `UNWIND`, plus typed semantic `UNION` deduplication and
@@ -277,14 +281,15 @@ part, with a lower bound above one, or in a write query. Named paths or
 relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,
 traversal-fed writes (including writes fed by a relationship list), writes fed
 by any named path, match modes and hints, parameter-map matching,
-`RETURN *`, exponentiation (`^`), and concatenation (`||`). Paths also cannot
+exponentiation (`^`), and concatenation (`||`). Paths also cannot
 themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
-`WITH DISTINCT`, `WITH *`, unaliased computed `WITH` expressions,
-`collect(DISTINCT ...)`, nested/embedded aggregate projections, and writes in a
-read-composition pipeline are explicitly rejected. For now, `DISTINCT` is
-supported only by `count`; the other aggregate forms fail during planning.
+`WITH DISTINCT`, unaliased computed `WITH` expressions,
+`collect(DISTINCT ...)`, and nested/embedded aggregate projections are
+explicitly rejected, as is an updating clause after `DELETE` in the same
+statement. For now, `DISTINCT` is supported only by `count`; the other
+aggregate forms fail during planning.
 
 ## Planning and execution
 

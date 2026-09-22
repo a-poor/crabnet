@@ -47,8 +47,8 @@ applied after ordering when an order is present. The same rules apply to a
 
 ## `WITH` clause boundaries
 
-`WITH` is supported in read-only pipelines. It may begin a query, appear more
-than once, or separate `MATCH` clauses. Each `WITH` consumes the current row
+`WITH` may begin a query, appear more than once, separate `MATCH` clauses, or
+sit between reading and updating clauses. Each `WITH` consumes the current row
 bag and emits one row for every retained input row; it does not implicitly
 deduplicate. A later `MATCH` therefore expands every carried row independently,
 preserving duplicate and Cartesian-product multiplicity.
@@ -251,6 +251,11 @@ Boolean contexts accept only JSON booleans: null, missing, numeric, string,
 list, and map values become null rather than inheriting SQLite truthiness.
 Supported `AND`, `OR`, and `NOT` expressions then propagate those values with
 three-valued boolean logic.
+
+Comparisons chain: `1 < n.num < 3` means `1 < n.num AND n.num < 3`, and any
+run of `=`, `<>`, `<`, `<=`, `>`, `>=` compares each adjacent pair. Parentheses
+end a chain, so `(1 < n.num) < 3` compares a boolean with an integer and is
+null.
 
 Equality uses JSON type information to avoid SQLite's broad coercions:
 
@@ -708,8 +713,24 @@ A computed value is evaluated once per input row, over the rows as they stand
 when that `SET` item or `CREATE` pattern starts, so later items see earlier
 writes. It must not contain aggregates, nodes, relationships, or paths; a
 whole-map form must evaluate to a map. Those are semantic errors. Label
-mutation remains a planning-time rejection, as are writes in a query
-containing `WITH`, fed by variable-length traversal, or fed by any named path.
+mutation remains a planning-time rejection, as are writes fed by
+variable-length traversal or by any named path.
+
+Reading and updating clauses may alternate freely within one statement:
+`UNWIND`, `WITH`, `MATCH`, and `OPTIONAL MATCH` may precede, separate, or
+follow `CREATE`, `MERGE`, `SET`, `REMOVE`, and `DELETE`, and the statement
+ends with an updating clause or `RETURN`. The reading clauses before the
+first update produce the input rows; each later run of reading clauses reads
+on from the rows the updates so far produced, seeing only the variables in
+scope at that point and the graph as those updates left it, and the updates
+after it apply to the rows it produces. So `CREATE (a) WITH a MATCH (b)`
+matches the node just created, `WITH n AS m` keeps `m` bound to the same
+node so no second node is created, a `WITH ... LIMIT` or `WHERE` after a
+write shapes the result and the rows that later clauses see but never undoes
+a side effect, and an aggregating `WITH` collapses the rows for what follows.
+Updating clauses skip rows whose target is null, which is how an `OPTIONAL
+MATCH` with no match feeds `SET`, `REMOVE`, and `DELETE`. An updating clause
+after `DELETE` in the same statement is still a planning-time rejection.
 
 Direct assignment of `null` removes the targeted key. A null-valued entry in a
 `+=` map also removes that key. Whole-map replacement is deliberately
@@ -736,9 +757,11 @@ right; a created relationship needs exactly one type. `ON CREATE SET` applies
 to the rows the merge created and `ON MATCH SET` to the rows it matched, with
 the same forms as `SET`. A pattern whose variables are all already bound, or
 that decorates a bound variable with labels or properties, is a semantic
-error; path bindings, variable-length relationships, and `MERGE` inside a
-`WITH`/`UNWIND` pipeline are planning-time rejections. The merge and its
-actions run in the statement's write transaction like every other mutation.
+error; path bindings and variable-length relationships are planning-time
+rejections. `MERGE` may follow `WITH` and `UNWIND`, so `UNWIND names AS name
+MERGE (:Person {name: name})` creates each distinct name once. The merge and
+its actions run in the statement's write transaction like every other
+mutation.
 
 Matched `DELETE` accepts node and relationship variables. Targets are gathered
 and deduplicated across the complete materialized match bag, then explicitly

@@ -14,7 +14,8 @@ use crate::{
     planner::{
         self, EntityKind, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
         PreparedReadPlan, PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedMutation,
-        ResolvedMutationPlan, ResolvedRowSource, ResolvedStoredValue, SlotId, UnionKind,
+        ResolvedMutationPlan, ResolvedRowSource, ResolvedSegment, ResolvedStoredValue, RowLayout,
+        SlotId, UnionKind,
     },
 };
 
@@ -121,11 +122,15 @@ impl Database {
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
         let ResolvedMutationPlan {
             input,
-            slots,
+            layout,
             mutations,
+            segments,
             result,
         } = plan;
-        let mut input_rows = materialize_input(&transaction, input.as_ref(), &slots)?;
+        let mut input_rows = match &input {
+            Some(input) => read_row_source(&transaction, input, &layout)?,
+            None => vec![ExecutionRow::empty(&layout)],
+        };
         let mut summary = QuerySummary::default();
 
         // Mutation-major execution mirrors a Cypher update pipeline: each
@@ -137,16 +142,33 @@ impl Database {
         for mutation in &mutations {
             apply_mutation(
                 &transaction,
-                &slots,
+                &layout,
                 &mut input_rows,
                 mutation,
                 &mut summary,
             )?;
         }
+        // Each later segment reads on from the rows so far (its WITH, UNWIND,
+        // and MATCH stages see the graph as the mutations left it) and then
+        // applies its own mutations to the rows it produced.
+        for ResolvedSegment { source, mutations } in &segments {
+            input_rows = with_rows_table(&transaction, &layout, &input_rows, |transaction| {
+                read_row_source(transaction, source, &layout)
+            })?;
+            for mutation in mutations {
+                apply_mutation(
+                    &transaction,
+                    &layout,
+                    &mut input_rows,
+                    mutation,
+                    &mut summary,
+                )?;
+            }
+        }
 
         let (columns, rows) = match result {
             Some(result) => {
-                let result = read_materialized_rows(&transaction, &slots, &input_rows, result)?;
+                let result = read_materialized_rows(&transaction, &layout, &input_rows, result)?;
                 (result.columns, result.rows)
             }
             None => (Vec::new(), Vec::new()),
@@ -344,6 +366,9 @@ fn delete_entities(
 
     for row in rows {
         for (slot, expected_kind) in targets {
+            if !row.binds(*slot) {
+                continue;
+            }
             let (actual_kind, id) = row.entity_identity(*slot)?;
             if actual_kind != *expected_kind {
                 return Err(crate::Error::Data(format!(
@@ -395,6 +420,9 @@ fn update_properties(
 ) -> Result<usize> {
     let mut total_changed = 0;
     for target_index in 0..rows.len() {
+        if !rows[target_index].binds(slot) {
+            continue;
+        }
         let (kind, id) = rows[target_index].entity_identity(slot)?;
         let select_sql = match kind {
             EntityKind::Node => "SELECT props FROM nodes WHERE id = ?1",
@@ -597,15 +625,20 @@ impl EntityValue {
     }
 }
 
+/// One row of a mutation pipeline: the entity bound to each entity slot and
+/// the JSON text of each bound scalar slot (as the SQL compiler encodes
+/// result columns), `None` where the row does not bind the slot.
 #[derive(Clone)]
 struct ExecutionRow {
     entities: Vec<Option<EntityValue>>,
+    scalars: Vec<Option<String>>,
 }
 
 impl ExecutionRow {
-    fn empty(slot_count: usize) -> Self {
+    fn empty(layout: &RowLayout) -> Self {
         Self {
-            entities: vec![None; slot_count],
+            entities: vec![None; layout.slots.len()],
+            scalars: vec![None; layout.scalar_slots],
         }
     }
 
@@ -630,6 +663,12 @@ impl ExecutionRow {
             )));
         }
         Ok(())
+    }
+
+    /// Whether this row binds `slot`. `OPTIONAL MATCH` leaves slots unbound,
+    /// and updating clauses skip those rows.
+    fn binds(&self, slot: SlotId) -> bool {
+        self.entities.get(slot.0).is_some_and(Option::is_some)
     }
 
     fn entity(&self, slot: SlotId) -> Result<&EntityValue> {
@@ -688,18 +727,19 @@ impl ExecutionRow {
 /// (`MERGE` templates and actions) call this on row subsets.
 fn apply_mutation(
     transaction: &Transaction<'_>,
-    slots: &[EntityKind],
+    layout: &RowLayout,
     rows: &mut Vec<ExecutionRow>,
     mutation: &ResolvedMutation,
     summary: &mut QuerySummary,
 ) -> Result<()> {
+    let slots = layout.slots.as_slice();
     match mutation {
         ResolvedMutation::CreateNode {
             slot,
             label,
             properties,
         } => {
-            let values = row_values(transaction, slots, rows, properties, true)?;
+            let values = row_values(transaction, layout, rows, properties, true)?;
             for (index, input_row) in rows.iter_mut().enumerate() {
                 let properties = values.get(index);
                 let id = transaction.query_row(
@@ -728,7 +768,7 @@ fn apply_mutation(
             to,
             properties,
         } => {
-            let values = row_values(transaction, slots, rows, properties, true)?;
+            let values = row_values(transaction, layout, rows, properties, true)?;
             for (index, input_row) in rows.iter_mut().enumerate() {
                 let properties = values.get(index);
                 let from = input_row.node_id(*from)?.to_owned();
@@ -755,7 +795,7 @@ fn apply_mutation(
             }
         }
         ResolvedMutation::SetProperty { slot, key, value } => {
-            let values = row_values(transaction, slots, rows, value, false)?;
+            let values = row_values(transaction, layout, rows, value, false)?;
             summary.properties_set +=
                 update_properties(transaction, rows, *slot, |index, properties| {
                     let value = values.get(index);
@@ -767,7 +807,7 @@ fn apply_mutation(
                 })?;
         }
         ResolvedMutation::ReplaceProperties { slot, properties } => {
-            let values = row_values(transaction, slots, rows, properties, true)?;
+            let values = row_values(transaction, layout, rows, properties, true)?;
             summary.properties_set +=
                 update_properties(transaction, rows, *slot, |index, current| {
                     *current = values
@@ -778,7 +818,7 @@ fn apply_mutation(
                 })?;
         }
         ResolvedMutation::MergeProperties { slot, properties } => {
-            let values = row_values(transaction, slots, rows, properties, true)?;
+            let values = row_values(transaction, layout, rows, properties, true)?;
             summary.properties_set +=
                 update_properties(transaction, rows, *slot, |index, current| {
                     let patch = values
@@ -811,7 +851,7 @@ fn apply_mutation(
             on_match,
         } => merge_rows(
             transaction,
-            slots,
+            layout,
             rows,
             matcher,
             fresh,
@@ -831,7 +871,7 @@ fn apply_mutation(
 #[allow(clippy::too_many_arguments)]
 fn merge_rows(
     transaction: &Transaction<'_>,
-    slots: &[EntityKind],
+    layout: &RowLayout,
     rows: &mut Vec<ExecutionRow>,
     matcher: &PreparedReadPlan,
     fresh: &[(SlotId, EntityKind)],
@@ -847,7 +887,7 @@ fn merge_rows(
             .iter()
             .map(|(_, row)| row.clone())
             .collect::<Vec<_>>();
-        let result = read_materialized_rows(transaction, slots, &subset, matcher.clone())?;
+        let result = read_materialized_rows(transaction, layout, &subset, matcher.clone())?;
         let mut matches: Vec<Vec<Vec<CypherValue>>> = vec![Vec::new(); subset.len()];
         for mut row in result.rows {
             let index = match row.remove(0) {
@@ -869,7 +909,7 @@ fn merge_rows(
             for values in found {
                 let mut expanded = row.clone();
                 for ((slot, kind), value) in fresh.iter().zip(values) {
-                    expanded.set(slots, *slot, entity_from_value(value, *kind)?)?;
+                    expanded.set(&layout.slots, *slot, entity_from_value(value, *kind)?)?;
                 }
                 matched.push((origin, expanded));
             }
@@ -877,7 +917,7 @@ fn merge_rows(
         if !matched.is_empty() {
             let (origins, mut matched_rows): (Vec<_>, Vec<_>) = matched.into_iter().unzip();
             for mutation in on_match {
-                apply_mutation(transaction, slots, &mut matched_rows, mutation, summary)?;
+                apply_mutation(transaction, layout, &mut matched_rows, mutation, summary)?;
             }
             finished.extend(origins.into_iter().zip(matched_rows));
         }
@@ -887,7 +927,7 @@ fn merge_rows(
             let (origin, row) = pending.remove(0);
             let mut created = vec![row];
             for mutation in creates.iter().chain(on_create) {
-                apply_mutation(transaction, slots, &mut created, mutation, summary)?;
+                apply_mutation(transaction, layout, &mut created, mutation, summary)?;
             }
             finished.extend(created.into_iter().map(|row| (origin, row)));
         }
@@ -930,7 +970,7 @@ impl RowValues {
 /// single property value.
 fn row_values(
     transaction: &Transaction<'_>,
-    slots: &[EntityKind],
+    layout: &RowLayout,
     rows: &[ExecutionRow],
     value: &ResolvedStoredValue,
     map: bool,
@@ -939,7 +979,7 @@ fn row_values(
         ResolvedStoredValue::Static(value) => return Ok(RowValues::Static(value.clone())),
         ResolvedStoredValue::Computed(plan) => plan.clone(),
     };
-    let result = read_materialized_rows(transaction, slots, rows, plan)?;
+    let result = read_materialized_rows(transaction, layout, rows, plan)?;
     if result.rows.len() != rows.len() {
         return Err(crate::Error::Data(
             "a computed stored value did not yield one value per row".into(),
@@ -987,43 +1027,64 @@ fn storable_json(value: CypherValue) -> Result<serde_json::Value> {
     }
 }
 
-/// Runs the post-mutation RETURN: the rows the mutations produced are written
-/// to a temporary table, one encoded entity record per slot, and the compiled
-/// read projection runs over it inside the same transaction.
+/// Runs a prepared read over the rows: the post-mutation `RETURN`, a
+/// computed stored value, or a `MERGE` matcher.
 fn read_materialized_rows(
     transaction: &Transaction<'_>,
-    slots: &[EntityKind],
+    layout: &RowLayout,
     rows: &[ExecutionRow],
     result: PreparedReadPlan,
 ) -> Result<QueryResult> {
+    with_rows_table(transaction, layout, rows, |transaction| {
+        let mut trail_budget = traversal::TrailBudget::default();
+        execute_prepared_read_plan(transaction, result, &mut trail_budget)
+    })
+}
+
+/// Writes the rows to the temporary rows table, one encoded entity record
+/// per entity slot and one JSON text per scalar slot, runs `body` over it
+/// inside the same transaction, and drops the table again.
+fn with_rows_table<T>(
+    transaction: &Transaction<'_>,
+    layout: &RowLayout,
+    rows: &[ExecutionRow],
+    body: impl FnOnce(&Transaction<'_>) -> Result<T>,
+) -> Result<T> {
     let table = crate::planner::ROWS_TABLE;
     let columns = std::iter::once("k TEXT".to_owned())
-        .chain((0..slots.len()).map(|index| format!("e{index} TEXT")))
+        .chain((0..layout.slots.len()).map(|index| format!("e{index} TEXT")))
+        .chain((0..layout.scalar_slots).map(|index| format!("s{index} TEXT")))
         .collect::<Vec<_>>()
         .join(", ");
     transaction.execute_batch(&format!(
         "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
     ))?;
     {
-        let placeholders = (1..=slots.len() + 1)
+        let placeholders = (1..=layout.slots.len() + layout.scalar_slots + 1)
             .map(|index| format!("?{index}"))
             .collect::<Vec<_>>()
             .join(", ");
         let mut insert =
             transaction.prepare(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
         for (index, row) in rows.iter().enumerate() {
-            let records = std::iter::once(Some(index.to_string()))
+            // Unbound slots hold JSON `null` text, exactly as an OPTIONAL
+            // MATCH leaves them in a read pipeline's intermediate rows.
+            let records = std::iter::once(index.to_string())
+                .chain(row.entities.iter().map(|entity| {
+                    entity
+                        .as_ref()
+                        .map_or_else(|| "null".to_owned(), encode_entity)
+                }))
                 .chain(
-                    row.entities
+                    row.scalars
                         .iter()
-                        .map(|entity| entity.as_ref().map(encode_entity)),
+                        .map(|scalar| scalar.clone().unwrap_or_else(|| "null".to_owned())),
                 )
                 .collect::<Vec<_>>();
             insert.execute(params_from_iter(records.iter()))?;
         }
     }
-    let mut trail_budget = traversal::TrailBudget::default();
-    let result = execute_prepared_read_plan(transaction, result, &mut trail_budget);
+    let result = body(transaction);
     transaction.execute_batch(&format!("DROP TABLE IF EXISTS temp.{table};"))?;
     result
 }
@@ -1085,25 +1146,36 @@ fn json_from_cypher(value: &CypherValue) -> serde_json::Value {
     }
 }
 
-fn materialize_input(
+/// Runs a row source and decodes its rows: the entity columns first, then
+/// the scalar columns, each kept as the JSON text the compiler produced.
+fn read_row_source(
     transaction: &Transaction<'_>,
-    input: Option<&ResolvedRowSource>,
-    slots: &[EntityKind],
+    input: &ResolvedRowSource,
+    layout: &RowLayout,
 ) -> Result<Vec<ExecutionRow>> {
-    let Some(input) = input else {
-        return Ok(vec![ExecutionRow::empty(slots.len())]);
-    };
-
     let mut statement = transaction.prepare(&input.sql)?;
     debug_assert!(statement.readonly());
     let mut cursor = statement.query(params_from_iter(input.bindings.iter()))?;
     let mut input_rows = Vec::new();
     while let Some(row) = cursor.next()? {
-        let mut execution_row = ExecutionRow::empty(slots.len());
+        let mut execution_row = ExecutionRow::empty(layout);
         for (column, (slot, kind)) in input.slots.iter().enumerate() {
-            let encoded = row.get::<_, String>(column)?;
+            let Some(encoded) = row.get::<_, Option<String>>(column)? else {
+                continue;
+            };
+            if encoded == "null" {
+                continue;
+            }
             let entity = decode_entity(&encoded, *kind)?;
-            execution_row.set(slots, *slot, entity)?;
+            execution_row.set(&layout.slots, *slot, entity)?;
+        }
+        for (offset, slot) in input.scalars.iter().enumerate() {
+            let column = input.slots.len() + offset;
+            let destination = execution_row
+                .scalars
+                .get_mut(slot.0)
+                .ok_or_else(|| crate::Error::Data(format!("unknown scalar slot {}", slot.0)))?;
+            *destination = row.get::<_, Option<String>>(column)?;
         }
         input_rows.push(execution_row);
     }

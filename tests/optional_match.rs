@@ -466,19 +466,30 @@ fn unsupported_optional_pattern_shapes_fail_during_planning() {
 }
 
 #[test]
-fn writes_after_optional_match_are_rejected_before_side_effects() {
+fn writes_after_optional_match_run_once_per_row_and_skip_null_targets() {
     let mut database = Database::in_memory().unwrap();
 
-    assert!(matches!(
-        database.execute(
+    // An OPTIONAL MATCH with no match still yields one row, so the CREATE
+    // runs once.
+    let created = database
+        .execute(
             "OPTIONAL MATCH (missing:OptionalWriteInput) \
-             CREATE (:OptionalWriteSideEffect)"
-        ),
-        Err(Error::Unsupported(_))
-    ));
-
-    let remaining = database
-        .execute("MATCH (node:OptionalWriteSideEffect) RETURN node")
+             CREATE (:OptionalWriteSideEffect)",
+        )
         .unwrap();
-    assert!(remaining.rows.is_empty());
+    assert_eq!(created.summary.nodes_created, 1);
+
+    // Updating clauses ignore rows whose target is null.
+    let updated = database
+        .execute(
+            "OPTIONAL MATCH (missing:OptionalWriteInput) \
+             SET missing.touched = true \
+             REMOVE missing.touched \
+             DELETE missing \
+             RETURN missing",
+        )
+        .unwrap();
+    assert_eq!(updated.rows, vec![vec![CypherValue::Null]]);
+    assert_eq!(updated.summary.properties_set, 0);
+    assert_eq!(updated.summary.nodes_deleted, 0);
 }

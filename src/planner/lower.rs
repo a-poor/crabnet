@@ -24,8 +24,8 @@ use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
     ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
     PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage,
-    RelationshipUse, ScalarFunction, ScalarSlotId, SlotId, SortDirection, SortItem, StoredValue,
-    TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId, SortDirection, SortItem,
+    StoredValue, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
@@ -162,6 +162,7 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
             "writes with a legacy shortest-path MATCH",
         ));
     }
+    let contains_write = clauses.iter().any(|clause| is_write_clause(&clause.kind));
     let contains_read_pipeline = clauses.iter().any(|clause| {
         matches!(clause.kind, ClauseKind::With(_) | ClauseKind::Unwind(_))
             || matches!(&clause.kind, ClauseKind::Match(match_clause) if match_clause.optional)
@@ -170,90 +171,36 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
         .iter()
         .filter(|clause| matches!(clause.kind, ClauseKind::Match(_)))
         .count()
-        > 1
-        && clauses
-            .iter()
-            .all(|clause| matches!(clause.kind, ClauseKind::Match(_) | ClauseKind::Return(_)));
-    if contains_read_pipeline || repeated_read_match {
+        > 1;
+    if !contains_write && (contains_read_pipeline || repeated_read_match) {
         return lower_read_pipeline(source, clauses);
     }
-    if clauses.iter().any(|clause| {
-        matches!(
-            clause.kind,
-            ClauseKind::Set(_)
-                | ClauseKind::Remove(_)
-                | ClauseKind::Delete(_)
-                | ClauseKind::Merge(_)
-        )
-    }) {
-        return lower_matched_mutation_query(source, clauses);
-    }
-    // The remaining shape is `MATCH* CREATE* [RETURN]`: any number of
-    // leading MATCH clauses, then any number of CREATE clauses whose later
-    // patterns may reuse variables bound earlier, then an optional RETURN.
-    let mut match_clauses = Vec::new();
-    let mut create_clauses = Vec::new();
-    let mut return_clause = None;
-    for clause in clauses {
-        if return_clause.is_some() {
-            return Err(unsupported(clause.span, "clauses after RETURN"));
-        }
-        match &clause.kind {
-            ClauseKind::Match(match_clause) if create_clauses.is_empty() => {
-                match_clauses.push(match_clause);
-            }
-            ClauseKind::Match(_) => {
-                return Err(unsupported(clause.span, "MATCH after a mutation clause"));
-            }
-            ClauseKind::Create(create) => create_clauses.push(create),
-            ClauseKind::Return(clause) => return_clause = Some(clause),
-            kind => return Err(unsupported(clause.span, clause_name(kind))),
-        }
-    }
-    if clauses.is_empty() {
-        return Err(Error::EmptyQuery);
-    }
-    if create_clauses.is_empty() && return_clause.is_none() {
-        let last = clauses.last().expect("non-empty clause list");
-        return Err(unsupported(last.span, clause_name(&last.kind)));
-    }
-
-    let mut lowerer = Lowerer::new(source);
-    let input = if match_clauses.is_empty() {
-        Input::Unit
-    } else {
-        let mut plan = MatchPlan::default();
-        for match_clause in match_clauses {
-            plan.operators
-                .extend(lowerer.match_clause(match_clause)?.operators);
-        }
-        Input::Match(plan)
-    };
-    for create in &create_clauses {
-        lowerer.create_clause(create)?;
-    }
-    let projection = return_clause
-        .map(|return_clause| lowerer.projection(&return_clause.projection))
-        .transpose()?;
-
-    Ok(Query {
-        slots: lowerer.slots,
-        scalar_slots: lowerer.scalar_slots,
-        path_slots: lowerer.path_slots,
-        input,
-        mutations: lowerer.mutations,
-        projection,
-    })
+    lower_clause_sequence(source, clauses)
 }
 
-fn lower_matched_mutation_query(
-    source: &str,
-    clauses: &[open_cypher::ast::Clause],
-) -> Result<Query> {
+/// Lowers a general clause sequence: reading clauses (`MATCH`, `OPTIONAL
+/// MATCH`, `WITH`, `UNWIND`) and updating clauses (`CREATE`, `MERGE`, `SET`,
+/// `REMOVE`, `DELETE`) in any order, ending with an updating clause or
+/// `RETURN`. The reading clauses before the first update form the query
+/// input; every later run of reading clauses opens a segment that continues
+/// from the rows the updates so far produced.
+fn lower_clause_sequence(source: &str, clauses: &[open_cypher::ast::Clause]) -> Result<Query> {
+    let Some(last) = clauses.last() else {
+        return Err(Error::EmptyQuery);
+    };
+    if !matches!(last.kind, ClauseKind::Return(_)) && !is_write_clause(&last.kind) {
+        return Err(semantic(
+            last.span,
+            "a query must end with RETURN or an updating clause",
+        ));
+    }
+
     let mut lowerer = Lowerer::new(source);
-    let mut input = MatchPlan::default();
-    let mut saw_match = false;
-    let mut saw_create = false;
+    let mut head_stages: Vec<ReadStage> = Vec::new();
+    let mut head_mutations: Vec<Mutation> = Vec::new();
+    let mut segments: Vec<Segment> = Vec::new();
+    // `true` while the newest segment is still collecting reading clauses.
+    let mut reading = false;
     let mut saw_mutation = false;
     let mut saw_delete = false;
     let mut projection = None;
@@ -262,62 +209,79 @@ fn lower_matched_mutation_query(
         if projection.is_some() {
             return Err(unsupported(clause.span, "clauses after RETURN"));
         }
+        let is_read = matches!(
+            clause.kind,
+            ClauseKind::Match(_) | ClauseKind::With(_) | ClauseKind::Unwind(_)
+        );
+        if is_read && saw_mutation && !reading {
+            // The updates collected so far belong to the run before this
+            // segment; the segment sees the variables live at this point.
+            let batch = std::mem::take(&mut lowerer.mutations);
+            match segments.last_mut() {
+                Some(segment) => segment.mutations = batch,
+                None => head_mutations = batch,
+            }
+            let (slots, scalars) = lowerer.live_bindings();
+            segments.push(Segment {
+                slots,
+                scalars,
+                stages: Vec::new(),
+                mutations: Vec::new(),
+            });
+            reading = true;
+        }
+        let mut push_stage = |stage: ReadStage| match segments.last_mut() {
+            Some(segment) if saw_mutation => segment.stages.push(stage),
+            _ => head_stages.push(stage),
+        };
         match &clause.kind {
-            ClauseKind::Match(match_clause) if !saw_mutation => {
-                saw_match = true;
-                input
-                    .operators
-                    .extend(lowerer.match_clause(match_clause)?.operators);
+            ClauseKind::Match(match_clause) => {
+                let plan = lowerer.match_clause(match_clause)?;
+                push_stage(if match_clause.optional {
+                    ReadStage::OptionalMatch(plan)
+                } else {
+                    ReadStage::Match(plan)
+                });
             }
-            ClauseKind::Match(_) => {
-                return Err(unsupported(clause.span, "MATCH after a mutation clause"));
+            ClauseKind::With(with_clause) => {
+                push_stage(ReadStage::With(lowerer.with_clause(with_clause)?));
             }
-            ClauseKind::Create(create) => {
+            ClauseKind::Unwind(unwind_clause) => {
+                push_stage(ReadStage::Unwind(lowerer.unwind_clause(unwind_clause)?));
+            }
+            ClauseKind::Create(_)
+            | ClauseKind::Merge(_)
+            | ClauseKind::Set(_)
+            | ClauseKind::Remove(_)
+            | ClauseKind::Delete(_) => {
                 if saw_delete {
                     return Err(unsupported(clause.span, "mutation clause after DELETE"));
                 }
-                saw_create = true;
-                saw_mutation = true;
-                lowerer.create_clause(create)?;
-            }
-            ClauseKind::Merge(merge) => {
-                if saw_delete {
-                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
-                }
-                saw_create = true;
-                saw_mutation = true;
-                lowerer.merge_clause(merge)?;
-            }
-            ClauseKind::Set(set_clause) => {
-                if saw_delete {
-                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
-                }
-                if !saw_match && !saw_create {
-                    return Err(semantic(clause.span, "SET requires a MATCH input"));
-                }
-                saw_mutation = true;
-                lowerer.set_clause(set_clause)?;
-            }
-            ClauseKind::Remove(remove_clause) => {
-                if saw_delete {
-                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
-                }
-                if !saw_match && !saw_create {
-                    return Err(semantic(clause.span, "REMOVE requires a MATCH input"));
+                match &clause.kind {
+                    ClauseKind::Create(create) => lowerer.create_clause(create)?,
+                    ClauseKind::Merge(merge) => lowerer.merge_clause(merge)?,
+                    kind => {
+                        if index == 0 {
+                            return Err(semantic(
+                                clause.span,
+                                format!("{} requires a MATCH input", clause_name(kind)),
+                            ));
+                        }
+                        match kind {
+                            ClauseKind::Set(set_clause) => lowerer.set_clause(set_clause)?,
+                            ClauseKind::Remove(remove_clause) => {
+                                lowerer.remove_clause(remove_clause)?;
+                            }
+                            ClauseKind::Delete(delete_clause) => {
+                                saw_delete = true;
+                                lowerer.delete_clause(delete_clause)?;
+                            }
+                            _ => unreachable!("updating clause kinds are matched above"),
+                        }
+                    }
                 }
                 saw_mutation = true;
-                lowerer.remove_clause(remove_clause)?;
-            }
-            ClauseKind::Delete(delete_clause) => {
-                if saw_delete {
-                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
-                }
-                if !saw_match && !saw_create {
-                    return Err(semantic(clause.span, "DELETE requires a MATCH input"));
-                }
-                saw_mutation = true;
-                saw_delete = true;
-                lowerer.delete_clause(delete_clause)?;
+                reading = false;
             }
             ClauseKind::Return(return_clause) if index + 1 == clauses.len() => {
                 projection = Some(lowerer.projection(&return_clause.projection)?);
@@ -329,22 +293,38 @@ fn lower_matched_mutation_query(
         }
     }
 
-    if !saw_mutation {
-        return Err(Error::Data(
-            "matched-mutation lowering produced no mutation".into(),
-        ));
+    let batch = std::mem::take(&mut lowerer.mutations);
+    match segments.last_mut() {
+        Some(segment) => segment.mutations = batch,
+        None => head_mutations = batch,
     }
+    let input = if head_stages.is_empty() {
+        Input::Unit
+    } else if head_stages
+        .iter()
+        .all(|stage| matches!(stage, ReadStage::Match(_)))
+    {
+        let mut plan = MatchPlan::default();
+        for stage in head_stages {
+            let ReadStage::Match(stage_plan) = stage else {
+                unreachable!("checked to be plain MATCH stages");
+            };
+            plan.operators.extend(stage_plan.operators);
+        }
+        Input::Match(plan)
+    } else {
+        Input::Pipeline(ReadPipeline {
+            stages: head_stages,
+        })
+    };
 
     Ok(Query {
         slots: lowerer.slots,
         scalar_slots: lowerer.scalar_slots,
         path_slots: lowerer.path_slots,
-        input: if saw_match {
-            Input::Match(input)
-        } else {
-            Input::Unit
-        },
-        mutations: lowerer.mutations,
+        input,
+        mutations: head_mutations,
+        segments,
         projection,
     })
 }
@@ -399,6 +379,7 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
         path_slots: lowerer.path_slots,
         input: Input::Pipeline(ReadPipeline { stages }),
         mutations: Vec::new(),
+        segments: Vec::new(),
         projection: Some(projection),
     })
 }
@@ -466,6 +447,35 @@ impl<'source> Lowerer<'source> {
         let slot = ScalarSlotId(self.scalar_slots);
         self.scalar_slots += 1;
         slot
+    }
+
+    /// The variables `*` expands to: everything in scope, by name.
+    fn wildcard_items(&self) -> Vec<(String, Symbol)> {
+        let mut items = self
+            .symbols
+            .iter()
+            .map(|(name, symbol)| (name.clone(), *symbol))
+            .collect::<Vec<_>>();
+        items.sort_by(|left, right| left.0.cmp(&right.0));
+        items
+    }
+
+    /// The entity and scalar slots the variables in scope currently bind.
+    fn live_bindings(&self) -> (Vec<(SlotId, EntityKind)>, Vec<ScalarSlotId>) {
+        let mut slots = Vec::new();
+        let mut scalars = Vec::new();
+        for symbol in self.symbols.values() {
+            match symbol {
+                Symbol::Entity(slot) => slots.push((*slot, self.kind(*slot))),
+                Symbol::Scalar(slot) => scalars.push(*slot),
+                Symbol::Path(_) | Symbol::PathCollection { .. } => {}
+            }
+        }
+        slots.sort_by_key(|(slot, _)| *slot);
+        slots.dedup();
+        scalars.sort();
+        scalars.dedup();
+        (slots, scalars)
     }
 
     fn allocate_traversal(&mut self) -> TraversalId {
@@ -1669,32 +1679,48 @@ impl<'source> Lowerer<'source> {
         let mut projected_symbols = HashMap::new();
         let mut aliases = HashMap::new();
 
+        let mut items = Vec::with_capacity(projection.items.len());
+        let mut saw_wildcard = false;
         for item in &projection.items {
-            let ProjectionItemKind::Expression { expression, alias } = &item.kind else {
-                return Err(unsupported(item.span, "WITH *"));
-            };
-            let name = match (alias, &expression.kind) {
-                (Some(alias), _) => alias.kind.text.clone(),
-                (None, ExprKind::Variable(variable)) => variable.kind.text.clone(),
-                (None, _) => {
-                    return Err(unsupported(
-                        item.span,
-                        "computed WITH expressions without aliases",
-                    ));
+            match &item.kind {
+                // `WITH *` carries every variable in scope under its own name;
+                // over an empty scope it keeps the rows and binds nothing.
+                ProjectionItemKind::Wildcard => {
+                    saw_wildcard = true;
+                    for (name, symbol) in self.wildcard_items() {
+                        items.push((item.span, name, symbol_expression(symbol)));
+                    }
                 }
-            };
+                ProjectionItemKind::Expression { expression, alias } => {
+                    let name = match (alias, &expression.kind) {
+                        (Some(alias), _) => alias.kind.text.clone(),
+                        (None, ExprKind::Variable(variable)) => variable.kind.text.clone(),
+                        (None, _) => {
+                            return Err(unsupported(
+                                item.span,
+                                "computed WITH expressions without aliases",
+                            ));
+                        }
+                    };
+                    let expression = self.output_expression(expression)?;
+                    if expression.contains_aggregate()
+                        && !matches!(expression, Expr::Aggregate { .. })
+                    {
+                        return Err(unsupported(
+                            item.span,
+                            "aggregate calls nested in WITH expressions",
+                        ));
+                    }
+                    items.push((item.span, name, expression));
+                }
+                _ => return Err(unsupported(item.span, "this WITH item")),
+            }
+        }
+        for (span, name, expression) in items {
             if projected_symbols.contains_key(&name) {
                 return Err(semantic(
-                    item.span,
+                    span,
                     format!("WITH projects duplicate variable `{name}`"),
-                ));
-            }
-
-            let expression = self.output_expression(expression)?;
-            if expression.contains_aggregate() && !matches!(expression, Expr::Aggregate { .. }) {
-                return Err(unsupported(
-                    item.span,
-                    "aggregate calls nested in WITH expressions",
                 ));
             }
             match expression {
@@ -1746,7 +1772,7 @@ impl<'source> Lowerer<'source> {
             }
         }
 
-        if bindings.is_empty() {
+        if bindings.is_empty() && !saw_wildcard {
             return Err(semantic(
                 projection.span,
                 "WITH must contain at least one item",
@@ -1841,28 +1867,53 @@ impl<'source> Lowerer<'source> {
         let mut expressions = Vec::with_capacity(projection.items.len());
         let mut aliases = HashMap::new();
         let mut column_names = HashSet::with_capacity(projection.items.len());
+        let mut items = Vec::with_capacity(projection.items.len());
         for item in &projection.items {
-            let ProjectionItemKind::Expression { expression, alias } = &item.kind else {
-                return Err(unsupported(item.span, "RETURN *"));
-            };
-            let lowered = self.output_expression(expression)?;
-            if lowered.contains_aggregate() && !matches!(lowered, Expr::Aggregate { .. }) {
-                return Err(unsupported(
-                    expression.span,
-                    "aggregate calls nested in projection expressions",
-                ));
+            match &item.kind {
+                // `RETURN *` projects every variable in scope as a column of
+                // its own name.
+                ProjectionItemKind::Wildcard => {
+                    if self.symbols.is_empty() {
+                        return Err(semantic(
+                            item.span,
+                            "RETURN * requires at least one variable in scope",
+                        ));
+                    }
+                    for (name, symbol) in self.wildcard_items() {
+                        items.push((
+                            item.span,
+                            name.clone(),
+                            symbol_expression(symbol),
+                            Some(name),
+                        ));
+                    }
+                }
+                ProjectionItemKind::Expression { expression, alias } => {
+                    let lowered = self.output_expression(expression)?;
+                    if lowered.contains_aggregate() && !matches!(lowered, Expr::Aggregate { .. }) {
+                        return Err(unsupported(
+                            expression.span,
+                            "aggregate calls nested in projection expressions",
+                        ));
+                    }
+                    let column = column_name(self.source, expression, alias.as_ref());
+                    let alias = alias.as_ref().map(|alias| alias.kind.text.clone());
+                    items.push((item.span, column, lowered, alias));
+                }
+                _ => return Err(unsupported(item.span, "this RETURN item")),
             }
-            let column = column_name(self.source, expression, alias.as_ref());
+        }
+        for (span, column, lowered, alias) in items {
             if !column_names.insert(column.clone()) {
                 return Err(semantic(
-                    item.span,
+                    span,
                     format!("RETURN projects duplicate column `{column}`"),
                 ));
             }
             columns.push(column);
             expressions.push(lowered.clone());
             if let Some(alias) = alias {
-                aliases.insert(alias.kind.text.clone(), lowered);
+                aliases.insert(alias, lowered);
             }
         }
         if expressions.is_empty() {
@@ -2106,6 +2157,35 @@ impl<'source> Lowerer<'source> {
                 operator,
                 right,
             } => {
+                // `a < b < c` compares pairwise: `a < b AND b < c`.
+                if let Some((operands, operators)) = comparison_chain(expression)
+                    && operators.len() > 1
+                {
+                    let mut conjuncts = Vec::with_capacity(operators.len());
+                    for (index, operator) in operators.into_iter().enumerate() {
+                        conjuncts.push(Expr::Binary {
+                            left: Box::new(self.scalar_expression_with_aliases_at_depth(
+                                operands[index],
+                                aliases,
+                                expression_depth + 1,
+                            )?),
+                            operator,
+                            right: Box::new(self.scalar_expression_with_aliases_at_depth(
+                                operands[index + 1],
+                                aliases,
+                                expression_depth + 1,
+                            )?),
+                        });
+                    }
+                    return Ok(conjuncts
+                        .into_iter()
+                        .reduce(|left, right| Expr::Binary {
+                            left: Box::new(left),
+                            operator: BinaryOp::And,
+                            right: Box::new(right),
+                        })
+                        .expect("a chain has at least two comparisons"));
+                }
                 let operator = match operator.kind {
                     BinaryOperator::Or => BinaryOp::Or,
                     BinaryOperator::And => BinaryOp::And,
@@ -3268,6 +3348,49 @@ fn validate_aggregate_scope(expressions: &[Expr], grouping: &[Expr], span: Span)
             "aggregate query references a value that is not a grouping key",
         ))
     }
+}
+
+fn symbol_expression(symbol: Symbol) -> Expr {
+    match symbol {
+        Symbol::Entity(slot) => Expr::Entity(slot),
+        Symbol::Scalar(slot) => Expr::Scalar(slot),
+        Symbol::Path(path) => Expr::Path(path),
+        Symbol::PathCollection { path, kind } => Expr::PathFunction {
+            kind: path_function_kind(kind),
+            path,
+        },
+    }
+}
+
+fn comparison_operator(operator: BinaryOperator) -> Option<BinaryOp> {
+    Some(match operator {
+        BinaryOperator::Equal => BinaryOp::Equal,
+        BinaryOperator::NotEqual => BinaryOp::NotEqual,
+        BinaryOperator::Less => BinaryOp::Less,
+        BinaryOperator::LessEqual => BinaryOp::LessEqual,
+        BinaryOperator::Greater => BinaryOp::Greater,
+        BinaryOperator::GreaterEqual => BinaryOp::GreaterEqual,
+        _ => return None,
+    })
+}
+
+/// The operands and operators of a left-nested run of comparisons such as
+/// `a < b <= c`. Parentheses end a chain, so `(a < b) < c` is two operands.
+fn comparison_chain(expression: &AstExpr) -> Option<(Vec<&AstExpr>, Vec<BinaryOp>)> {
+    let ExprKind::Binary {
+        left,
+        operator,
+        right,
+    } = &expression.kind
+    else {
+        return None;
+    };
+    let operator = comparison_operator(operator.kind)?;
+    let (mut operands, mut operators) =
+        comparison_chain(left).unwrap_or_else(|| (vec![left.as_ref()], Vec::new()));
+    operands.push(right.as_ref());
+    operators.push(operator);
+    Some((operands, operators))
 }
 
 fn column_name(

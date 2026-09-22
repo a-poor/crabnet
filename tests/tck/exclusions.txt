@@ -3,7 +3,6 @@
 clauses/call/Call1.feature::[10] In-query call to procedure should fail if too many explicit argument are given	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: INTEGER?):
 clauses/call/Call1.feature::[11] Standalone call to procedure should fail if implicit argument is missing	unsupported-step: there exists a procedure test.my.proc(name :: STRING?, in :: INTEGER?) :: (out :: INTEGER?):
 clauses/call/Call1.feature::[12] In-query call to procedure that has outputs fails if no outputs are yielded	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: INTEGER?):
-clauses/call/Call1.feature::[13] Standalone call to unknown procedure should fail	wrong-error-kind: unsupported: CALL
 clauses/call/Call1.feature::[14] In-query call to unknown procedure should fail	wrong-error-kind: unsupported: CALL
 clauses/call/Call1.feature::[15] In-query procedure call should fail if shadowing an already bound variable	unsupported-step: there exists a procedure test.labels() :: (label :: STRING?):
 clauses/call/Call1.feature::[16] In-query procedure call should fail if one of the argument expressions uses an aggregation function	unsupported-step: there exists a procedure test.labels(in :: INTEGER?) :: (label :: STRING?):
@@ -60,37 +59,10 @@ clauses/create/Create2.feature::[19] Fail when creating a relationship without a
 clauses/create/Create2.feature::[20] Fail when creating a relationship with two directions	wrong-error-kind: unsupported: undirected relationships in CREATE
 clauses/create/Create2.feature::[21] Fail when creating a relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/create/Create2.feature::[22] Fail when creating a variable-length relationship	wrong-error-kind: unsupported: quantified or filtered relationships in CREATE
-clauses/create/Create3.feature::[10] WITH-UNWIND-CREATE: A bound node should be recognized after projection with WITH + UNWIND	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[11] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE node	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[12] WITH-MERGE-CREATE: A bound node should be recognized after projection with WITH + MERGE pattern	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[2] WITH-CREATE	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[3] MATCH-CREATE-WITH-CREATE	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[5] WITH-CREATE: Nodes are not created when aliases are applied to variable names	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[6] WITH-CREATE: Only a single node is created when an alias is applied to a variable name	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[7] WITH-CREATE: Nodes are not created when aliases are applied to variable names multiple times	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[8] WITH-CREATE: Only a single node is created when an alias is applied to a variable name multiple times	unsupported: writes in a read pipeline
-clauses/create/Create3.feature::[9] WITH-CREATE: A bound node should be recognized after projection with WITH + WITH	unsupported: writes in a read pipeline
-clauses/create/Create5.feature::[5] Create a pattern with multiple hops and varying directions	unsupported: RETURN *
-clauses/create/Create6.feature::[10] Skipping and limiting to a few results after creating relationships does not affect the result set nor the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[11] Skipping zero result and limiting to all results after creating relationships does not affect the result set nor the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[12] Filtering after creating relationships affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[13] Aggregating in `RETURN` after creating relationships affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[14] Aggregating in `WITH` after creating relationships affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[3] Skipping and limiting to a few results after creating nodes does not affect the result set nor the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[4] Skipping zero result and limiting to all results after creating nodes does not affect the result set nor the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[5] Filtering after creating nodes affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[6] Aggregating in `RETURN` after creating nodes affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/create/Create6.feature::[7] Aggregating in `WITH` after creating nodes affects the result set but not the side effects	unsupported: writes in a read pipeline
-clauses/delete/Delete1.feature::[4] Delete on null node	unsupported: DELETE
-clauses/delete/Delete1.feature::[5] Ignore null when deleting node	unsupported: DELETE
-clauses/delete/Delete1.feature::[6] Detach delete on null node	unsupported: DELETE
 clauses/delete/Delete1.feature::[7] Failing when deleting connected nodes	wrong-error-kind: sqlite-error: FOREIGN KEY constraint failed
-clauses/delete/Delete2.feature::[1] Delete relationships	setup-failed: unsupported: writes in a read pipeline
-clauses/delete/Delete2.feature::[2] Delete optionally matched relationship	unsupported: DELETE
 clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional matching	unsupported: writes fed by named paths or relationship-list bindings
-clauses/delete/Delete2.feature::[4] Ignore null when deleting relationship	unsupported: DELETE
 clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: path variable `p` is not a graph entity
-clauses/delete/Delete3.feature::[2] Delete on null path	unsupported: DELETE
+clauses/delete/Delete3.feature::[2] Delete on null path	semantic-error: path variable `p` is not a graph entity
 clauses/delete/Delete4.feature::[2] Undirected variable length expand followed by delete and count	unsupported: writes fed by variable-length traversal
 clauses/delete/Delete5.feature::[1] Delete node from a list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[2] Delete relationship from a list	unsupported: whole entities in aggregates other than count()
@@ -99,12 +71,6 @@ clauses/delete/Delete5.feature::[4] Delete relationships from a map	semantic-err
 clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
-clauses/delete/Delete6.feature::[12] Filtering after deleting relationships affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[13] Aggregating in `RETURN` after deleting relationships affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[14] Aggregating in `WITH` after deleting relationships affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[5] Filtering after deleting nodes affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[6] Aggregating in `RETURN` after deleting nodes affects the result set but not the side effects	unsupported: DELETE
-clauses/delete/Delete6.feature::[7] Aggregating in `WITH` after deleting nodes affects the result set but not the side effects	unsupported: DELETE
 clauses/match-where/MatchWhere1.feature::[1] Filter node with node label predicate on multi variables with multiple bindings	unsupported: IS predicate
 clauses/match-where/MatchWhere1.feature::[2] Filter node with node label predicate on multi variables without any bindings	unsupported: IS predicate
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
@@ -123,7 +89,7 @@ clauses/match/Match3.feature::[19] Two bound nodes pointing to the same node	uns
 clauses/match/Match3.feature::[26] Matching twice with a duplicate predicate	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match3.feature::[7] Matching nodes with many labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match3.feature::[8] Matching using relationship predicate with multiples of the same type	unsupported: multiple or boolean relationship types
-clauses/match/Match4.feature::[4] Matching longer variable length paths	setup-failed: unsupported: writes in a read pipeline
+clauses/match/Match4.feature::[4] Matching longer variable length paths	setup-failed: semantic-error: graph variable `a` is not a scalar expression
 clauses/match/Match4.feature::[5] Matching variable length pattern with property predicate	setup-failed: unsupported: multiple or boolean node labels
 clauses/match/Match4.feature::[7] Matching variable length patterns including a bound relationship	unsupported: path values or path collections in aggregate functions
 clauses/match/Match4.feature::[8] Matching relationships into a list and matching variable length using the list	semantic-error: graph variable `r1` is not a scalar expression
@@ -147,7 +113,6 @@ clauses/match/Match7.feature::[25] Optionally matching self-loops without matche
 clauses/match/Match7.feature::[29] Satisfies the open world assumption, relationships between same nodes	semantic-error: graph variable `s` is not a scalar expression
 clauses/match/Match7.feature::[30] Satisfies the open world assumption, single relationship	semantic-error: graph variable `s` is not a scalar expression
 clauses/match/Match7.feature::[31] Satisfies the open world assumption, relationships between different nodes	semantic-error: graph variable `s` is not a scalar expression
-clauses/match/Match8.feature::[2] Counting rows after MATCH, MERGE, OPTIONAL MATCH	unsupported: MERGE
 clauses/match/Match9.feature::[1] Variable length relationship variables are lists of relationships	unsupported: path collections in scalar expressions
 clauses/match/Match9.feature::[5] Variable length pattern with label predicate on both sides	unsupported: path values or path collections in aggregate functions
 clauses/match/Match9.feature::[6] Matching relationships into a list and matching variable length using the list, with bound nodes	semantic-error: graph variable `r1` is not a scalar expression
@@ -160,44 +125,29 @@ clauses/merge/Merge1.feature::[14] Merges should not be able to match on deleted
 clauses/merge/Merge1.feature::[16] Fail when using parameter as node predicate in MERGE	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/merge/Merge1.feature::[17] Fail on merging node with null property	expected-error-not-raised
 clauses/merge/Merge1.feature::[5] Merge node should create when it doesn't match, properties and label	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 1, labels_removed: 0, properties_added: 1, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
-clauses/merge/Merge1.feature::[8] Merge should handle argument properly	unsupported: MERGE
-clauses/merge/Merge1.feature::[9] Merge should support updates while merging	setup-failed: unsupported: writes in a read pipeline
 clauses/merge/Merge2.feature::[1] Merge node with label add label on create	unsupported: setting labels
 clauses/merge/Merge3.feature::[1] Merge should be able to set labels on match	unsupported: setting labels
 clauses/merge/Merge3.feature::[2] Merge node with label add label on match when it exists	unsupported: setting labels
 clauses/merge/Merge4.feature::[1] Merge should be able to set labels on match and on create	unsupported: setting labels
 clauses/merge/Merge5.feature::[10] Merge should bind a path	unsupported: path bindings and selectors in MERGE
 clauses/merge/Merge5.feature::[11] Use outgoing direction when unspecified	unsupported: function `startnode`
-clauses/merge/Merge5.feature::[14] Using list properties via variable	unsupported: writes in a read pipeline
-clauses/merge/Merge5.feature::[16] Aliasing of existing nodes 1	unsupported: MERGE
-clauses/merge/Merge5.feature::[17] Aliasing of existing nodes 2	unsupported: MERGE
-clauses/merge/Merge5.feature::[18] Double aliasing of existing nodes 1	unsupported: MERGE
-clauses/merge/Merge5.feature::[19] Double aliasing of existing nodes 2	unsupported: MERGE
 clauses/merge/Merge5.feature::[20] Do not match on deleted entities	unsupported: mutation clause after DELETE
 clauses/merge/Merge5.feature::[21] Do not match on deleted relationships	unsupported: mutation clause after DELETE
 clauses/merge/Merge5.feature::[25] Fail when merging relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/merge/Merge5.feature::[27] Fail when using parameter as relationship predicate in MERGE	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/merge/Merge5.feature::[28] Fail when using variable length relationship in MERGE	wrong-error-kind: unsupported: variable-length relationships in MERGE
 clauses/merge/Merge5.feature::[29] Fail on merging relationship with null property	expected-error-not-raised
-clauses/merge/Merge9.feature::[1] UNWIND with one MERGE	unsupported: MERGE
-clauses/merge/Merge9.feature::[2] UNWIND with multiple MERGE	unsupported: MERGE
 clauses/merge/Merge9.feature::[4] MERGE after WITH with predicate and WITH with aggregation	unsupported: WITH DISTINCT
-clauses/remove/Remove1.feature::[5] Ignore null when removing property from a node	unsupported: REMOVE
-clauses/remove/Remove1.feature::[6] Ignore null when removing property from a relationship	unsupported: REMOVE
 clauses/remove/Remove2.feature::[1] Remove a single label from a node with a single label	unsupported: removing labels
 clauses/remove/Remove2.feature::[2] Remove a single label from a node with two labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/remove/Remove2.feature::[3] Remove two labels from a node with three labels	setup-failed: unsupported: multiple or boolean node labels
 clauses/remove/Remove2.feature::[4] Remove a non-existent node label	unsupported: removing labels
-clauses/remove/Remove2.feature::[5] Ignore null when removing a node label	unsupported: REMOVE
+clauses/remove/Remove2.feature::[5] Ignore null when removing a node label	unsupported: removing labels
 clauses/remove/Remove3.feature::[10] Skipping and limiting to a few results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[11] Skipping zero result and limiting to all results after removing a label from nodes does not affect the result set nor the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[12] Filtering after removing a label from nodes affects the result set but not the side effects	unsupported: REMOVE
+clauses/remove/Remove3.feature::[12] Filtering after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[13] Aggregating in `RETURN` after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
-clauses/remove/Remove3.feature::[14] Aggregating in `WITH` after removing a label from nodes affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[19] Filtering after removing a property from relationships affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[21] Aggregating in `WITH` after removing a property from relationships affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[5] Filtering after removing a property from nodes affects the result set but not the side effects	unsupported: REMOVE
-clauses/remove/Remove3.feature::[7] Aggregating in `WITH` after removing a property from nodes affects the result set but not the side effects	unsupported: REMOVE
+clauses/remove/Remove3.feature::[14] Aggregating in `WITH` after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[8] Limiting to zero results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/remove/Remove3.feature::[9] Skipping all results after removing a label from nodes affects the result set but not the side effects	unsupported: removing labels
 clauses/return-orderby/ReturnOrderBy1.feature::[10] ORDER BY DESC should order lists in the expected order	result-mismatch: row values differ
@@ -209,14 +159,12 @@ clauses/return-orderby/ReturnOrderBy2.feature::[11] Aggregates ordered by arithm
 clauses/return-orderby/ReturnOrderBy2.feature::[12] Aggregation of named paths	unsupported: path values or path collections in aggregate functions
 clauses/return-orderby/ReturnOrderBy2.feature::[4] Support sort and distinct	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[5] Support ordering by a property after being distinct-ified	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
-clauses/return-orderby/ReturnOrderBy2.feature::[8] Returning all variables with ordering	unsupported: RETURN *
 clauses/return-orderby/ReturnOrderBy6.feature::[1] Handle constants and parameters inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT COALESCE(crabnet_json_real(((CASE WHEN COUNT(*) FILTER (WHERE ((json_extract(n0.props, '$.' |
 clauses/return-orderby/ReturnOrderBy6.feature::[2] Handle returned aliases inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT (CASE (json_type(n0.props, '$.' || json_quote(?3))) WHEN 'text' THEN json_quote((json_extract
 clauses/return-orderby/ReturnOrderBy6.feature::[3] Handle returned property accesses inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT (CASE (json_type(n0.props, '$.' || json_quote(?3))) WHEN 'text' THEN json_quote((json_extract
 clauses/return-orderby/ReturnOrderBy6.feature::[5] Fail if more complex expressions, even if returned, are used inside an order by item which contains an aggregation expression	wrong-error-kind: sqlite-error: misuse of aggregate function COUNT() in SELECT (SELECT (CASE (s1.t1_0) WHEN 'text' THEN json_quote((s1.v1_0)) WHEN 'real' THEN COALESCE(crab
-clauses/return-skip-limit/ReturnSkipLimit1.feature::[3] SKIP with an expression that does not depend on variables	setup-failed: unsupported: writes in a read pipeline
-clauses/return-skip-limit/ReturnSkipLimit2.feature::[6] LIMIT with an expression that does not depend on variables	setup-failed: unsupported: writes in a read pipeline
-clauses/return-skip-limit/ReturnSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: writes in a read pipeline
+clauses/return-skip-limit/ReturnSkipLimit1.feature::[3] SKIP with an expression that does not depend on variables	semantic-error: SKIP and LIMIT require an integer literal or named parameter
+clauses/return-skip-limit/ReturnSkipLimit2.feature::[6] LIMIT with an expression that does not depend on variables	semantic-error: SKIP and LIMIT require an integer literal or named parameter
 clauses/return/Return2.feature::[10] Return count aggregation over an empty graph	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return2.feature::[12] Projecting a list of nodes and relationships	semantic-error: graph variable `n` is not a scalar expression
 clauses/return/Return2.feature::[13] Projecting a map of nodes and relationships	semantic-error: graph variable `n` is not a scalar expression
@@ -229,10 +177,8 @@ clauses/return/Return2.feature::[8] Returning label predicate expression	unsuppo
 clauses/return/Return3.feature::[1] Returning multiple expressions	semantic-error: graph variable `a` is not a scalar expression
 clauses/return/Return4.feature::[11] Reusing variable names in RETURN	unsupported: aggregate calls nested in WITH expressions
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
-clauses/return/Return4.feature::[8] Support column renaming for aggregations	setup-failed: unsupported: writes in a read pipeline
 clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[10] Multiple aggregates on same variable	unsupported: whole entities in aggregates other than count()
-clauses/return/Return6.feature::[11] Counting matches	setup-failed: unsupported: writes in a read pipeline
 clauses/return/Return6.feature::[13] Returning the minimum length of paths	semantic-error: graph variable `other` is not a scalar expression
 clauses/return/Return6.feature::[17] Handle constants and parameters inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[18] Handle returned variables inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
@@ -240,16 +186,13 @@ clauses/return/Return6.feature::[19] Handle returned property accesses inside an
 clauses/return/Return6.feature::[20] Fail if not returned variables are used inside an expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[21] Fail if more complex expressions, even if returned, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[2] Projecting an arithmetic expression with aggregation	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	setup-failed: unsupported: writes in a read pipeline
-clauses/return/Return6.feature::[5] Aggregates inside normal functions	setup-failed: unsupported: writes in a read pipeline
+clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	unsupported: aggregate calls nested in projection expressions
+clauses/return/Return6.feature::[5] Aggregates inside normal functions	unsupported: whole entities in aggregates other than count()
 clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return7.feature::[1] Return all variables	unsupported: RETURN *
-clauses/return/Return7.feature::[2] Fail when using RETURN * without variables in scope	wrong-error-kind: unsupported: RETURN *
 clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
-clauses/set/Set1.feature::[8] Ignore null when setting property	unsupported: SET
 clauses/set/Set3.feature::[1] Add a single label to a node with no label	unsupported: setting labels
 clauses/set/Set3.feature::[2] Adding multiple labels to a node with no label	unsupported: setting labels
 clauses/set/Set3.feature::[3] Add a single label to a node with an existing label	unsupported: setting labels
@@ -257,27 +200,18 @@ clauses/set/Set3.feature::[4] Adding multiple labels to a node with an existing 
 clauses/set/Set3.feature::[5] Ignore whitespace before colon 1	unsupported: setting labels
 clauses/set/Set3.feature::[6] Ignore whitespace before colon 2	unsupported: setting labels
 clauses/set/Set3.feature::[7] Ignore whitespace before colon 3	unsupported: setting labels
-clauses/set/Set3.feature::[8] Ignore null when setting label	unsupported: SET
+clauses/set/Set3.feature::[8] Ignore null when setting label	unsupported: setting labels
 clauses/set/Set4.feature::[3] Null values in a property map are removed with SET	result-mismatch: row values differ
-clauses/set/Set4.feature::[5] Ignore null when setting properties using an overriding map	unsupported: SET
-clauses/set/Set5.feature::[1] Ignore null when setting properties using an appending map	unsupported: SET
 clauses/set/Set6.feature::[10] Skipping and limiting to a few results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/set/Set6.feature::[11] Skipping zero result and limiting to all results after adding a label on nodes does not affect the result set nor the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[12] Filtering after adding a label on nodes affects the result set but not the side effects	unsupported: SET
+clauses/set/Set6.feature::[12] Filtering after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/set/Set6.feature::[13] Aggregating in `RETURN` after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
-clauses/set/Set6.feature::[14] Aggregating in `WITH` after adding a label on nodes affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[19] Filtering after setting a property on relationships affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[21] Aggregating in `WITH` after setting a property on relationships affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[5] Filtering after setting a property on nodes affects the result set but not the side effects	unsupported: SET
-clauses/set/Set6.feature::[7] Aggregating in `WITH` after setting a property on nodes affects the result set but not the side effects	unsupported: SET
+clauses/set/Set6.feature::[14] Aggregating in `WITH` after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/set/Set6.feature::[8] Limiting to zero results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/set/Set6.feature::[9] Skipping all results after adding a label on nodes affects the result set but not the side effects	unsupported: setting labels
 clauses/union/Union3.feature::[1] Failing when mixing UNION and UNION ALL	expected-error-not-raised
 clauses/union/Union3.feature::[2] Failing when mixing UNION ALL and UNION	expected-error-not-raised
-clauses/unwind/Unwind1.feature::[11] Unwind does not prune context	unsupported: RETURN *
 clauses/unwind/Unwind1.feature::[12] Unwind does not remove variables from scope	unsupported: whole entities in aggregates other than count()
-clauses/unwind/Unwind1.feature::[13] Multiple unwinds after each other	unsupported: RETURN *
-clauses/unwind/Unwind1.feature::[14] Unwind with merge	unsupported: MERGE
 clauses/unwind/Unwind1.feature::[5] Unwinding a collected expression	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[6] Creating nodes from an unwound parameter list	unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy1.feature::[10] Sort lists in descending order	result-mismatch: row values differ
@@ -366,8 +300,6 @@ clauses/with-orderBy/WithOrderBy4.feature::[16] Handle constants and parameters 
 clauses/with-orderBy/WithOrderBy4.feature::[17] Handle projected variables inside an order by item which contains an aggregation expression	semantic-error: unknown variable `you`
 clauses/with-orderBy/WithOrderBy4.feature::[18]  Handle projected property accesses inside an order by item which contains an aggregation expression	semantic-error: unknown variable `me`
 clauses/with-orderBy/WithOrderBy4.feature::[20] Fail if more complex expressions, even if projected, are used inside an order by item which contains an aggregation expression	wrong-error-kind: unsupported: computed WITH expressions without aliases
-clauses/with-skip-limit/WithSkipLimit2.feature::[3] Connected components succeeding WITH with LIMIT	unsupported: RETURN *
-clauses/with-skip-limit/WithSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument	setup-failed: unsupported: writes in a read pipeline
 clauses/with-where/WithWhere1.feature::[2] Filter node with property predicate on a single variable with multiple distinct bindings	unsupported: WITH DISTINCT
 clauses/with-where/WithWhere1.feature::[3] Filter for an unbound relationship variable	semantic-error: graph variable `r` is not a scalar expression
 clauses/with-where/WithWhere1.feature::[4] Filter for an unbound node variable	semantic-error: graph variable `a` is not a scalar expression
@@ -376,15 +308,8 @@ clauses/with-where/WithWhere3.feature::[1] Join between node identities	semantic
 clauses/with-where/WithWhere4.feature::[1] Join nodes on inequality	semantic-error: graph or path variable `a` is not a scalar expression
 clauses/with-where/WithWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: pattern predicate
 clauses/with-where/WithWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false	unsupported: IS predicate
-clauses/with-where/WithWhere7.feature::[1] WHERE sees a variable bound before but not after WITH	unsupported: RETURN *
-clauses/with-where/WithWhere7.feature::[2] WHERE sees a variable bound after but not before WITH	unsupported: RETURN *
-clauses/with-where/WithWhere7.feature::[3] WHERE sees both, variable bound before but not after WITH and variable bound after but not before WITH	unsupported: RETURN *
-clauses/with/With1.feature::[1] Forwarind a node variable 1	unsupported: RETURN *
-clauses/with/With1.feature::[2] Forwarind a node variable 2	unsupported: RETURN *
-clauses/with/With1.feature::[5] Forwarding null	unsupported: RETURN *
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
 clauses/with/With4.feature::[6] Reusing variable names in WITH	unsupported: aggregate calls nested in WITH expressions
-clauses/with/With4.feature::[7] Multiple aliasing and backreferencing	unsupported: writes in a read pipeline
 clauses/with/With5.feature::[1] DISTINCT on an expression	unsupported: WITH DISTINCT
 clauses/with/With5.feature::[2] Handling DISTINCT with lists in maps	unsupported: WITH DISTINCT
 clauses/with/With6.feature::[4] Implicit grouping with single path variable as grouping key and single aggregation	unsupported: path values or path collections in aggregating WITH projections
@@ -411,7 +336,7 @@ expressions/aggregation/Aggregation6.feature::[3] `percentileCont()` failing on 
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 1	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 2	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 3	wrong-error-kind: unsupported: function `percentiledisc`
-expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	setup-failed: unsupported: writes in a read pipeline
+expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	wrong-error-kind: unsupported: pattern comprehension
 expressions/aggregation/Aggregation8.feature::[3] Collect distinct nulls	unsupported: collect(DISTINCT ...)
 expressions/aggregation/Aggregation8.feature::[4] Collect distinct values mixed with nulls	unsupported: collect(DISTINCT ...)
 expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 1	expected-error-not-raised
@@ -565,15 +490,6 @@ expressions/comparison/Comparison2.feature::[4] Comparing lists::example 5	resul
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 3	result-mismatch: row values differ
-expressions/comparison/Comparison3.feature::[1] Handling numerical ranges 1	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[2] Handling numerical ranges 2	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[3] Handling numerical ranges 3	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[4] Handling numerical ranges 4	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[5] Handling string ranges 1	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[6] Handling string ranges 2	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[7] Handling string ranges 3	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison3.feature::[8] Handling string ranges 4	setup-failed: unsupported: writes in a read pipeline
-expressions/comparison/Comparison4.feature::[1] Handling long chains of operators	result-mismatch: 3 rows instead of 1
 expressions/existentialSubqueries/ExistentialSubquery1.feature::[1] Simple subquery without WHERE clause	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery1.feature::[2] Simple subquery with WHERE clause	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery1.feature::[3] Simple subquery without WHERE clause, not existing pattern	unsupported: subquery expression
@@ -1791,16 +1707,13 @@ expressions/temporal/Temporal9.feature::[5] Should truncate time::example 9	unsu
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/typeConversion/TypeConversion2.feature::[7] `toInteger()` on node property	unsupported: WITH *
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/typeConversion/TypeConversion3.feature::[5] `toFloat()` on node property	unsupported: WITH *
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 3	expected-error-not-raised
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/typeConversion/TypeConversion4.feature::[7] `toString()` on node property	unsupported: WITH *
 useCases/triadicSelection/TriadicSelection1.feature::[10] Handling triadic friend of a friend that is not a friend with implicit superset of labels	semantic-error: graph variable `r` is not a scalar expression
 useCases/triadicSelection/TriadicSelection1.feature::[11] Handling triadic friend of a friend that is a friend	semantic-error: graph variable `r` is not a scalar expression
 useCases/triadicSelection/TriadicSelection1.feature::[12] Handling triadic friend of a friend that is a friend with different relationship type	semantic-error: graph variable `r` is not a scalar expression

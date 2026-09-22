@@ -883,13 +883,27 @@ pub(crate) enum Input {
     Pipeline(ReadPipeline),
     /// Rows already materialized by a mutation pipeline, exposed to the SQL
     /// compiler through the `_crabnet_rows` temporary table with one encoded
-    /// entity column per slot and the row index as `ROW_INDEX_SLOT`. The
-    /// post-mutation `RETURN` runs over it; a `MERGE` matcher additionally
-    /// matches its pattern against the graph from each row.
+    /// entity column per entity slot, one JSON column per scalar slot, and
+    /// the row index as `ROW_INDEX_SLOT`. The post-mutation `RETURN` and
+    /// computed stored values run over it directly; a `MERGE` matcher and a
+    /// read segment continue from it through further read stages.
     Rows {
         slots: Vec<(SlotId, EntityKind)>,
-        pattern: Option<MatchPlan>,
+        scalars: Vec<ScalarSlotId>,
+        stages: Vec<ReadStage>,
     },
+}
+
+/// One read-then-write step of a clause sequence that continues after its
+/// first mutations: `stages` read from the rows the earlier mutations left,
+/// seeing only the variables live at that point (`slots` and `scalars`), and
+/// `mutations` then apply to the rows the stages produce.
+#[derive(Clone, Debug)]
+pub(crate) struct Segment {
+    pub(crate) slots: Vec<(SlotId, EntityKind)>,
+    pub(crate) scalars: Vec<ScalarSlotId>,
+    pub(crate) stages: Vec<ReadStage>,
+    pub(crate) mutations: Vec<Mutation>,
 }
 
 /// The scalar slot through which a read over materialized rows sees each
@@ -982,6 +996,7 @@ pub(crate) struct Query {
     pub(crate) path_slots: usize,
     pub(crate) input: Input,
     pub(crate) mutations: Vec<Mutation>,
+    pub(crate) segments: Vec<Segment>,
     pub(crate) projection: Option<Projection>,
 }
 

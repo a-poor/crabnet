@@ -251,11 +251,7 @@ fn parameters_can_cross_with_boundaries_and_filter_a_later_match() {
 fn unsupported_with_projection_forms_fail_during_planning() {
     let mut database = Database::in_memory().unwrap();
 
-    for query in [
-        "WITH DISTINCT 1 AS one RETURN one",
-        "MATCH (person) WITH * RETURN person",
-        "WITH 1 + 2 RETURN 3",
-    ] {
+    for query in ["WITH DISTINCT 1 AS one RETURN one", "WITH 1 + 2 RETURN 3"] {
         assert!(
             matches!(database.execute(query), Err(Error::Unsupported(_))),
             "query should be an explicitly unsupported WITH form: {query}"
@@ -362,17 +358,19 @@ fn with_pagination_parameters_are_validated_before_sql_runs() {
 }
 
 #[test]
-fn writes_in_a_with_pipeline_are_rejected_before_mutation() {
+fn with_after_a_write_projects_the_created_rows() {
     let mut database = Database::in_memory().unwrap();
 
-    assert!(matches!(
-        database.execute("CREATE (node:ShouldNotExist) WITH node RETURN node"),
-        Err(Error::Unsupported(_))
-    ));
-    let remaining = database
-        .execute("MATCH (node:ShouldNotExist) RETURN node")
+    let result = database
+        .execute("CREATE (node:Created {order: 1}) WITH node RETURN node.order AS order")
         .unwrap();
-    assert!(remaining.rows.is_empty());
+    assert_eq!(result.columns, vec!["order"]);
+    assert_eq!(result.rows, vec![vec![CypherValue::Integer(1)]]);
+    assert_eq!(result.summary.nodes_created, 1);
+    let remaining = database
+        .execute("MATCH (node:Created) RETURN count(node) AS total")
+        .unwrap();
+    assert_eq!(remaining.rows, vec![vec![CypherValue::Integer(1)]]);
 }
 
 #[test]

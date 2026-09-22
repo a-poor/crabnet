@@ -138,11 +138,12 @@ fn consecutive_create_clauses_share_bindings_and_follow_multiple_matches() {
         .unwrap();
     assert_eq!(path.rows, [vec![json!("c")]]);
 
-    // MATCH after CREATE stays rejected.
-    let error = database
-        .execute("CREATE (:X) MATCH (n) RETURN n")
-        .unwrap_err();
-    assert!(matches!(error, Error::Unsupported(_)), "{error:?}");
+    // MATCH after CREATE reads the graph as the CREATE left it.
+    let after = database
+        .execute("CREATE (:X) MATCH (n:X) RETURN count(n) AS created")
+        .unwrap();
+    assert_eq!(after.rows, [vec![json!(1)]]);
+    assert_eq!(after.summary.nodes_created, 1);
 }
 
 #[test]

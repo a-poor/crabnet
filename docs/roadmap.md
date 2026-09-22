@@ -177,10 +177,11 @@ silently coerced.
 - Each `WITH` stage lowers to a parameterized SQLite CTE. Normalized logical
   explanations show stages and scopes, while the physical explanation shows
   the generated SQLite fragment and binding positions.
-- The pipeline retains bag semantics. `WITH ALL` is accepted; `WITH DISTINCT`,
-  `WITH *`, unaliased computed expressions, and writes in a `WITH` pipeline
-  remain explicit planning-time rejections. Aggregation was added by milestone
-  6 without changing this clause-boundary model.
+- The pipeline retains bag semantics. `WITH ALL` and `WITH *` are accepted;
+  `WITH DISTINCT` and unaliased computed expressions remain explicit
+  planning-time rejections. Aggregation was added by milestone 6 without
+  changing this clause-boundary model, and updating clauses were later
+  admitted anywhere in it (see the TCK notes below).
 
 Gate complete: `tests/with_pipeline.rs` covers standalone and chained stages,
 entity/scalar aliases, scope loss, filtering, intermediate pagination, later
@@ -432,8 +433,16 @@ functions themselves (which now also account for every remaining setup
 failure), expected errors that are not raised (mostly wrong-kind arguments
 that read as null where Cypher raises a type error, a deliberate choice that
 a future strict-types pass could revisit in one place), and result
-mismatches. `MERGE` is in, with only its `WITH`/`UNWIND`-pipeline forms
-left, which belong to the wider "writes in a read pipeline" gap. `rand()` is
+mismatches. `MERGE` is in. Writes in a clause pipeline followed: the
+lowering now accepts any order of reading and updating clauses and splits
+the statement into the input read, its mutations, and then segments, each a
+run of reading clauses compiled as a read over the `_crabnet_rows` table
+(which carries scalar columns as well as entities) followed by that run's
+mutations; the executor re-materializes the rows between segments. That
+closed the "writes in a read pipeline" bucket and the remaining `MERGE`
+forms, and brought `WITH *`, `RETURN *`, chained comparisons
+(`1 < n.num < 3`), and null-skipping updates after `OPTIONAL MATCH` along
+with it, since the newly reachable scenarios needed them. `rand()` is
 compiled as a one-row `json_each(json_array(random()))`
 source joined after the row sources rather than as an expression, because
 SQLite evaluates an uncorrelated scalar subquery once per statement; that

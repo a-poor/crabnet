@@ -9,7 +9,7 @@ use crate::{Error, Parameters, Result};
 use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
     ListVariableId, MatchOperator, MatchPlan, PathFunctionKind, PathId, PathSegment, Projection,
-    ROW_INDEX_SLOT, ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, SlotId,
+    ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, SlotId,
     SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
@@ -120,15 +120,19 @@ impl CompiledRead {
     }
 }
 
+/// A read whose rows feed mutations: one encoded entity column per bound
+/// entity slot followed by one JSON column per bound scalar slot.
 pub(crate) struct RowSource {
     pub(crate) sql: String,
     pub(crate) slots: Vec<(SlotId, EntityKind)>,
+    pub(crate) scalars: Vec<ScalarSlotId>,
     bindings: Vec<SqlParameter>,
 }
 
 pub(crate) struct ResolvedRowSource {
     pub(crate) sql: String,
     pub(crate) slots: Vec<(SlotId, EntityKind)>,
+    pub(crate) scalars: Vec<ScalarSlotId>,
     pub(crate) bindings: Vec<SqlValue>,
 }
 
@@ -138,6 +142,7 @@ impl RowSource {
             bindings: resolve_bindings(&self.bindings, parameters)?,
             sql: self.sql,
             slots: self.slots,
+            scalars: self.scalars,
         })
     }
 }
@@ -155,26 +160,7 @@ pub(crate) const ROWS_TABLE: &str = "_crabnet_rows";
 
 pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<CompiledRead> {
     let mut compiler = Compiler::new();
-    match input {
-        Input::Unit => {}
-        Input::Rows { slots, pattern } => {
-            compiler.compile_rows(slots);
-            if let Some(pattern) = pattern {
-                compiler.compile_match(pattern)?;
-            }
-        }
-        Input::Match(plan) => compiler.compile_match(plan)?,
-        Input::Pipeline(pipeline) => {
-            for stage in &pipeline.stages {
-                match stage {
-                    ReadStage::Match(plan) => compiler.compile_match(plan)?,
-                    ReadStage::OptionalMatch(plan) => compiler.compile_optional_match(plan)?,
-                    ReadStage::With(stage) => compiler.compile_with(stage)?,
-                    ReadStage::Unwind(stage) => compiler.compile_unwind(stage)?,
-                }
-            }
-        }
-    }
+    compiler.compile_input(input)?;
 
     let aggregating = projection.expressions.iter().any(Expr::contains_aggregate);
     let outputs = projection
@@ -259,36 +245,84 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Com
     })
 }
 
-pub(crate) fn compile_row_source(plan: &MatchPlan) -> Result<RowSource> {
-    if plan.has_variable_length() {
+/// Compiles the read that feeds a mutation step: the input's stages, then
+/// every entity and scalar binding they leave live, in the order the stages
+/// produce rows.
+pub(crate) fn compile_row_source(input: &Input) -> Result<RowSource> {
+    let plans: Vec<&MatchPlan> = match input {
+        Input::Unit => Vec::new(),
+        Input::Match(plan) => vec![plan],
+        Input::Pipeline(ReadPipeline { stages }) | Input::Rows { stages, .. } => stages
+            .iter()
+            .filter_map(|stage| match stage {
+                ReadStage::Match(plan) | ReadStage::OptionalMatch(plan) => Some(plan),
+                ReadStage::With(_) | ReadStage::Unwind(_) => None,
+            })
+            .collect(),
+    };
+    if plans.iter().any(|plan| plan.has_variable_length()) {
         return Err(Error::Unsupported(
             "writes fed by variable-length traversal".into(),
         ));
     }
     let mut compiler = Compiler::new();
-    compiler.compile_match(plan)?;
-    compiler.scanned.sort_by_key(|(slot, _)| *slot);
+    compiler.compile_input(input)?;
+    if !compiler.inputs.is_empty() {
+        return Err(Error::Unsupported(
+            "writes fed by variable-length traversal".into(),
+        ));
+    }
 
-    let select = compiler
-        .scanned
+    let mut slots = compiler
+        .entities
+        .iter()
+        .map(|(slot, source)| (*slot, source.kind()))
+        .collect::<Vec<_>>();
+    slots.sort_by_key(|(slot, _)| *slot);
+    let mut scalars = compiler
+        .scalars
+        .keys()
+        .copied()
+        .filter(|slot| *slot != ROW_INDEX_SLOT)
+        .collect::<Vec<_>>();
+    scalars.sort();
+
+    let mut select = slots
         .iter()
         .map(|(slot, kind)| compiler.encoded_entity(*slot, *kind))
         .collect::<Result<Vec<_>>>()?;
-    let sql = compiler.select_sql(&select);
+    select.extend(scalars.iter().map(|slot| {
+        compiler
+            .scalars
+            .get(slot)
+            .cloned()
+            .expect("collected scalar slot has a source")
+    }));
+    if select.is_empty() {
+        // A source with no live bindings still yields one row per input row.
+        select.push("1".to_owned());
+    }
+    let mut sql = compiler.select_sql(&select);
+    if let Some(ordering) = &compiler.ordering {
+        sql.push_str(" ORDER BY ");
+        sql.push_str(ordering);
+    }
+    let sql = compiler.with_ctes(sql);
 
     let bindings = compiler
         .bindings
         .into_iter()
         .map(|argument| match argument {
             FragmentArgument::Static(parameter) => Ok(parameter),
-            FragmentArgument::Runtime(_) => Err(Error::Data(
-                "mutation row source contains a runtime input".into(),
+            FragmentArgument::Runtime(_) => Err(Error::Unsupported(
+                "writes fed by variable-length traversal".into(),
             )),
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(RowSource {
         sql,
-        slots: compiler.scanned,
+        slots,
+        scalars,
         bindings,
     })
 }
@@ -466,7 +500,7 @@ impl Compiler {
     /// `e{slot}` holds each slot's encoded entity record (NULL when the slot
     /// is unbound in that row). Rows keep their input order unless the
     /// projection orders them itself.
-    fn compile_rows(&mut self, slots: &[(SlotId, EntityKind)]) {
+    fn compile_rows(&mut self, slots: &[(SlotId, EntityKind)], scalars: &[ScalarSlotId]) {
         let relation = "mr";
         for (slot, kind) in slots {
             self.entities.insert(
@@ -477,9 +511,41 @@ impl Compiler {
                 },
             );
         }
+        for slot in scalars {
+            self.scalars
+                .insert(*slot, format!("{relation}.s{}", slot.0));
+        }
         self.scalars.insert(ROW_INDEX_SLOT, format!("{relation}.k"));
         self.from.push(format!("{ROWS_TABLE} AS {relation}"));
         self.ordering = Some(format!("{relation}.rowid"));
+    }
+
+    fn compile_input(&mut self, input: &Input) -> Result<()> {
+        match input {
+            Input::Unit => Ok(()),
+            Input::Rows {
+                slots,
+                scalars,
+                stages,
+            } => {
+                self.compile_rows(slots, scalars);
+                self.compile_stages(stages)
+            }
+            Input::Match(plan) => self.compile_match(plan),
+            Input::Pipeline(pipeline) => self.compile_stages(&pipeline.stages),
+        }
+    }
+
+    fn compile_stages(&mut self, stages: &[ReadStage]) -> Result<()> {
+        for stage in stages {
+            match stage {
+                ReadStage::Match(plan) => self.compile_match(plan)?,
+                ReadStage::OptionalMatch(plan) => self.compile_optional_match(plan)?,
+                ReadStage::With(stage) => self.compile_with(stage)?,
+                ReadStage::Unwind(stage) => self.compile_unwind(stage)?,
+            }
+        }
+        Ok(())
     }
 
     fn compile_match(&mut self, plan: &MatchPlan) -> Result<()> {
@@ -1221,6 +1287,10 @@ impl Compiler {
             select.push(format!("{ordering} AS _crabnet_order"));
         }
 
+        if select.is_empty() {
+            // `WITH *` over an empty scope keeps the rows and binds nothing.
+            select.push("1 AS _crabnet_unit".to_owned());
+        }
         let mut sql = self.select_sql(&select);
         if aggregating && !group_by.is_empty() {
             sql.push_str(" GROUP BY ");
