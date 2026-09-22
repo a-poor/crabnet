@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use open_cypher::{
@@ -319,7 +319,7 @@ fn lower_clause_sequence(source: &str, clauses: &[open_cypher::ast::Clause]) -> 
     };
 
     Ok(Query {
-        slots: lowerer.slots,
+        slots: lowerer.slots.into_inner(),
         scalar_slots: lowerer.scalar_slots,
         path_slots: lowerer.path_slots,
         input,
@@ -374,7 +374,7 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
     })?;
 
     Ok(Query {
-        slots: lowerer.slots,
+        slots: lowerer.slots.into_inner(),
         scalar_slots: lowerer.scalar_slots,
         path_slots: lowerer.path_slots,
         input: Input::Pipeline(ReadPipeline { stages }),
@@ -402,7 +402,9 @@ struct MatchedPath {
 
 struct Lowerer<'source> {
     source: &'source str,
-    slots: Vec<EntityKind>,
+    // Pattern predicates allocate slots while expression lowering holds the
+    // lowerer immutably, so the slot table sits behind a cell.
+    slots: RefCell<Vec<EntityKind>>,
     scalar_slots: usize,
     traversal_slots: usize,
     path_slots: usize,
@@ -417,7 +419,7 @@ impl<'source> Lowerer<'source> {
     fn new(source: &'source str) -> Self {
         Self {
             source,
-            slots: Vec::new(),
+            slots: RefCell::new(Vec::new()),
             scalar_slots: 0,
             traversal_slots: 0,
             path_slots: 0,
@@ -434,13 +436,14 @@ impl<'source> Lowerer<'source> {
     }
 
     fn allocate(&mut self, kind: EntityKind) -> SlotId {
-        let slot = SlotId(self.slots.len());
-        self.slots.push(kind);
+        let mut slots = self.slots.borrow_mut();
+        let slot = SlotId(slots.len());
+        slots.push(kind);
         slot
     }
 
     fn kind(&self, slot: SlotId) -> EntityKind {
-        self.slots[slot.0]
+        self.slots.borrow()[slot.0]
     }
 
     fn allocate_scalar(&mut self) -> ScalarSlotId {
@@ -1623,6 +1626,106 @@ impl<'source> Lowerer<'source> {
         ))
     }
 
+    /// `(n)-[:KNOWS]->()` as a boolean: the pattern is lowered by a scoped
+    /// copy of this lowerer, so it sees the bound variables but its anonymous
+    /// entities stay local to the predicate.
+    fn pattern_predicate(&self, pattern: &open_cypher::ast::Pattern, span: Span) -> Result<Expr> {
+        let mut scoped = Lowerer::new(self.source);
+        scoped.slots = RefCell::new(self.slots.borrow().clone());
+        scoped.scalar_slots = self.scalar_slots;
+        scoped.traversal_slots = self.traversal_slots;
+        scoped.path_slots = self.path_slots;
+        scoped.symbols = self.symbols.clone();
+        scoped.list_variables.set(self.list_variables.get());
+
+        let mut plan = MatchPlan::default();
+        let mut relationships = Vec::new();
+        for part in &pattern.parts {
+            if part.kind.selector.is_some() {
+                return Err(unsupported(
+                    part.span,
+                    "path selectors in a pattern predicate",
+                ));
+            }
+            if let Some(binding) = &part.kind.binding {
+                return Err(semantic(
+                    binding.span,
+                    "a pattern predicate cannot bind a path variable",
+                ));
+            }
+            let factors = &part.kind.path.kind.factors;
+            if factors.len() < 2 {
+                return Err(semantic(
+                    part.span,
+                    "a pattern predicate must contain at least one relationship",
+                ));
+            }
+            if factors
+                .iter()
+                .any(|factor| matches!(factor.kind, PathFactorKind::LegacyShortest { .. }))
+            {
+                return Err(unsupported(
+                    part.span,
+                    "shortest paths in a pattern predicate",
+                ));
+            }
+            let matched = scoped.match_path(&mut plan, factors, part.span)?;
+            relationships.extend(matched.segments.iter().map(|segment| segment.relationship));
+        }
+        if relationships.len() > 1 {
+            plan.operators
+                .push(MatchOperator::DistinctRelationships(relationships));
+        }
+        if plan.has_variable_length() {
+            return Err(unsupported(span, "variable-length pattern predicates"));
+        }
+        if let Some(name) = scoped
+            .symbols
+            .keys()
+            .find(|name| !self.symbols.contains_key(*name))
+        {
+            return Err(semantic(
+                span,
+                format!("pattern predicate introduces the unbound variable `{name}`"),
+            ));
+        }
+
+        let before = self.slots.borrow().len();
+        let all = scoped.slots.into_inner();
+        let local = all[before..]
+            .iter()
+            .enumerate()
+            .map(|(offset, kind)| (SlotId(before + offset), *kind))
+            .collect::<Vec<_>>();
+        self.slots.borrow_mut().extend_from_slice(&all[before..]);
+        self.list_variables.set(scoped.list_variables.get());
+        Ok(Expr::Exists {
+            pattern: plan,
+            local,
+        })
+    }
+
+    /// The entity a comparison operand names, if it is a bare node or
+    /// relationship variable.
+    fn entity_operand(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+    ) -> Option<SlotId> {
+        match &expression.kind {
+            ExprKind::Parenthesized(inner) => self.entity_operand(inner, aliases),
+            ExprKind::Variable(variable) => match aliases.get(&variable.kind.text) {
+                Some(Expr::Entity(slot)) => Some(*slot),
+                Some(_) => None,
+                None => match self.symbols.get(&variable.kind.text) {
+                    Some(Symbol::Entity(slot)) => Some(*slot),
+                    _ => None,
+                },
+            },
+            _ => None,
+        }
+    }
+
     /// The node a `SET`/`REMOVE` label item targets.
     fn label_target(&self, name: &open_cypher::ast::Name) -> Result<SlotId> {
         let slot = self.resolve_entity_name(name)?;
@@ -2247,6 +2350,36 @@ impl<'source> Lowerer<'source> {
                 operator,
                 right,
             } => {
+                // Nodes and relationships compare by identity: `a = b` and
+                // `a <> b` compare element ids, null when either side is null.
+                if matches!(
+                    operator.kind,
+                    BinaryOperator::Equal | BinaryOperator::NotEqual
+                ) {
+                    let left_entity = self.entity_operand(left, aliases);
+                    let right_entity = self.entity_operand(right, aliases);
+                    if left_entity.is_some() || right_entity.is_some() {
+                        let side = |slot: Option<SlotId>, operand: &AstExpr| -> Result<Expr> {
+                            match slot {
+                                Some(slot) => Ok(Expr::ElementId(slot)),
+                                None => self.scalar_expression_with_aliases_at_depth(
+                                    operand,
+                                    aliases,
+                                    expression_depth + 1,
+                                ),
+                            }
+                        };
+                        return Ok(Expr::Binary {
+                            left: Box::new(side(left_entity, left)?),
+                            operator: if operator.kind == BinaryOperator::Equal {
+                                BinaryOp::Equal
+                            } else {
+                                BinaryOp::NotEqual
+                            },
+                            right: Box::new(side(right_entity, right)?),
+                        });
+                    }
+                }
                 // `a < b < c` compares pairwise: `a < b AND b < c`.
                 if let Some((operands, operators)) = comparison_chain(expression)
                     && operators.len() > 1
@@ -2336,14 +2469,21 @@ impl<'source> Lowerer<'source> {
                 expression,
                 negated,
                 predicate: IsPredicate::Null,
-            } => Ok(Expr::IsNull {
-                expression: Box::new(self.scalar_expression_with_aliases_at_depth(
-                    expression,
-                    aliases,
-                    expression_depth + 1,
-                )?),
-                negated: *negated,
-            }),
+            } => {
+                // A node or relationship is null exactly when its id is.
+                let operand = match self.entity_operand(expression, aliases) {
+                    Some(slot) => Expr::ElementId(slot),
+                    None => self.scalar_expression_with_aliases_at_depth(
+                        expression,
+                        aliases,
+                        expression_depth + 1,
+                    )?,
+                };
+                Ok(Expr::IsNull {
+                    expression: Box::new(operand),
+                    negated: *negated,
+                })
+            }
             ExprKind::Is {
                 expression: target,
                 negated,
@@ -2618,7 +2758,7 @@ impl<'source> Lowerer<'source> {
                 })
             }
             ExprKind::Subquery(_) => Err(unsupported(expression.span, "subquery expression")),
-            ExprKind::Pattern(_) => Err(unsupported(expression.span, "pattern predicate")),
+            ExprKind::Pattern(pattern) => self.pattern_predicate(pattern, expression.span),
             ExprKind::Wildcard => Err(unsupported(expression.span, "`*` in an expression")),
             ExprKind::Error(_) => Err(unsupported(expression.span, "malformed expression")),
             _ => Err(unsupported(expression.span, "expression")),
@@ -2658,6 +2798,19 @@ impl<'source> Lowerer<'source> {
                     EntityKind::Node => Err(semantic(span, "type() requires a relationship")),
                 }
             }
+            "exists" => match function.arguments.as_slice() {
+                [argument] if matches!(argument.kind, ExprKind::Pattern(_)) => {
+                    let ExprKind::Pattern(pattern) = &argument.kind else {
+                        unreachable!("matched a pattern argument");
+                    };
+                    self.pattern_predicate(pattern, span)
+                }
+                [argument] => Ok(Expr::IsNull {
+                    expression: Box::new(self.scalar_expression_with_aliases(argument, aliases)?),
+                    negated: true,
+                }),
+                _ => Err(semantic(span, "exists() takes exactly one argument")),
+            },
             "labels" => {
                 let slot = self.single_entity_argument(function, span, aliases)?;
                 match self.kind(slot) {

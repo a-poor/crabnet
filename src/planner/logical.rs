@@ -124,7 +124,7 @@ fn negate(value: Value) -> Result<Value> {
         .ok_or_else(|| Error::Semantic("non-finite floats are not supported".to_owned()))
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Direction {
     Right,
     Left,
@@ -198,6 +198,13 @@ pub(crate) enum Expr {
     Labels(SlotId),
     /// Whether the node has the label; null for a null node.
     HasLabel(SlotId, String),
+    /// A pattern predicate such as `(n)-[:KNOWS]->()`: whether the pattern
+    /// matches from the row's bound entities. `local` are the anonymous
+    /// slots the pattern introduces; they are scoped to the predicate.
+    Exists {
+        pattern: MatchPlan,
+        local: Vec<(SlotId, EntityKind)>,
+    },
     RelationshipType(SlotId),
     Binary {
         left: Box<Self>,
@@ -468,6 +475,7 @@ impl Expr {
             | Self::ElementId(_)
             | Self::Labels(_)
             | Self::HasLabel(_, _)
+            | Self::Exists { .. }
             | Self::RelationshipType(_)
             | Self::ListElement(_)
             | Self::EntityKeys(_)
@@ -626,6 +634,7 @@ impl Expr {
             | Self::ElementId(_)
             | Self::Labels(_)
             | Self::HasLabel(_, _)
+            | Self::Exists { .. }
             | Self::RelationshipType(_) => true,
         }
     }
@@ -707,6 +716,7 @@ impl Expr {
             Self::EntityKeys(slot) | Self::EntityProperties(slot) => grouping
                 .iter()
                 .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
+            Self::Exists { .. } => false,
             Self::Property(slot, _)
             | Self::ElementId(slot)
             | Self::Labels(slot)
@@ -719,7 +729,7 @@ impl Expr {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MatchOperator {
     ScanNode {
         slot: SlotId,
@@ -806,7 +816,7 @@ pub(crate) struct PathSegment {
     pub(crate) right: SlotId,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct MatchPlan {
     pub(crate) operators: Vec<MatchOperator>,
 }

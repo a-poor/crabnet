@@ -306,6 +306,8 @@ falling back to a generic `expression` bucket, which is what lets
 ranked backlog. Concurrent external-writer behavior remains outside the test
 goal.
 
+`tests/pattern_predicates.rs` covers pattern predicates in every position
+they may appear, their rejections, and identity comparison of entities.
 `tests/labels.rs` covers the label list: creation order and repeats, label
 expressions in patterns and `WHERE`, encoded-row label tests after `WITH`,
 `SET`/`REMOVE` labels with their summary counters, `MERGE` label subsets and

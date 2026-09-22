@@ -520,6 +520,46 @@ impl Compiler {
         self.ordering = Some(format!("{relation}.rowid"));
     }
 
+    /// Compiles a pattern predicate as a correlated `EXISTS` subquery: the
+    /// pattern's fresh entities are scanned inside it while its bound
+    /// entities refer to the enclosing query's sources.
+    fn exists_subquery(
+        &mut self,
+        pattern: &MatchPlan,
+        local: &[(SlotId, EntityKind)],
+    ) -> Result<String> {
+        let saved_from = std::mem::take(&mut self.from);
+        let saved_filters = std::mem::take(&mut self.filters);
+        let saved_scanned = std::mem::take(&mut self.scanned);
+        let saved_ordering = self.ordering.take();
+        // A read over materialized rows registers every slot; the predicate's
+        // own slots are never bound there and must be scanned afresh.
+        for (slot, _) in local {
+            self.entities.remove(slot);
+        }
+        let compiled = self.compile_match(pattern);
+        let from = std::mem::replace(&mut self.from, saved_from);
+        let filters = std::mem::replace(&mut self.filters, saved_filters);
+        self.scanned = saved_scanned;
+        self.ordering = saved_ordering;
+        for (slot, _) in local {
+            self.entities.remove(slot);
+        }
+        compiled?;
+        if from.is_empty() {
+            return Err(Error::Data(
+                "a pattern predicate compiled without any source".into(),
+            ));
+        }
+        let mut sql = format!("EXISTS (SELECT 1 FROM {}", from.join(", "));
+        if !filters.is_empty() {
+            sql.push_str(" WHERE ");
+            sql.push_str(&filters.join(" AND "));
+        }
+        sql.push(')');
+        Ok(sql)
+    }
+
     fn compile_input(&mut self, input: &Input) -> Result<()> {
         match input {
             Input::Unit => Ok(()),
@@ -1863,6 +1903,10 @@ impl Compiler {
                     format!("CASE WHEN {id} IS NULL THEN NULL ELSE json({labels}) END"),
                     "'array'",
                 ))
+            }
+            Expr::Exists { pattern, local } => {
+                let subquery = self.exists_subquery(pattern, local)?;
+                Ok(Scalar::boolean(subquery))
             }
             Expr::HasLabel(slot, label) => {
                 let id = self.entity_field(*slot, "id")?;

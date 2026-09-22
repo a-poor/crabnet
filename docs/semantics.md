@@ -283,6 +283,29 @@ A null or missing operand, or any incompatible or unsupported pair of value
 kinds, produces null. Crabnet does not coerce text to numbers or booleans to
 numbers for either equality or ordering.
 
+## Pattern predicates and entity identity
+
+A fixed-length pattern in a boolean position, such as `WHERE (n)-[:KNOWS]->()`,
+`NOT (a)-->(c)`, or `RETURN (n)-->() AS connected`, is true when the pattern
+matches at least once from the row's bound entities. Every variable in the
+pattern must already be bound; the pattern's anonymous nodes and
+relationships are scoped to the predicate and are never part of the row.
+Labels, relationship types, inline property maps, and several pattern parts
+are allowed, and relationships within one predicate are distinct from each
+other as in `MATCH`. The predicate compiles to a correlated `EXISTS`
+subquery, so it works in `WHERE`, `WITH ... WHERE`, projections, list
+comprehensions, and the filters of updating statements, where it sees the
+graph before the statement's writes. `exists(pattern)` is the same test and
+`exists(n.prop)` is `n.prop IS NOT NULL`. A pattern without a relationship, a
+pattern that introduces a new variable, a path binding, a variable-length
+relationship, and relationship-type alternatives are rejected.
+
+Nodes and relationships compare by identity: `a = b` is true when both name
+the same stored entity and `a <> b` when they differ, null when either side
+is null, and `r IS NULL` tests an entity the same way. An entity compared
+with a non-entity value is not equal. Entities still cannot be ordered,
+collected, or placed in lists.
+
 ## Membership and string predicates
 
 `IN` uses the same typed equality rules for each list member. It does not

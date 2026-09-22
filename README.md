@@ -101,6 +101,10 @@ Within those shapes, the first iteration supports:
 - recursive JSON list/map inputs through 100 nested containers, with deeper
   values rejected during preflight before they can become unreadable stored
   properties
+- pattern predicates such as `WHERE (n)-[:KNOWS]->(:Person)` or
+  `NOT (a)-->(c)`, and `exists(pattern)`, over fixed-length patterns whose
+  variables are already bound
+- identity comparison of nodes and relationships with `=` and `<>`
 - inline property matching and `WHERE` typed comparisons, boolean expressions
   (`AND`, `OR`, `XOR`, `NOT`),
   `IN`, `STARTS WITH`, `CONTAINS`, `ENDS WITH`, and the list quantifiers

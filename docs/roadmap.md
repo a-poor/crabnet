@@ -447,7 +447,12 @@ schema version 2 stores a node's labels as a JSON list and keeps a
 trigger-maintained `node_labels (label, node_id)` table for indexed label
 lookups (version 1 files migrate on open), which gave multiple labels, label
 expressions in patterns and predicates, `SET`/`REMOVE` labels with summary
-counters, and `XOR` in one slice. `rand()` is
+counters, and `XOR` in one slice. Pattern predicates followed: the pattern
+is lowered by a scoped copy of the lowerer (so the anonymous entities never
+join the row) and compiled as a correlated `EXISTS` subquery inside the
+enclosing query, and `a = b` on entities became an element-id comparison at
+lowering time, which together cleared the triadic-selection use cases.
+`rand()` is
 compiled as a one-row `json_each(json_array(random()))`
 source joined after the row sources rather than as an expression, because
 SQLite evaluates an uncorrelated scalar subquery once per statement; that

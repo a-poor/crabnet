@@ -616,6 +616,15 @@ fn render_expr(expression: &Expr) -> String {
         Expr::ElementId(slot) => format!("element-id({})", slot_name(*slot)),
         Expr::Labels(slot) => format!("labels({})", slot_name(*slot)),
         Expr::HasLabel(slot, label) => format!("has-label({}, {})", slot_name(*slot), quote(label)),
+        Expr::Exists { pattern, .. } => format!(
+            "exists({})",
+            pattern
+                .operators
+                .iter()
+                .map(render_match_operator)
+                .collect::<Vec<_>>()
+                .join("; ")
+        ),
         Expr::RelationshipType(slot) => format!("relationship-type({})", slot_name(*slot)),
         Expr::Binary {
             left,

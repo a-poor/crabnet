@@ -118,8 +118,10 @@ clauses/match-where/MatchWhere1.feature::[7] Filter relationship with relationsh
 clauses/match-where/MatchWhere1.feature::[8] Filter relationship with property predicate on multi variables with multiple bindings
 clauses/match-where/MatchWhere1.feature::[9] Filter relationship with a parameter in a property predicate on multi variables with one binding
 clauses/match-where/MatchWhere2.feature::[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
+clauses/match-where/MatchWhere3.feature::[1] Join between node identities
 clauses/match-where/MatchWhere3.feature::[2] Join between node properties of disconnected nodes
 clauses/match-where/MatchWhere3.feature::[3] Join between node properties of adjacent nodes
+clauses/match-where/MatchWhere4.feature::[1] Join nodes on inequality
 clauses/match-where/MatchWhere5.feature::[1] Filter out on null
 clauses/match-where/MatchWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false
 clauses/match-where/MatchWhere5.feature::[3] Filter out on null if the AND'd predicate evaluates to true
@@ -128,6 +130,7 @@ clauses/match-where/MatchWhere6.feature::[1] Filter node with node label predica
 clauses/match-where/MatchWhere6.feature::[2] Filter node with false node label predicate after OPTIONAL MATCH
 clauses/match-where/MatchWhere6.feature::[3] Filter node with property predicate on multi variables with multiple bindings after OPTIONAL MATCH
 clauses/match-where/MatchWhere6.feature::[4] Do not fail when predicates on optionally matched and missed nodes are invalid
+clauses/match-where/MatchWhere6.feature::[5] Matching and optionally matching with unbound nodes and equality predicate in reverse direction
 clauses/match-where/MatchWhere6.feature::[6] Join nodes on non-equality of properties – OPTIONAL MATCH and WHERE
 clauses/match-where/MatchWhere6.feature::[7] Join nodes on non-equality of properties – OPTIONAL MATCH on two relationships and WHERE
 clauses/match-where/MatchWhere6.feature::[8] Join nodes on non-equality of properties – Two OPTIONAL MATCH clauses and WHERE
@@ -458,6 +461,7 @@ clauses/match/Match6.feature::[7] Respecting direction when matching existing pa
 clauses/match/Match6.feature::[8] Respecting direction when matching non-existent path with multiple directions
 clauses/match/Match6.feature::[9] Longer path query should return results in written order
 clauses/match/Match7.feature::[10] Optionally matching from null nodes should return null
+clauses/match/Match7.feature::[11] Return two subgraphs with bound undirected relationship and optional relationship
 clauses/match/Match7.feature::[1] Simple OPTIONAL MATCH on empty graph
 clauses/match/Match7.feature::[21] Handling optional matches between nulls
 clauses/match/Match7.feature::[23] OPTIONAL MATCH with labels on the optional end node
@@ -466,7 +470,10 @@ clauses/match/Match7.feature::[25] Optionally matching self-loops without matche
 clauses/match/Match7.feature::[26] Handling correlated optional matches; first does not match implies second does not match
 clauses/match/Match7.feature::[27] Handling optional matches between optionally matched entities
 clauses/match/Match7.feature::[28] Handling optional matches with inline label predicate
+clauses/match/Match7.feature::[29] Satisfies the open world assumption, relationships between same nodes
 clauses/match/Match7.feature::[2] OPTIONAL MATCH with previously bound nodes
+clauses/match/Match7.feature::[30] Satisfies the open world assumption, single relationship
+clauses/match/Match7.feature::[31] Satisfies the open world assumption, relationships between different nodes
 clauses/match/Match7.feature::[3] OPTIONAL MATCH and bound nodes
 clauses/match/Match7.feature::[4] Optionally matching relationship with bound nodes in reverse direction
 clauses/match/Match7.feature::[5] Optionally matching relationship with a relationship that is already bound
@@ -636,6 +643,7 @@ clauses/return/Return2.feature::[6] Adding a property and a literal in projectio
 clauses/return/Return2.feature::[7] Adding list properties in projection
 clauses/return/Return2.feature::[8] Returning label predicate expression
 clauses/return/Return2.feature::[9] Returning a projected map
+clauses/return/Return3.feature::[1] Returning multiple expressions
 clauses/return/Return3.feature::[2] Returning multiple node property values
 clauses/return/Return3.feature::[3] Projecting nodes and relationships
 clauses/return/Return4.feature::[10] Fail when returning multiple columns with same name
@@ -653,6 +661,7 @@ clauses/return/Return5.feature::[4] DISTINCT inside aggregation should work with
 clauses/return/Return5.feature::[5] Aggregate on list values
 clauses/return/Return6.feature::[11] Counting matches
 clauses/return/Return6.feature::[12] Counting matches per group
+clauses/return/Return6.feature::[13] Returning the minimum length of paths
 clauses/return/Return6.feature::[14] Aggregates in aggregates
 clauses/return/Return6.feature::[15] Using `rand()` in aggregations
 clauses/return/Return6.feature::[16] Aggregation on complex expressions
@@ -949,9 +958,13 @@ clauses/with-skip-limit/WithSkipLimit3.feature::[1] Get rows in the middle
 clauses/with-skip-limit/WithSkipLimit3.feature::[2] Get rows in the middle by param
 clauses/with-skip-limit/WithSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument
 clauses/with-where/WithWhere1.feature::[1] Filter node with property predicate on a single variable with multiple bindings
+clauses/with-where/WithWhere1.feature::[3] Filter for an unbound relationship variable
+clauses/with-where/WithWhere1.feature::[4] Filter for an unbound node variable
 clauses/with-where/WithWhere2.feature::[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
+clauses/with-where/WithWhere3.feature::[1] Join between node identities
 clauses/with-where/WithWhere3.feature::[2] Join between node properties of disconnected nodes
 clauses/with-where/WithWhere3.feature::[3] Join between node properties of adjacent nodes
+clauses/with-where/WithWhere4.feature::[1] Join nodes on inequality
 clauses/with-where/WithWhere5.feature::[1] Filter out on null
 clauses/with-where/WithWhere5.feature::[2] Filter out on null if the AND'd predicate evaluates to false
 clauses/with-where/WithWhere5.feature::[3] Filter out on null if the AND'd predicate evaluates to true
@@ -1035,6 +1048,8 @@ expressions/comparison/Comparison1.feature::[17] Failing when comparing to an un
 expressions/comparison/Comparison1.feature::[1] Number-typed integer comparison
 expressions/comparison/Comparison1.feature::[2] Number-typed float comparison
 expressions/comparison/Comparison1.feature::[3] Any-typed string comparison
+expressions/comparison/Comparison1.feature::[4] Comparing nodes to nodes
+expressions/comparison/Comparison1.feature::[5] Comparing relationships to relationships
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 1
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 3
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 4
@@ -1470,7 +1485,33 @@ expressions/path/Path3.feature::[1] Return a var length path of length zero
 expressions/path/Path3.feature::[2] Failing when using `length()` on a node
 expressions/path/Path3.feature::[3] Failing when using `length()` on a relationship
 expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 1
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 10
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 11
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 12
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 13
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 15
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 2
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 3
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 4
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 5
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 6
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 7
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 8
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 9
 expressions/pattern/Pattern1.feature::[11] Fail on checking self pattern
+expressions/pattern/Pattern1.feature::[12] Matching two nodes on a single directed connection between them
+expressions/pattern/Pattern1.feature::[14] Matching two nodes on a specific type of single outgoing directed connection
+expressions/pattern/Pattern1.feature::[15] Matching two nodes on a specific type of single undirected connection
+expressions/pattern/Pattern1.feature::[19] Using a negated existential pattern predicate
+expressions/pattern/Pattern1.feature::[1] Matching on any single outgoing directed connection
+expressions/pattern/Pattern1.feature::[20] Using two existential pattern predicates in a conjunction
+expressions/pattern/Pattern1.feature::[21] Using two existential pattern predicates in a disjunction
+expressions/pattern/Pattern1.feature::[24] Fail on using pattern in right-hand side of SET
+expressions/pattern/Pattern1.feature::[2] Matching on a single undirected connection
+expressions/pattern/Pattern1.feature::[3] Matching on any single incoming directed connection
+expressions/pattern/Pattern1.feature::[4] Matching on a specific type of single outgoing directed connection
+expressions/pattern/Pattern1.feature::[5] Matching on a specific type of single undirected connection
+expressions/pattern/Pattern1.feature::[6] Matching on a specific type of single incoming directed connection
 expressions/precedence/Precedence1.feature::[10] Null predicate takes precedence over boolean operator
 expressions/precedence/Precedence1.feature::[11] List predicate takes precedence over comparison operator
 expressions/precedence/Precedence1.feature::[12] List predicate takes precedence over negation
@@ -2228,4 +2269,20 @@ useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[6] Counting 
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[7] Counting distinct undirected self-relationships in self-relationship graph
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[8] Directed match of a simple relationship, count
 useCases/countingSubgraphMatches/CountingSubgraphMatches1.feature::[9] Counting directed self-relationships
+useCases/triadicSelection/TriadicSelection1.feature::[10] Handling triadic friend of a friend that is not a friend with implicit superset of labels
+useCases/triadicSelection/TriadicSelection1.feature::[11] Handling triadic friend of a friend that is a friend
+useCases/triadicSelection/TriadicSelection1.feature::[12] Handling triadic friend of a friend that is a friend with different relationship type
+useCases/triadicSelection/TriadicSelection1.feature::[13] Handling triadic friend of a friend that is a friend with superset of relationship type
+useCases/triadicSelection/TriadicSelection1.feature::[14] Handling triadic friend of a friend that is a friend with implicit subset of relationship type
+useCases/triadicSelection/TriadicSelection1.feature::[16] Handling triadic friend of a friend that is a friend with same labels
+useCases/triadicSelection/TriadicSelection1.feature::[17] Handling triadic friend of a friend that is a friend with different labels
+useCases/triadicSelection/TriadicSelection1.feature::[18] Handling triadic friend of a friend that is a friend with implicit subset of labels
+useCases/triadicSelection/TriadicSelection1.feature::[19] Handling triadic friend of a friend that is a friend with implicit superset of labels
 useCases/triadicSelection/TriadicSelection1.feature::[1] Handling triadic friend of a friend
+useCases/triadicSelection/TriadicSelection1.feature::[2] Handling triadic friend of a friend that is not a friend
+useCases/triadicSelection/TriadicSelection1.feature::[3] Handling triadic friend of a friend that is not a friend with different relationship type
+useCases/triadicSelection/TriadicSelection1.feature::[4] Handling triadic friend of a friend that is not a friend with superset of relationship type
+useCases/triadicSelection/TriadicSelection1.feature::[5] Handling triadic friend of a friend that is not a friend with implicit subset of relationship type
+useCases/triadicSelection/TriadicSelection1.feature::[7] Handling triadic friend of a friend that is not a friend with same labels
+useCases/triadicSelection/TriadicSelection1.feature::[8] Handling triadic friend of a friend that is not a friend with different labels
+useCases/triadicSelection/TriadicSelection1.feature::[9] Handling triadic friend of a friend that is not a friend with implicit subset of labels

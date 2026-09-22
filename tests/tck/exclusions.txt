@@ -70,10 +70,7 @@ clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	uns
 clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: whole entities in aggregates other than count()
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
-clauses/match-where/MatchWhere3.feature::[1] Join between node identities	semantic-error: graph variable `a` is not a scalar expression
-clauses/match-where/MatchWhere4.feature::[1] Join nodes on inequality	semantic-error: graph variable `a` is not a scalar expression
-clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: pattern predicate
-clauses/match-where/MatchWhere6.feature::[5] Matching and optionally matching with unbound nodes and equality predicate in reverse direction	semantic-error: graph variable `a1` is not a scalar expression
+clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
 clauses/match/Match1.feature::[6] Fail when using parameter as node predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/match/Match2.feature::[6] Match relationships with multiple types	unsupported: multiple or boolean relationship types
 clauses/match/Match2.feature::[8] Fail when using parameter as relationship predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
@@ -86,7 +83,6 @@ clauses/match/Match5.feature::[26] Handling mixed relationship patterns and dire
 clauses/match/Match5.feature::[27] Handling mixed relationship patterns and directions 2	setup-failed: unsupported: mutation clause after DELETE
 clauses/match/Match6.feature::[12] Matching path with multiple bidirectional relationships	unsupported: bidirectional relationship patterns
 clauses/match/Match6.feature::[13] Matching path with both directions should respect other directions	unsupported: bidirectional relationship patterns
-clauses/match/Match7.feature::[11] Return two subgraphs with bound undirected relationship and optional relationship	semantic-error: graph variable `r` is not a scalar expression
 clauses/match/Match7.feature::[12] Variable length optional relationships	unsupported: variable-length traversal in OPTIONAL MATCH
 clauses/match/Match7.feature::[13] Variable length optional relationships with bound nodes	unsupported: variable-length traversal in OPTIONAL MATCH
 clauses/match/Match7.feature::[14] Variable length optional relationships with length predicates	unsupported: variable-length traversal in OPTIONAL MATCH
@@ -97,9 +93,6 @@ clauses/match/Match7.feature::[18] Named paths inside optional matches with node
 clauses/match/Match7.feature::[19] Optionally matching named paths with single and variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[20] Variable length optional relationships with bound nodes, no matches	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[22] MATCH after OPTIONAL MATCH	semantic-error: graph variable `b` is not a scalar expression
-clauses/match/Match7.feature::[29] Satisfies the open world assumption, relationships between same nodes	semantic-error: graph variable `s` is not a scalar expression
-clauses/match/Match7.feature::[30] Satisfies the open world assumption, single relationship	semantic-error: graph variable `s` is not a scalar expression
-clauses/match/Match7.feature::[31] Satisfies the open world assumption, relationships between different nodes	semantic-error: graph variable `s` is not a scalar expression
 clauses/match/Match9.feature::[1] Variable length relationship variables are lists of relationships	unsupported: path collections in scalar expressions
 clauses/match/Match9.feature::[5] Variable length pattern with label predicate on both sides	unsupported: path values or path collections in aggregate functions
 clauses/match/Match9.feature::[6] Matching relationships into a list and matching variable length using the list, with bound nodes	semantic-error: graph variable `r1` is not a scalar expression
@@ -144,12 +137,10 @@ clauses/return/Return2.feature::[16] Fail when returning labels of deleted nodes
 clauses/return/Return2.feature::[17] Fail when returning properties of deleted relationships	expected-error-not-raised
 clauses/return/Return2.feature::[18] Fail on projecting a non-existent function	wrong-error-kind: unsupported: function `foo`
 clauses/return/Return2.feature::[1] Arithmetic expressions should propagate null values	unsupported: `^`
-clauses/return/Return3.feature::[1] Returning multiple expressions	semantic-error: graph variable `a` is not a scalar expression
 clauses/return/Return4.feature::[11] Reusing variable names in RETURN	unsupported: aggregate calls nested in WITH expressions
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
 clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[10] Multiple aggregates on same variable	unsupported: whole entities in aggregates other than count()
-clauses/return/Return6.feature::[13] Returning the minimum length of paths	semantic-error: graph variable `other` is not a scalar expression
 clauses/return/Return6.feature::[17] Handle constants and parameters inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[18] Handle returned variables inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[19] Handle returned property accesses inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
@@ -256,12 +247,8 @@ clauses/with-orderBy/WithOrderBy4.feature::[17] Handle projected variables insid
 clauses/with-orderBy/WithOrderBy4.feature::[18]  Handle projected property accesses inside an order by item which contains an aggregation expression	semantic-error: unknown variable `me`
 clauses/with-orderBy/WithOrderBy4.feature::[20] Fail if more complex expressions, even if projected, are used inside an order by item which contains an aggregation expression	wrong-error-kind: unsupported: computed WITH expressions without aliases
 clauses/with-where/WithWhere1.feature::[2] Filter node with property predicate on a single variable with multiple distinct bindings	unsupported: WITH DISTINCT
-clauses/with-where/WithWhere1.feature::[3] Filter for an unbound relationship variable	semantic-error: graph variable `r` is not a scalar expression
-clauses/with-where/WithWhere1.feature::[4] Filter for an unbound node variable	semantic-error: graph variable `a` is not a scalar expression
 clauses/with-where/WithWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
-clauses/with-where/WithWhere3.feature::[1] Join between node identities	semantic-error: graph or path variable `a` is not a scalar expression
-clauses/with-where/WithWhere4.feature::[1] Join nodes on inequality	semantic-error: graph or path variable `a` is not a scalar expression
-clauses/with-where/WithWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: pattern predicate
+clauses/with-where/WithWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
 clauses/with/With4.feature::[6] Reusing variable names in WITH	unsupported: aggregate calls nested in WITH expressions
 clauses/with/With5.feature::[1] DISTINCT on an expression	unsupported: WITH DISTINCT
@@ -412,8 +399,6 @@ expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean l
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 8	expected-error-not-raised
 expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 9	expected-error-not-raised
 expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path variable `p1` is not a scalar expression
-expressions/comparison/Comparison1.feature::[4] Comparing nodes to nodes	semantic-error: graph variable `a` is not a scalar expression
-expressions/comparison/Comparison1.feature::[5] Comparing relationships to relationships	semantic-error: graph variable `a` is not a scalar expression
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 5	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 12	result-mismatch: row values differ
@@ -518,14 +503,14 @@ expressions/list/List5.feature::[42] Failing when using IN on a non-list literal
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 4	expected-error-not-raised
 expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 5	expected-error-not-raised
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 4	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 5	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 6	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 7	wrong-error-kind: unsupported: pattern predicate
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 8	wrong-error-kind: unsupported: pattern predicate
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 4	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 5	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 6	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 7	expected-error-not-raised
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 8	wrong-error-kind: unsupported: variable-length pattern predicates
 expressions/list/List6.feature::[7] Using size of pattern comprehension to test existence	unsupported: pattern comprehension
 expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: pattern comprehension
 expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: pattern comprehension
@@ -540,43 +525,17 @@ expressions/map/Map2.feature::[7] Fail at runtime when trying to index into a ma
 expressions/map/Map2.feature::[8] Fail at runtime when trying to index something which is not a map	expected-error-not-raised
 expressions/path/Path1.feature::[1] `nodes()` on null path	semantic-error: non-entity variable `a` cannot be used in a graph pattern
 expressions/path/Path2.feature::[3] `relationships()` on null path	semantic-error: non-entity variable `a` cannot be used in a graph pattern
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 10	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 11	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 12	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 13	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 14	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 15	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 2	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 3	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 4	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 5	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 6	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 7	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 8	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 9	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[10] Matching on a specific type of undirected connection with length 2	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[12] Matching two nodes on a single directed connection between them	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[13] Fail on matching two nodes on a single undirected connection between them	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[14] Matching two nodes on a specific type of single outgoing directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[15] Matching two nodes on a specific type of single undirected connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[16] Matching two nodes on a specific type of a variable length outgoing directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[17] Matching two nodes on a specific type of variable length undirected connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[18] Matching two nodes on a specific type of undirected connection with length 2	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[19] Using a negated existential pattern predicate	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[1] Matching on any single outgoing directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[20] Using two existential pattern predicates in a conjunction	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[21] Using two existential pattern predicates in a disjunction	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[22] Fail on using pattern in RETURN projection	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[23] Fail on using pattern in WITH projection	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[24] Fail on using pattern in right-hand side of SET	wrong-error-kind: unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[2] Matching on a single undirected connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[3] Matching on any single incoming directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[4] Matching on a specific type of single outgoing directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[5] Matching on a specific type of single undirected connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[6] Matching on a specific type of single incoming directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[7] Matching on a specific type of a variable length outgoing directed connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[8] Matching on a specific type of variable length undirected connection	unsupported: pattern predicate
-expressions/pattern/Pattern1.feature::[9] Matching on a specific type of variable length incoming directed connection	unsupported: pattern predicate
+expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 14	wrong-error-kind: unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[10] Matching on a specific type of undirected connection with length 2	unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[13] Fail on matching two nodes on a single undirected connection between them	unsupported: multiple or boolean relationship types
+expressions/pattern/Pattern1.feature::[16] Matching two nodes on a specific type of a variable length outgoing directed connection	unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[17] Matching two nodes on a specific type of variable length undirected connection	unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[18] Matching two nodes on a specific type of undirected connection with length 2	unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[22] Fail on using pattern in RETURN projection	expected-error-not-raised
+expressions/pattern/Pattern1.feature::[23] Fail on using pattern in WITH projection	expected-error-not-raised
+expressions/pattern/Pattern1.feature::[7] Matching on a specific type of a variable length outgoing directed connection	unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[8] Matching on a specific type of variable length undirected connection	unsupported: variable-length pattern predicates
+expressions/pattern/Pattern1.feature::[9] Matching on a specific type of variable length incoming directed connection	unsupported: variable-length pattern predicates
 expressions/pattern/Pattern2.feature::[10] Use a pattern comprehension in RETURN	unsupported: pattern comprehension
 expressions/pattern/Pattern2.feature::[11] Use a pattern comprehension and ORDER BY	unsupported: pattern comprehension
 expressions/pattern/Pattern2.feature::[1] Return a pattern comprehension	unsupported: pattern comprehension
@@ -1635,21 +1594,5 @@ expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on inva
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 3	expected-error-not-raised
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
-useCases/triadicSelection/TriadicSelection1.feature::[10] Handling triadic friend of a friend that is not a friend with implicit superset of labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[11] Handling triadic friend of a friend that is a friend	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[12] Handling triadic friend of a friend that is a friend with different relationship type	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[13] Handling triadic friend of a friend that is a friend with superset of relationship type	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[14] Handling triadic friend of a friend that is a friend with implicit subset of relationship type	semantic-error: graph variable `r` is not a scalar expression
 useCases/triadicSelection/TriadicSelection1.feature::[15] Handling triadic friend of a friend that is a friend with explicit subset of relationship type	unsupported: multiple or boolean relationship types
-useCases/triadicSelection/TriadicSelection1.feature::[16] Handling triadic friend of a friend that is a friend with same labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[17] Handling triadic friend of a friend that is a friend with different labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[18] Handling triadic friend of a friend that is a friend with implicit subset of labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[19] Handling triadic friend of a friend that is a friend with implicit superset of labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[2] Handling triadic friend of a friend that is not a friend	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[3] Handling triadic friend of a friend that is not a friend with different relationship type	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[4] Handling triadic friend of a friend that is not a friend with superset of relationship type	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[5] Handling triadic friend of a friend that is not a friend with implicit subset of relationship type	semantic-error: graph variable `r` is not a scalar expression
 useCases/triadicSelection/TriadicSelection1.feature::[6] Handling triadic friend of a friend that is not a friend with explicit subset of relationship type	unsupported: multiple or boolean relationship types
-useCases/triadicSelection/TriadicSelection1.feature::[7] Handling triadic friend of a friend that is not a friend with same labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[8] Handling triadic friend of a friend that is not a friend with different labels	semantic-error: graph variable `r` is not a scalar expression
-useCases/triadicSelection/TriadicSelection1.feature::[9] Handling triadic friend of a friend that is not a friend with implicit subset of labels	semantic-error: graph variable `r` is not a scalar expression
