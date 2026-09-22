@@ -22,10 +22,9 @@ use crate::{
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const INITIAL_SCHEMA: &str = "
-BEGIN IMMEDIATE;
 
 CREATE TABLE nodes (
     id TEXT PRIMARY KEY NOT NULL,
@@ -69,14 +68,11 @@ CREATE INDEX edges_to_type_from
     ON edges(to_node, edge_type, from_node);
 
 PRAGMA application_id = 1129464130;
-PRAGMA user_version = 2;
-COMMIT;
 ";
 
 /// Upgrades a version 1 file: the single `label` column becomes the
 /// `labels` JSON list backed by the `node_labels` index table.
 const MIGRATE_V1_TO_V2: &str = "
-BEGIN IMMEDIATE;
 ALTER TABLE nodes ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';
 UPDATE nodes SET labels = CASE WHEN label IS NULL THEN '[]' ELSE json_array(label) END;
 DROP INDEX nodes_by_label;
@@ -100,8 +96,40 @@ CREATE TRIGGER nodes_labels_delete AFTER DELETE ON nodes BEGIN
 END;
 INSERT INTO node_labels (label, node_id)
     SELECT labels.value, nodes.id FROM nodes, json_each(nodes.labels) AS labels;
-PRAGMA user_version = 2;
-COMMIT;
+";
+
+const PROPERTY_INDEX_SCHEMA: &str = "
+-- Every top-level non-null node property, as json_extract returns it, so an
+-- equality on a property can find its nodes without scanning their label.
+-- Triggers keep it in step with every write to nodes.props.
+CREATE TABLE node_properties (
+    node_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value ANY NOT NULL,
+    PRIMARY KEY (node_id, key)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX node_properties_by_value
+    ON node_properties(key, value);
+
+CREATE TRIGGER node_properties_insert AFTER INSERT ON nodes BEGIN
+    INSERT INTO node_properties (node_id, key, value)
+        SELECT NEW.id, key, value FROM json_each(NEW.props) WHERE type <> 'null';
+END;
+
+CREATE TRIGGER node_properties_update AFTER UPDATE OF id, props ON nodes BEGIN
+    DELETE FROM node_properties WHERE node_id = OLD.id;
+    INSERT INTO node_properties (node_id, key, value)
+        SELECT NEW.id, key, value FROM json_each(NEW.props) WHERE type <> 'null';
+END;
+
+CREATE TRIGGER node_properties_delete AFTER DELETE ON nodes BEGIN
+    DELETE FROM node_properties WHERE node_id = OLD.id;
+END;
+
+INSERT INTO node_properties (node_id, key, value)
+    SELECT nodes.id, property.key, property.value
+    FROM nodes, json_each(nodes.props) AS property WHERE property.type <> 'null';
 ";
 
 /// An embedded graph database connection.
@@ -976,6 +1004,14 @@ fn apply_mutation(
 /// against the graph as it stands, and a row without a match creates the
 /// pattern once before the next row is matched, so later rows can match what
 /// earlier rows created. Matching rows are expanded once per match.
+///
+/// Rows that match before the merge changes anything are found with one read
+/// over all of them. The rest are settled one at a time: each is matched
+/// alone, because it may match what an earlier row created, and creates the
+/// pattern when it still has no match. That keeps the matcher work linear in
+/// the row count; re-reading every pending row after each create made a
+/// merge that creates once per row cubic. A row is only re-matched when the
+/// merge has written something since it was last matched.
 #[allow(clippy::too_many_arguments)]
 fn merge_rows(
     transaction: &Transaction<'_>,
@@ -988,14 +1024,71 @@ fn merge_rows(
     on_match: &[ResolvedMutation],
     summary: &mut QuerySummary,
 ) -> Result<()> {
-    let mut pending = rows.drain(..).enumerate().collect::<Vec<_>>();
-    let mut finished: Vec<(usize, ExecutionRow)> = Vec::new();
-    while !pending.is_empty() {
+    let mut merge = MergeRun {
+        transaction,
+        layout,
+        matcher,
+        fresh,
+        on_match,
+        summary,
+        finished: Vec::new(),
+        changed: false,
+    };
+    let pending = rows.drain(..).enumerate().collect::<Vec<_>>();
+    let unmatched = merge.match_batch(pending)?;
+    for row in unmatched {
+        let (origin, row) = if merge.changed {
+            let Some(row) = merge.match_batch(vec![row])?.pop() else {
+                continue;
+            };
+            row
+        } else {
+            row
+        };
+        let mut created = vec![row];
+        for mutation in creates.iter().chain(on_create) {
+            apply_mutation(transaction, layout, &mut created, mutation, merge.summary)?;
+        }
+        merge.changed = true;
+        merge
+            .finished
+            .extend(created.into_iter().map(|row| (origin, row)));
+    }
+    let mut finished = merge.finished;
+    finished.sort_by_key(|(origin, _)| *origin);
+    rows.extend(finished.into_iter().map(|(_, row)| row));
+    Ok(())
+}
+
+/// The state one `MERGE` shares between its matcher reads.
+struct MergeRun<'a, 'b> {
+    transaction: &'a Transaction<'b>,
+    layout: &'a RowLayout,
+    matcher: &'a PreparedReadPlan,
+    fresh: &'a [(SlotId, EntityKind)],
+    on_match: &'a [ResolvedMutation],
+    summary: &'a mut QuerySummary,
+    /// Settled rows tagged with their input position.
+    finished: Vec<(usize, ExecutionRow)>,
+    /// Whether the merge has created or updated anything yet, so a row
+    /// matched before that must be matched again.
+    changed: bool,
+}
+
+impl MergeRun<'_, '_> {
+    /// Matches the pattern from each of `pending` with one read, expands the
+    /// matching rows per match, applies the `ON MATCH` actions to them, and
+    /// returns the rows that matched nothing, in their input order.
+    fn match_batch(
+        &mut self,
+        pending: Vec<(usize, ExecutionRow)>,
+    ) -> Result<Vec<(usize, ExecutionRow)>> {
         let subset = pending
             .iter()
             .map(|(_, row)| row.clone())
             .collect::<Vec<_>>();
-        let result = read_materialized_rows(transaction, layout, &subset, matcher.clone())?;
+        let result =
+            read_materialized_rows(self.transaction, self.layout, &subset, self.matcher.clone())?;
         let mut matches: Vec<Vec<Vec<CypherValue>>> = vec![Vec::new(); subset.len()];
         for mut row in result.rows {
             let index = match row.remove(0) {
@@ -1016,33 +1109,28 @@ fn merge_rows(
             }
             for values in found {
                 let mut expanded = row.clone();
-                for ((slot, kind), value) in fresh.iter().zip(values) {
-                    expanded.set(&layout.slots, *slot, entity_from_value(value, *kind)?)?;
+                for ((slot, kind), value) in self.fresh.iter().zip(values) {
+                    expanded.set(&self.layout.slots, *slot, entity_from_value(value, *kind)?)?;
                 }
                 matched.push((origin, expanded));
             }
         }
         if !matched.is_empty() {
+            self.changed |= !self.on_match.is_empty();
             let (origins, mut matched_rows): (Vec<_>, Vec<_>) = matched.into_iter().unzip();
-            for mutation in on_match {
-                apply_mutation(transaction, layout, &mut matched_rows, mutation, summary)?;
+            for mutation in self.on_match {
+                apply_mutation(
+                    self.transaction,
+                    self.layout,
+                    &mut matched_rows,
+                    mutation,
+                    self.summary,
+                )?;
             }
-            finished.extend(origins.into_iter().zip(matched_rows));
+            self.finished.extend(origins.into_iter().zip(matched_rows));
         }
-
-        pending = unmatched;
-        if !pending.is_empty() {
-            let (origin, row) = pending.remove(0);
-            let mut created = vec![row];
-            for mutation in creates.iter().chain(on_create) {
-                apply_mutation(transaction, layout, &mut created, mutation, summary)?;
-            }
-            finished.extend(created.into_iter().map(|row| (origin, row)));
-        }
+        Ok(unmatched)
     }
-    finished.sort_by_key(|(origin, _)| *origin);
-    rows.extend(finished.into_iter().map(|(_, row)| row));
-    Ok(())
 }
 
 fn entity_from_value(value: CypherValue, kind: EntityKind) -> Result<EntityValue> {
@@ -1717,10 +1805,8 @@ fn initialize(connection: &mut Connection) -> Result<()> {
     let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if application_id == APPLICATION_ID {
-        if schema_version == 1 {
-            connection.execute_batch(MIGRATE_V1_TO_V2)?;
-            validate_schema(connection)?;
-            return Ok(());
+        if matches!(schema_version, 1 | 2) {
+            return upgrade_schema(connection, schema_version);
         }
         if schema_version != SCHEMA_VERSION {
             return Err(crate::Error::Data(format!(
@@ -1749,11 +1835,30 @@ fn initialize(connection: &mut Connection) -> Result<()> {
         ));
     }
 
-    if let Err(error) = connection.execute_batch(INITIAL_SCHEMA) {
-        let _ = connection.execute_batch("ROLLBACK;");
-        return Err(error.into());
+    upgrade_schema(connection, 0)
+}
+
+/// Install labels and the property index together, rolling back both schema
+/// changes and the version marker if any validation or backfill fails.
+fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    match from {
+        0 => transaction.execute_batch(INITIAL_SCHEMA)?,
+        1 => transaction.execute_batch(MIGRATE_V1_TO_V2)?,
+        2 => {
+            // An experimental branch also called its single-label layout v2.
+            // It is not main's v2 format and must not be silently accepted.
+            transaction.prepare("SELECT labels FROM nodes LIMIT 0").map_err(|_| {
+                crate::Error::Data("unsupported experimental version 2 schema; expected main's multi-label layout".into())
+            })?;
+        }
+        _ => unreachable!("only known schema versions can be upgraded"),
     }
-    validate_schema(connection)
+    transaction.execute_batch(PROPERTY_INDEX_SCHEMA)?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    validate_schema(&transaction)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn register_functions(connection: &Connection) -> Result<()> {
@@ -1996,6 +2101,7 @@ fn validate_schema(connection: &Connection) -> Result<()> {
     connection.prepare("SELECT id, labels, props FROM nodes LIMIT 0")?;
     connection.prepare("SELECT label, node_id FROM node_labels LIMIT 0")?;
     connection.prepare("SELECT id, edge_type, from_node, to_node, props FROM edges LIMIT 0")?;
+    connection.prepare("SELECT node_id, key, value FROM node_properties LIMIT 0")?;
     Ok(())
 }
 
@@ -2844,6 +2950,74 @@ mod tests {
             )
             .unwrap();
         assert_eq!(things, 2);
+    }
+
+    #[test]
+    fn version_two_upgrade_backfills_properties_and_preserves_labels() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA user_version = 2;
+            INSERT INTO nodes (id, labels, props)
+                VALUES ('one', '["Person", "Member"]', '{"id":7,"missing":null,"tags":[1,2]}');
+        "#,
+            )
+            .unwrap();
+        let mut database = Database::from_connection(connection).unwrap();
+        let result = database
+            .execute("MATCH (n:Person:Member {id: 7}) RETURN n.id")
+            .unwrap();
+        assert_eq!(result.rows, vec![vec![CypherValue::Integer(7)]]);
+        let count: i64 = database
+            .connection
+            .query_row("SELECT count(*) FROM node_properties", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+        initialize(&mut database.connection).unwrap();
+        database
+            .execute("MATCH (n:Member) SET n.id = 8 REMOVE n:Person")
+            .unwrap();
+        let result = database
+            .execute("MATCH (n:Member {id: 8}) RETURN n.id")
+            .unwrap();
+        assert_eq!(result.rows, vec![vec![CypherValue::Integer(8)]]);
+        let version: i64 = database
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn failed_property_index_upgrade_rolls_back_schema_and_version() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA user_version = 2;
+            PRAGMA ignore_check_constraints = ON;
+            INSERT INTO nodes (id, props) VALUES ('bad', 'invalid json');
+            PRAGMA ignore_check_constraints = OFF;
+        "#,
+            )
+            .unwrap();
+        assert!(initialize(&mut connection).is_err());
+        assert!(connection.is_autocommit());
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        let objects: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name LIKE 'node_properties%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(objects, 0);
     }
 
     #[test]

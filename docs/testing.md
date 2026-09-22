@@ -55,6 +55,11 @@ end-to-end result test for user-visible semantics.
   property transport through every mutation form and path hydration, signed
   zero normalization, fail-closed 100-container value-depth boundaries, and
   the independent 128-step expression-syntax guard.
+- `tests/property_index.rs` checks that the trigger-maintained
+  `node_properties` index equals a recomputation from `nodes` after every
+  kind of write and after a rolled-back statement, that indexed lookups keep
+  Cypher equality across numeric, boolean, text, list, map, and null values,
+  and which query shapes are planned through the index.
 - `tests/entity_values.rs` covers whole node and relationship result values,
   recursive properties, identity, and stored-direction endpoints.
 - `tests/write_semantics.rs` holds focused write result/state contracts that do
@@ -74,8 +79,8 @@ end-to-end result test for user-visible semantics.
 - `tests/bounded_traversal.rs` covers exact/ranged/zero bounds, outgoing,
   incoming, and undirected traversal, per-hop type/property filters, cycles,
   self-loops, diamonds, parallel edges, dead ends, edge-trail uniqueness,
-  composition, the depth-32 SQLite strategy threshold, and structured rejection
-  boundaries.
+  composition, the depth-32 SQLite strategy threshold, seeded versus unseeded
+  start constraints, and structured rejection boundaries.
 - `tests/unbounded_traversal.rs` covers explicit bounds above that threshold,
   open-ended lower-bound forms, Rust trail enumeration, paths and relationship
   lists, mixed SQL/Rust composition, clause-wide relationship uniqueness,

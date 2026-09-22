@@ -206,8 +206,13 @@ fn poison_discarded_nodes(path: &Path) {
     // rows pagination must discard makes executor-stage ordering observable
     // without adding a test-only hook to Crabnet's public API.
     let connection = Connection::open(path).unwrap();
+    // The property-index trigger would reject the malformed JSON, so this
+    // private connection drops it before corrupting the rows.
     connection
-        .execute_batch("PRAGMA ignore_check_constraints = ON;")
+        .execute_batch(
+            "PRAGMA ignore_check_constraints = ON;
+             DROP TRIGGER node_properties_update;",
+        )
         .unwrap();
     let changed = connection
         .execute(

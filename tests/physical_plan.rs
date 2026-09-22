@@ -125,6 +125,39 @@ fn constrained_trail_endpoints_expose_bound_node_domains() {
 }
 
 #[test]
+fn sqlite_walks_seed_only_the_constrained_start_endpoint() {
+    let constrained = explain_physical(
+        "MATCH (start:Person {name: $name})-[:NEXT*1..3]->(end:City) RETURN end.name AS name",
+    )
+    .unwrap();
+    assert_operator_sequence(&constrained, &["sqlite-fragment"]);
+    assert!(constrained.contains(
+        "FROM nodes AS seed WHERE seed.id IN (SELECT node_id FROM node_labels WHERE label = ?"
+    ));
+    assert!(constrained.contains("seed.id IN (SELECT _crabnet_property.node_id"));
+    assert!(constrained.contains("json_extract(seed.props,"));
+    // Only the start endpoint seeds the walk; the end label stays on the
+    // outer join, so exactly one label predicate mentions the seed alias.
+    assert_eq!(
+        constrained
+            .matches("seed.id IN (SELECT node_id FROM node_labels WHERE label = ?")
+            .count(),
+        1
+    );
+    assert_eq!(
+        constrained
+            .matches("FROM node_labels WHERE label = ?")
+            .count(),
+        3
+    );
+
+    let unconstrained =
+        explain_physical("MATCH (start)-[:NEXT*1..3]->(end:City) RETURN end.name AS name").unwrap();
+    assert_operator_sequence(&unconstrained, &["sqlite-fragment"]);
+    assert!(unconstrained.contains("FROM nodes AS seed UNION ALL"));
+}
+
+#[test]
 fn shortest_modes_are_distinct_explicit_bfs_operators() {
     for (function, mode) in [("shortestPath", "one"), ("allShortestPaths", "all")] {
         let query = format!(
@@ -244,8 +277,11 @@ fn multiple_runtime_inputs_keep_distinct_slots_and_sql_bind_positions() {
             "?3 runtime(%r0)",
             "?4 text",
             "?5 runtime(%r1)",
-            "?6 text",
-            "?7 json",
+            // The property-index probe for `end.flag`: its value, then key.
+            "?6 json",
+            "?7 text",
+            "?8 text",
+            "?9 json",
         ]
     );
     assert_eq!(explanation.matches("runtime(%r0)").count(), 1);

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::types::Value as SqlValue;
 #[cfg(test)]
@@ -341,6 +341,71 @@ impl EntitySource {
     }
 }
 
+/// Alias of the `nodes` row that starts each SQLite recursive walk.
+const WALK_SEED: &str = "seed";
+const PROPERTY_INDEX: &str = "_crabnet_property";
+
+/// Node slots scanned by `operators` that also carry an equality on one of
+/// their properties, which the property index can answer.
+fn property_indexed_nodes(operators: &[MatchOperator]) -> HashSet<SlotId> {
+    let scanned = operators
+        .iter()
+        .filter_map(|operator| match operator {
+            MatchOperator::ScanNode { slot } => Some(*slot),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    operators
+        .iter()
+        .flat_map(|operator| match operator {
+            MatchOperator::PropertyEquals { slot, .. } => vec![*slot],
+            MatchOperator::Filter(expression) => indexable_equalities(expression)
+                .into_iter()
+                .map(|(slot, _, _)| slot)
+                .collect(),
+            _ => Vec::new(),
+        })
+        .filter(|slot| scanned.contains(slot))
+        .collect()
+}
+
+/// The `entity.key = expected` conjuncts at the top of a filter whose other
+/// side is cheap, deterministic, and independent of that entity, so it can be
+/// compiled a second time as a property-index probe.
+fn indexable_equalities(expression: &Expr) -> Vec<(SlotId, &str, &Expr)> {
+    match expression {
+        Expr::Binary {
+            left,
+            operator: BinaryOp::And,
+            right,
+        } => {
+            let mut equalities = indexable_equalities(left);
+            equalities.extend(indexable_equalities(right));
+            equalities
+        }
+        Expr::Binary {
+            left,
+            operator: BinaryOp::Equal,
+            right,
+        } => property_probe(left, right)
+            .map(|(slot, key)| (slot, key, right.as_ref()))
+            .or_else(|| property_probe(right, left).map(|(slot, key)| (slot, key, left.as_ref())))
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn property_probe<'a>(property: &'a Expr, expected: &Expr) -> Option<(SlotId, &'a str)> {
+    match (property, expected) {
+        (Expr::Property(slot, _), Expr::Property(other, _)) if slot == other => None,
+        (Expr::Property(slot, key), Expr::Value(_) | Expr::Scalar(_) | Expr::Property(..)) => {
+            Some((*slot, key.as_str()))
+        }
+        _ => None,
+    }
+}
+
 struct VariableLengthSpec<'a> {
     traversal: TraversalId,
     left: SlotId,
@@ -350,6 +415,9 @@ struct VariableLengthSpec<'a> {
     maximum: usize,
     relationship_type: Option<&'a str>,
     properties: &'a [(String, ValueExpr)],
+    /// Label and inline-property predicates on the start endpoint, already
+    /// rendered against the recursive seed alias.
+    seed_filters: Vec<String>,
 }
 
 struct HybridVariableLengthSpec<'a> {
@@ -589,6 +657,7 @@ impl Compiler {
     }
 
     fn compile_match(&mut self, plan: &MatchPlan) -> Result<()> {
+        let indexed = property_indexed_nodes(&plan.operators);
         for operator in &plan.operators {
             match operator {
                 MatchOperator::ScanNode { slot } => {
@@ -615,6 +684,12 @@ impl Compiler {
                     self.filters.push(format!("{type_sql} = {value}"));
                 }
                 MatchOperator::PropertyEquals { slot, key, value } => {
+                    if indexed.contains(slot) {
+                        let id = self.entity_field(*slot, "id")?;
+                        let expected = self.push_binding(SqlParameter::Scalar(value.clone()));
+                        let prefilter = self.property_index_prefilter(&id, key, &expected);
+                        self.filters.push(prefilter);
+                    }
                     let (property, property_type) = self.entity_property_parts(*slot, key)?;
                     let comparison = self.typed_value_comparison(
                         property,
@@ -654,6 +729,8 @@ impl Compiler {
                     relationship_type,
                     properties,
                 } => {
+                    let seed_filters =
+                        self.endpoint_constraint_filters(&plan.operators, *left, WALK_SEED);
                     self.compile_variable_length(VariableLengthSpec {
                         traversal: *traversal,
                         left: *left,
@@ -663,6 +740,7 @@ impl Compiler {
                         maximum: *maximum,
                         relationship_type: relationship_type.as_deref(),
                         properties,
+                        seed_filters,
                     })?;
                 }
                 MatchOperator::ExpandHybridVariableLength {
@@ -730,6 +808,14 @@ impl Compiler {
                     self.compile_relationship_list_match(*traversal, *path)?;
                 }
                 MatchOperator::Filter(expression) => {
+                    for (slot, key, expected) in indexable_equalities(expression) {
+                        if indexed.contains(&slot) {
+                            let id = self.entity_field(slot, "id")?;
+                            let expected = self.compile_scalar(expected)?.value;
+                            let prefilter = self.property_index_prefilter(&id, key, &expected);
+                            self.filters.push(prefilter);
+                        }
+                    }
                     let predicate = self.predicate_expression(expression)?;
                     self.filters.push(format!("({predicate})"));
                 }
@@ -826,6 +912,7 @@ impl Compiler {
             maximum,
             relationship_type,
             properties,
+            seed_filters,
         } = spec;
         if self.traversals.contains_key(&traversal) {
             return Err(Error::Data(format!(
@@ -880,12 +967,25 @@ impl Compiler {
             ));
         }
 
-        // Seed one identity trail per node, then append eligible edges with
-        // UNION ALL so separate relationship sequences retain bag
-        // multiplicity. `used_edges` enforces Cypher trail semantics without
-        // forbidding a path from revisiting the same node.
+        // Seed one identity trail per candidate start node, then append
+        // eligible edges with UNION ALL so separate relationship sequences
+        // retain bag multiplicity. `used_edges` enforces Cypher trail
+        // semantics without forbidding a path from revisiting the same node.
+        //
+        // The seed repeats the start endpoint's label and inline-property
+        // constraints from this MATCH. The outer join still applies them to
+        // the start node, so the seed is a superset of the final matches and
+        // only limits how many trails the materialized walk enumerates. An
+        // unconstrained start, such as a node bound by an earlier clause,
+        // still seeds every stored node.
+        let seed = if seed_filters.is_empty() {
+            format!("nodes AS {WALK_SEED}")
+        } else {
+            format!("nodes AS {WALK_SEED} WHERE {}", seed_filters.join(" AND "))
+        };
         let body = format!(
-            "SELECT seed.id, seed.id, 0, json_array(), json_array(seed.id) FROM nodes AS seed \
+            "SELECT {WALK_SEED}.id, {WALK_SEED}.id, 0, json_array(), json_array({WALK_SEED}.id) \
+             FROM {seed} \
              UNION ALL \
              SELECT {recursive_row}.start_id, {next_node}, {recursive_row}.depth + 1, \
                     json_insert({recursive_row}.used_edges, '$[#]', {edge}.id), \
@@ -1035,28 +1135,7 @@ impl Compiler {
     ) -> Option<NodeDomainSpec> {
         let mut compiler = Self::new();
         let node = "trail_node";
-        let mut filters = Vec::new();
-        for operator in operators {
-            match operator {
-                MatchOperator::HasLabel { slot, label } if *slot == endpoint => {
-                    let expected = compiler.push_binding(SqlParameter::Text(label.clone()));
-                    filters.push(format!(
-                        "{node}.id IN (SELECT node_id FROM node_labels WHERE label = {expected})"
-                    ));
-                }
-                MatchOperator::PropertyEquals { slot, key, value } if *slot == endpoint => {
-                    let (property, property_type) =
-                        compiler.json_property_parts(format!("{node}.props"), key);
-                    filters.push(compiler.typed_value_comparison(
-                        property,
-                        property_type,
-                        value.clone(),
-                        BinaryOp::Equal,
-                    ));
-                }
-                _ => {}
-            }
-        }
+        let filters = compiler.endpoint_constraint_filters(operators, endpoint, node);
         if filters.is_empty() {
             return None;
         }
@@ -1067,6 +1146,45 @@ impl Compiler {
             ),
             bindings: compiler.into_static_bindings(),
         })
+    }
+
+    /// Render the label and inline-property constraints that `operators`
+    /// place on `endpoint` as predicates over a `nodes` row aliased `node`,
+    /// binding their values in this compiler. Constraints from earlier clauses
+    /// or a node-local `WHERE` are not included.
+    fn endpoint_constraint_filters(
+        &mut self,
+        operators: &[MatchOperator],
+        endpoint: SlotId,
+        node: &str,
+    ) -> Vec<String> {
+        let mut filters = Vec::new();
+        for operator in operators {
+            match operator {
+                MatchOperator::HasLabel { slot, label } if *slot == endpoint => {
+                    let expected = self.push_binding(SqlParameter::Text(label.clone()));
+                    filters.push(format!(
+                        "{node}.id IN (SELECT node_id FROM node_labels WHERE label = {expected})"
+                    ));
+                }
+                MatchOperator::PropertyEquals { slot, key, value } if *slot == endpoint => {
+                    let expected = self.push_binding(SqlParameter::Scalar(value.clone()));
+                    let prefilter =
+                        self.property_index_prefilter(&format!("{node}.id"), key, &expected);
+                    filters.push(prefilter);
+                    let (property, property_type) =
+                        self.json_property_parts(format!("{node}.props"), key);
+                    filters.push(self.typed_value_comparison(
+                        property,
+                        property_type,
+                        value.clone(),
+                        BinaryOp::Equal,
+                    ));
+                }
+                _ => {}
+            }
+        }
+        filters
     }
 
     fn into_static_bindings(self) -> Vec<SqlParameter> {
@@ -3236,6 +3354,19 @@ impl Compiler {
         )
     }
 
+    /// A necessary condition for `json_extract(props, key) = expected` on the
+    /// node whose ID is `id`, answered from the `node_properties` index. The
+    /// index holds each top-level non-null property as `json_extract` returns
+    /// it, so every node for which the exact comparison holds passes; the
+    /// exact, type-aware comparison must still be applied beside it.
+    fn property_index_prefilter(&mut self, id: &str, key: &str, expected: &str) -> String {
+        let key = self.push_binding(SqlParameter::Text(key.to_owned()));
+        format!(
+            "{id} IN (SELECT {PROPERTY_INDEX}.node_id FROM node_properties AS {PROPERTY_INDEX} \
+             WHERE {PROPERTY_INDEX}.key = {key} AND {PROPERTY_INDEX}.value = ({expected}))"
+        )
+    }
+
     fn push_binding(&mut self, binding: SqlParameter) -> String {
         self.bindings.push(FragmentArgument::Static(binding));
         format!("?{}", self.bindings.len())
@@ -3512,6 +3643,49 @@ mod tests {
     }
 
     #[test]
+    fn sqlite_walks_seed_from_the_constrained_start_endpoint() {
+        let query = lower::lower(
+            "MATCH (start:Person {name: $name})-[:NEXT*1..3]->(end) RETURN end.name AS name",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        let seed = plan
+            .sql
+            .split("FROM nodes AS seed WHERE ")
+            .nth(1)
+            .and_then(|rest| rest.split(" UNION ALL ").next())
+            .expect("the recursive seed must be filtered:\n{plan.sql}");
+        assert!(seed.starts_with("seed.id IN (SELECT node_id FROM node_labels WHERE label = ?"));
+        assert!(seed.contains("seed.id IN (SELECT _crabnet_property.node_id"));
+        assert!(seed.contains("json_extract(seed.props, '$.' || json_quote(?"));
+        // The outer join still applies the same constraints to the start node.
+        assert!(plan.sql.contains("walk_result0.start_id = n0.id"));
+        assert!(
+            plan.sql
+                .contains("n0.id IN (SELECT node_id FROM node_labels WHERE label = ?")
+        );
+        assert!(!seed.contains("ORDER BY"));
+    }
+
+    #[test]
+    fn sqlite_walks_from_an_unconstrained_start_seed_every_node() {
+        let query = lower::lower(
+            "MATCH (start) WHERE start.name = 'a' \
+             MATCH (start)-[:NEXT*1..3]->(end:Person) RETURN end.name AS name",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.sql.contains("FROM nodes AS seed UNION ALL"));
+        assert!(
+            !plan
+                .sql
+                .contains("seed.id IN (SELECT node_id FROM node_labels")
+        );
+    }
+
+    #[test]
     fn whole_entities_have_explicit_output_shapes_and_null_guards() {
         let query = lower::lower("MATCH (a)-[r]->(b) RETURN a AS node, r AS relationship").unwrap();
         let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
@@ -3675,6 +3849,8 @@ mod tests {
                 start.bindings.as_slice(),
                 &[
                     SqlValue::Text("Person".into()),
+                    SqlValue::Text("Ada".into()),
+                    SqlValue::Text("name".into()),
                     SqlValue::Text("name".into()),
                     SqlValue::Text("Ada".into()),
                     SqlValue::Text("\"Ada\"".into()),
@@ -3685,6 +3861,8 @@ mod tests {
             assert_eq!(
                 end.bindings.as_slice(),
                 &[
+                    SqlValue::Integer(1),
+                    SqlValue::Text("open".into()),
                     SqlValue::Text("open".into()),
                     SqlValue::Integer(1),
                     SqlValue::Text("true".into()),

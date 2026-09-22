@@ -393,6 +393,29 @@ trigger-maintained `node_labels (label, node_id)` table indexes label lookups,
 and indexes cover endpoint/type lookups. Files written by schema version 1
 (one nullable `label` column) are migrated in place when opened.
 
+A third table indexes node properties. It holds one row per top-level
+non-null property of each node, with the value `json_extract` returns, and
+triggers on `nodes` keep it in step with every write:
+
+```sql
+CREATE TABLE node_properties (
+  node_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  value ANY NOT NULL,
+  PRIMARY KEY (node_id, key)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX node_properties_by_value ON node_properties(key, value);
+```
+
+When a node scanned by a `MATCH` or `MERGE` has an equality on one of its
+properties, as an inline map like `{id: $id}` or a top-level `WHERE`
+conjunct like `n.id = $id` or `c.name = p.city`, the compiler adds a probe
+of this index beside the exact, type-aware comparison. The probe only narrows
+the candidate nodes, so results are unchanged, and the node's label test is
+written as `+n.label` so SQLite looks the node up through the probe instead of
+scanning its label. Relationship properties are not indexed yet.
+
 Run the full acceptance suite with:
 
 ```console

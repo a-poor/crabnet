@@ -1174,6 +1174,7 @@ mod tests {
             !top_level.contains(" WHERE "),
             "the optional predicate must not become an outer WHERE filter: {physical}"
         );
+        assert!(optional_tail.contains("node_properties"));
     }
 
     #[test]

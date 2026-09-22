@@ -641,7 +641,7 @@ fn bench_merge(c: &mut Criterion) {
             "fanout_distinct",
             "MATCH (p:Person) MERGE (s:Shadow {id: p.id}) \
              ON CREATE SET s.name = p.name",
-            [100, 250],
+            [250, 1_000],
         ),
     ];
     for (name, cypher, sizes) in fanouts {

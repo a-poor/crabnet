@@ -210,3 +210,57 @@ fn merge_rejections_and_null_pattern_values() {
     assert_eq!(nulls.rows, [vec![json!(1)], vec![json!(null)]]);
     assert_eq!(nulls.summary.nodes_created, 2);
 }
+
+#[test]
+fn merge_settles_interleaved_duplicate_rows_in_order() {
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE (:K {id: 2, hits: 10})").unwrap();
+    database
+        .execute(
+            "CREATE (:Src {pos: 0, id: 1}), (:Src {pos: 1, id: 2}), (:Src {pos: 2, id: 1}), \
+                    (:Src {pos: 3, id: 3}), (:Src {pos: 4, id: 2}), (:Src {pos: 5, id: 3}), \
+                    (:Src {pos: 6, id: 1})",
+        )
+        .unwrap();
+
+    // Rows whose key already exists match at once; the first row of each new
+    // key creates it, and every later row of that key matches the creation
+    // even when rows of other keys sit between them. A computed action reads
+    // the entity as the row matched it: the two rows matching the existing
+    // key both saw ten hits, while the rows matching a created key were each
+    // matched after the previous row's action.
+    let result = database
+        .execute(
+            "MATCH (s:Src) WITH s ORDER BY s.pos \
+             MERGE (k:K {id: s.id}) \
+               ON CREATE SET k.hits = 1 \
+               ON MATCH SET k.hits = k.hits + 1 \
+             RETURN s.pos AS pos, k.id AS id ORDER BY pos",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        [
+            vec![json!(0), json!(1)],
+            vec![json!(1), json!(2)],
+            vec![json!(2), json!(1)],
+            vec![json!(3), json!(3)],
+            vec![json!(4), json!(2)],
+            vec![json!(5), json!(3)],
+            vec![json!(6), json!(1)],
+        ]
+    );
+    assert_eq!(result.summary.nodes_created, 2);
+    assert_eq!(count(&mut database, "MATCH (k:K) RETURN count(k)"), 3);
+    let hits = database
+        .execute("MATCH (k:K) RETURN k.id AS id, k.hits AS hits ORDER BY id")
+        .unwrap();
+    assert_eq!(
+        hits.rows,
+        [
+            vec![json!(1), json!(3)],
+            vec![json!(2), json!(11)],
+            vec![json!(3), json!(2)],
+        ]
+    );
+}

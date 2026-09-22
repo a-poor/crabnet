@@ -572,8 +572,12 @@ stored node because each is its own identity trail. Constraints on the end
 endpoint filter emitted rows the same way but never prune intermediate
 states. Both domains are supersets of the endpoint's final matches, so the
 consuming SQLite join remains the semantic boundary; the seeding only reduces
-explored states and serialized payload. Constraints from earlier clauses or a
-node-local `WHERE` are not pushed into the domain.
+explored states and serialized payload. The SQLite recursive-CTE route seeds
+the same way: the start endpoint's label and inline-property constraints are
+repeated in the walk's seed `WHERE`, so a bounded traversal from one matched
+node enumerates trails from that node rather than from every stored node.
+Constraints from earlier clauses or a node-local `WHERE` are not pushed into
+either seed.
 
 An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
 one trail to at most the number of eligible stored edges, although the number of
@@ -789,7 +793,10 @@ bound by earlier clauses fixed, and creates the pattern's new parts when the
 row has no match. Rows are processed in order against the graph as it stands,
 so a row without a match creates the pattern before the next row is matched
 and later rows match what earlier rows created; a row with several matches
-becomes one row per match. Pattern properties may be literals, parameters, or
+becomes one row per match. Rows that match before the merge writes anything
+are matched together in one read, and a computed action value reads each
+row's entities as they stood when that row was matched, so two such rows
+that update the same entity both see its pre-merge value. Pattern properties may be literals, parameters, or
 expressions over the row, and a computed value that is null never matches. An
 undirected relationship matches in either direction and is created left to
 right; a created relationship needs exactly one type. `ON CREATE SET` applies

@@ -330,10 +330,13 @@ composition, the SQLite-depth threshold, and rejection boundaries.
   paths or relationship lists, modern selectors, deferred shortest forms, and
   path-fed writes remain explicit rejections.
 - `MERGE` is transactional whole-pattern match/create behavior, not a
-  single-row SQLite upsert: the executor matches the pattern from every
-  pending row with one read over the materialized rows, creates the pattern
-  for the first unmatched row, and repeats until every row is matched or
-  created, so rows observe each other's creations in order.
+  single-row SQLite upsert: the executor matches the pattern from every row
+  with one read over the materialized rows, then settles the unmatched rows
+  one at a time, re-matching each alone before creating, so rows observe each
+  other's creations in order. The first version re-read every pending row
+  after each create, which the benchmarks showed to be cubic in the row
+  count: a merge creating one node per row took 3.6 s for 250 rows and now
+  takes 71 ms.
 
 Gate complete: supported queries mix pushable and Rust-executed operators
 without changing scope, ordering, null, bag, snapshot, or parameter-preflight
@@ -368,7 +371,30 @@ Concurrent external-writer semantics remain a non-goal.
   that begin an eligible edge, and end-endpoint constraints filter emitted rows
   before serialization. Both domains are supersets of the SQLite join, so the
   physical-plan tests, generated-SQL corpus, and traversal suites lock in
-  unchanged results with fewer explored states and bytes.
+  unchanged results with fewer explored states and bytes. The first benchmark
+  run showed the SQLite recursive-CTE route still seeded every stored node, so
+  a `*1..3` count from one person cost as much as enumerating every depth-3
+  trail in the graph; the CTE seed now repeats the same start constraints,
+  which cut that case from 1.75 s to 12 ms on 10,000 nodes.
+- The node property index slice is green. Benchmarks showed every property
+  lookup scanning its whole label, so a point lookup cost 5.7 ms on 10,000
+  nodes and every `MERGE` row paid it again. A `node_properties` table now
+  holds each top-level non-null node property as `json_extract` returns it,
+  kept in step by triggers on `nodes`. When a scanned node has an inline
+  property equality or a top-level `WHERE` conjunct `n.key = expr`, where
+  `expr` is a literal, parameter, carried scalar, or another entity's
+  property, the compiler adds an `id IN (...)` probe of the index beside the
+  exact comparison and writes the label test as `+n.label` so SQLite drives
+  the lookup through the probe. Variable-length seeds and hybrid node domains
+  get the same probe. Because SQL equality on the stored value is necessary
+  for Cypher equality, the probe can only drop rows the exact comparison
+  would reject. Results on 10,000 nodes: the point lookup went from 5.7 ms to
+  35 µs, a filtered three-hop count from 5.8 ms to 0.11 ms, a `*1..3` count
+  from one person from 11.9 ms to 0.4 ms, a matched `MERGE` from 0.69 ms to
+  0.13 ms, and a 1,000-row distinct `MERGE` fan-out from 786 ms to 140 ms.
+  The cost is on writes: creating one node went from 26 µs to 34 µs and a
+  100-node batch got about 9% slower. Relationship properties, range
+  predicates, and equalities inside `OR` are not indexed yet.
 - The pre-bound relationship-list slice is green. A bound list reused on a
   later variable-length relationship, in the same `MATCH` or after `WITH`,
   matches only the traversal whose relationship sequence equals it position by
@@ -386,7 +412,7 @@ Concurrent external-writer semantics remain a non-goal.
 - The openCypher TCK slice is green. The complete openCypher 2024.3 suite is
   vendored and runs in normal CI against pinned `allowlist.txt` and
   `exclusions.txt` files that must agree with observed behavior in both
-  directions. Roughly a quarter of the expanded scenarios pass; every other
+  directions. More than half of the expanded scenarios pass; every other
   scenario carries a generated reason, dominated by unsupported functions,
   temporal types, expression forms, and multi-label setup clauses. The first
   run surfaced and fixed exponential SQL growth in boolean connective chains.
