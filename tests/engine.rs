@@ -428,22 +428,22 @@ fn integer_domain_and_duplicate_match_properties_are_validated() {
 }
 
 #[test]
-fn unsupported_merge_does_not_mutate_the_graph() {
+fn merge_after_match_creates_the_missing_pattern_once() {
     let mut database = Database::in_memory().unwrap();
     database.execute("CREATE (:Person {name: 'Ada'})").unwrap();
 
-    assert!(matches!(
-        database.execute(
+    let merged = database
+        .execute(
             "MATCH (person:Person) \
-             MERGE (:Person {name: 'Grace'})"
-        ),
-        Err(Error::Unsupported(_))
-    ));
+             MERGE (:Person {name: 'Grace'})",
+        )
+        .unwrap();
+    assert_eq!(merged.summary.nodes_created, 1);
 
     let remaining = database
-        .execute("MATCH (person:Person) RETURN person.name AS name")
+        .execute("MATCH (person:Person) RETURN person.name AS name ORDER BY name")
         .unwrap();
-    assert_eq!(remaining.rows, [vec![json!("Ada")]]);
+    assert_eq!(remaining.rows, [vec![json!("Ada")], vec![json!("Grace")]]);
 }
 
 #[test]

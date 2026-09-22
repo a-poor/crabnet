@@ -43,7 +43,7 @@ pub(super) fn render(query: &Query) -> String {
     renderer.line(1, "input:");
     match &query.input {
         Input::Unit => renderer.line(2, "unit"),
-        Input::Rows(slots) => {
+        Input::Rows { slots, .. } => {
             let names = slots
                 .iter()
                 .map(|(slot, _)| slot_name(*slot))
@@ -451,6 +451,32 @@ fn render_mutation(mutation: &Mutation) -> String {
             slot_name(*slot),
             quote(key)
         ),
+        Mutation::Merge {
+            fresh,
+            creates,
+            on_create,
+            on_match,
+            ..
+        } => {
+            let render_all = |mutations: &[Mutation]| {
+                mutations
+                    .iter()
+                    .map(render_mutation)
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            };
+            format!(
+                "merge fresh=[{}] creates=[{}] on-create=[{}] on-match=[{}]",
+                fresh
+                    .iter()
+                    .map(|(slot, kind)| format!("{}:{}", slot_name(*slot), entity_kind_name(*kind)))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                render_all(creates),
+                render_all(on_create),
+                render_all(on_match)
+            )
+        }
         Mutation::Delete { targets, detach } => format!(
             "{} targets=[{}]",
             if *detach { "detach-delete" } else { "delete" },

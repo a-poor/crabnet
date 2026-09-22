@@ -724,6 +724,22 @@ stored value changed or was removed. Reassigning the same value and removing an
 absent key contribute zero. A whole-map replacement counts additions,
 removals, and value changes rather than counting the clause as one operation.
 
+`MERGE pattern` matches the whole pattern from each input row, with variables
+bound by earlier clauses fixed, and creates the pattern's new parts when the
+row has no match. Rows are processed in order against the graph as it stands,
+so a row without a match creates the pattern before the next row is matched
+and later rows match what earlier rows created; a row with several matches
+becomes one row per match. Pattern properties may be literals, parameters, or
+expressions over the row, and a computed value that is null never matches. An
+undirected relationship matches in either direction and is created left to
+right; a created relationship needs exactly one type. `ON CREATE SET` applies
+to the rows the merge created and `ON MATCH SET` to the rows it matched, with
+the same forms as `SET`. A pattern whose variables are all already bound, or
+that decorates a bound variable with labels or properties, is a semantic
+error; path bindings, variable-length relationships, and `MERGE` inside a
+`WITH`/`UNWIND` pipeline are planning-time rejections. The merge and its
+actions run in the statement's write transaction like every other mutation.
+
 Matched `DELETE` accepts node and relationship variables. Targets are gathered
 and deduplicated across the complete materialized match bag, then explicitly
 targeted relationships are deleted before nodes regardless of target spelling
@@ -772,5 +788,5 @@ expression-position shortest-path calls, other path expressions beyond the
 three path functions above, optional-bound paths or relationship lists,
 postfix graph quantifiers,
 the deferred legacy shortest forms listed above, quantified optional matching,
-`MERGE`, and label mutation—remain unresolved until those constructs are
-designed and implemented.
+and label mutation—remain unresolved until those constructs are designed and
+implemented.

@@ -6,11 +6,12 @@ use open_cypher::{
     ast::{
         BinaryOperator, ClauseKind, CreateClause, DeleteClause, DeleteMode, Expr as AstExpr,
         ExprKind, FunctionInvocation, IntegerRadix, IsPredicate, LabelExpression,
-        LabelExpressionKind, LiteralKind, MatchClause, NodePattern, ParameterName, PathFactor,
-        PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind, QuantifiedPredicateKind,
-        Quantifier, QuantifierKind, RelationshipDirection, RelationshipPattern, RemoveClause,
-        RemoveItemKind, SetClause, SetItemKind, SetQuantifier, SortDirection as AstSortDirection,
-        StatementKind, UnaryOperator as AstUnaryOperator, UnwindClause, WithClause,
+        LabelExpressionKind, LiteralKind, MatchClause, MergeClause, MergeTrigger, NodePattern,
+        ParameterName, PathFactor, PathFactorKind, Pattern, ProjectionClause, ProjectionItemKind,
+        QuantifiedPredicateKind, Quantifier, QuantifierKind, RelationshipDirection,
+        RelationshipPattern, RemoveClause, RemoveItemKind, SetClause, SetItemKind, SetQuantifier,
+        SortDirection as AstSortDirection, StatementKind, UnaryOperator as AstUnaryOperator,
+        UnwindClause, WithClause,
     },
     parse,
 };
@@ -179,7 +180,10 @@ pub(crate) fn lower(source: &str) -> Result<Query> {
     if clauses.iter().any(|clause| {
         matches!(
             clause.kind,
-            ClauseKind::Set(_) | ClauseKind::Remove(_) | ClauseKind::Delete(_)
+            ClauseKind::Set(_)
+                | ClauseKind::Remove(_)
+                | ClauseKind::Delete(_)
+                | ClauseKind::Merge(_)
         )
     }) {
         return lower_matched_mutation_query(source, clauses);
@@ -275,6 +279,14 @@ fn lower_matched_mutation_query(
                 saw_create = true;
                 saw_mutation = true;
                 lowerer.create_clause(create)?;
+            }
+            ClauseKind::Merge(merge) => {
+                if saw_delete {
+                    return Err(unsupported(clause.span, "mutation clause after DELETE"));
+                }
+                saw_create = true;
+                saw_mutation = true;
+                lowerer.merge_clause(merge)?;
             }
             ClauseKind::Set(set_clause) => {
                 if saw_delete {
@@ -1019,6 +1031,277 @@ impl<'source> Lowerer<'source> {
             values.push((entry.key.kind.text.clone(), input_value(&entry.value)?));
         }
         Ok(values)
+    }
+
+    /// Lowers `MERGE`. The pattern is walked once, producing both the match
+    /// plan (bound variables stay fixed, fresh ones scan) and the create
+    /// template for the fresh parts; `ON CREATE`/`ON MATCH` lower as SET
+    /// mutations applied to the rows the merge created or matched.
+    fn merge_clause(&mut self, merge: &MergeClause) -> Result<()> {
+        let part = &merge.pattern;
+        if part.kind.binding.is_some() || part.kind.selector.is_some() {
+            return Err(unsupported(
+                part.span,
+                "path bindings and selectors in MERGE",
+            ));
+        }
+        let factors = &part.kind.path.kind.factors;
+        let Some(first) = factors.first() else {
+            return Err(semantic(part.span, "a MERGE pattern cannot be empty"));
+        };
+        let PathFactorKind::Node(first_node) = &first.kind else {
+            return Err(unsupported(
+                first.span,
+                "a MERGE pattern not beginning with a node",
+            ));
+        };
+
+        let mut plan = MatchPlan::default();
+        let mut fresh = Vec::new();
+        let mut creates = Vec::new();
+        let mut relationships = Vec::new();
+        let mut left =
+            self.merge_node(&mut plan, &mut fresh, &mut creates, first_node, first.span)?;
+        let mut remaining = &factors[1..];
+        while !remaining.is_empty() {
+            let [relationship, node, rest @ ..] = remaining else {
+                return Err(semantic(
+                    part.span,
+                    "MERGE patterns must alternate relationships and nodes",
+                ));
+            };
+            let PathFactorKind::Relationship(relationship_pattern) = &relationship.kind else {
+                return Err(unsupported(
+                    relationship.span,
+                    "non-relationship path factor",
+                ));
+            };
+            let PathFactorKind::Node(node_pattern) = &node.kind else {
+                return Err(unsupported(node.span, "non-node path factor"));
+            };
+            if relationship_pattern.legacy_quantifier.is_some()
+                || relationship_pattern.graph_quantifier.is_some()
+            {
+                return Err(unsupported(
+                    relationship.span,
+                    "variable-length relationships in MERGE",
+                ));
+            }
+            if relationship_pattern.where_clause.is_some() {
+                return Err(unsupported(relationship.span, "element WHERE in MERGE"));
+            }
+            let direction = match relationship_pattern.direction.kind {
+                RelationshipDirection::Right => Direction::Right,
+                RelationshipDirection::Left => Direction::Left,
+                RelationshipDirection::Undirected => Direction::Undirected,
+                _ => {
+                    return Err(unsupported(
+                        relationship_pattern.direction.span,
+                        "relationship direction",
+                    ));
+                }
+            };
+            let (relationship_slot, relationship_fresh) = self.bind_match_entity(
+                relationship_pattern
+                    .variable
+                    .as_ref()
+                    .map(|name| &name.kind.text),
+                EntityKind::Relationship,
+                relationship.span,
+            )?;
+            let relationship_type = relationship_pattern
+                .labels
+                .as_ref()
+                .map(|label| single_label(label, "multiple or boolean relationship types"))
+                .transpose()?;
+            if relationship_fresh {
+                plan.operators.push(MatchOperator::ScanRelationship {
+                    slot: relationship_slot,
+                });
+            }
+            if let Some(relationship_type) = &relationship_type {
+                plan.operators.push(MatchOperator::HasRelationshipType {
+                    slot: relationship_slot,
+                    relationship_type: relationship_type.clone(),
+                });
+            }
+            self.merge_properties(
+                &mut plan,
+                relationship_slot,
+                relationship_pattern.properties.as_deref(),
+            )?;
+            let right =
+                self.merge_node(&mut plan, &mut fresh, &mut creates, node_pattern, node.span)?;
+            plan.operators.push(MatchOperator::ExpandRelationship {
+                relationship: relationship_slot,
+                left,
+                right,
+                direction,
+            });
+            relationships.push(RelationshipUse::Single(relationship_slot));
+            if relationship_fresh {
+                let Some(relationship_type) = relationship_type else {
+                    return Err(semantic(
+                        relationship.span,
+                        "a relationship created by MERGE requires exactly one type",
+                    ));
+                };
+                // An undirected relationship is created left to right.
+                let (from, to) = match direction {
+                    Direction::Left => (right, left),
+                    Direction::Right | Direction::Undirected => (left, right),
+                };
+                fresh.push((relationship_slot, EntityKind::Relationship));
+                creates.push(Mutation::CreateRelationship {
+                    slot: relationship_slot,
+                    relationship_type,
+                    from,
+                    to,
+                    properties: self
+                        .stored_properties(relationship_pattern.properties.as_deref())?,
+                });
+            }
+            left = right;
+            remaining = rest;
+        }
+        if relationships.len() > 1 {
+            plan.operators
+                .push(MatchOperator::DistinctRelationships(relationships));
+        }
+        if fresh.is_empty() {
+            return Err(semantic(
+                part.span,
+                "MERGE pattern must introduce at least one new node or relationship; \
+                 every variable in it is already bound",
+            ));
+        }
+
+        let mut on_create = Vec::new();
+        let mut on_match = Vec::new();
+        for action in &merge.actions {
+            let outer = std::mem::take(&mut self.mutations);
+            let lowered = self.set_clause(&action.set);
+            let lowered = lowered.map(|()| std::mem::replace(&mut self.mutations, outer));
+            let lowered = lowered?;
+            match action.trigger.kind {
+                MergeTrigger::Create => on_create.extend(lowered),
+                MergeTrigger::Match => on_match.extend(lowered),
+                _ => return Err(unsupported(action.span, "MERGE action trigger")),
+            }
+        }
+
+        self.mutations.push(Mutation::Merge {
+            pattern: plan,
+            fresh,
+            creates,
+            on_create,
+            on_match,
+        });
+        Ok(())
+    }
+
+    fn merge_node(
+        &mut self,
+        plan: &mut MatchPlan,
+        fresh: &mut Vec<(SlotId, EntityKind)>,
+        creates: &mut Vec<Mutation>,
+        node: &NodePattern,
+        span: Span,
+    ) -> Result<SlotId> {
+        if node.where_clause.is_some() {
+            return Err(unsupported(span, "element WHERE in MERGE"));
+        }
+        let (slot, is_fresh) = self.bind_match_entity(
+            node.variable.as_ref().map(|name| &name.kind.text),
+            EntityKind::Node,
+            span,
+        )?;
+        let label = node
+            .labels
+            .as_ref()
+            .map(|label| single_label(label, "multiple or boolean node labels"))
+            .transpose()?;
+        if is_fresh {
+            plan.operators.push(MatchOperator::ScanNode { slot });
+        }
+        if let Some(label) = &label {
+            plan.operators.push(MatchOperator::HasLabel {
+                slot,
+                label: label.clone(),
+            });
+        }
+        self.merge_properties(plan, slot, node.properties.as_deref())?;
+        if is_fresh {
+            fresh.push((slot, EntityKind::Node));
+            creates.push(Mutation::CreateNode {
+                slot,
+                label,
+                properties: self.stored_properties(node.properties.as_deref())?,
+            });
+        } else if node.labels.is_some() || node.properties.is_some() {
+            return Err(semantic(
+                span,
+                "a variable bound before MERGE must be a bare `(variable)` reference",
+            ));
+        }
+        Ok(slot)
+    }
+
+    /// Pattern properties in MERGE: literal and parameter values match as
+    /// property equalities; computed values match through a filter.
+    fn merge_properties(
+        &mut self,
+        plan: &mut MatchPlan,
+        slot: SlotId,
+        properties: Option<&AstExpr>,
+    ) -> Result<()> {
+        let Some(properties) = properties else {
+            return Ok(());
+        };
+        match self.match_property_values(Some(properties)) {
+            Ok(values) => {
+                for (key, value) in values {
+                    plan.operators
+                        .push(MatchOperator::PropertyEquals { slot, key, value });
+                }
+                Ok(())
+            }
+            Err(Error::Unsupported(_)) => {
+                let ExprKind::Map(entries) = &properties.kind else {
+                    return Err(unsupported(
+                        properties.span,
+                        "parameter-map pattern matching",
+                    ));
+                };
+                let mut keys = HashSet::with_capacity(entries.len());
+                for entry in entries {
+                    let key = entry.key.kind.text.clone();
+                    if !keys.insert(key.clone()) {
+                        return Err(semantic(
+                            entry.key.span,
+                            format!("property map contains duplicate key `{key}`"),
+                        ));
+                    }
+                    match input_value(&entry.value) {
+                        Ok(value) => {
+                            plan.operators
+                                .push(MatchOperator::PropertyEquals { slot, key, value })
+                        }
+                        Err(Error::Unsupported(_)) => {
+                            let value = self.scalar_expression(&entry.value)?;
+                            plan.operators.push(MatchOperator::Filter(Expr::Binary {
+                                left: Box::new(Expr::Property(slot, key)),
+                                operator: BinaryOp::Equal,
+                                right: Box::new(value),
+                            }));
+                        }
+                        Err(error) => return Err(error),
+                    }
+                }
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn create_clause(&mut self, create: &CreateClause) -> Result<()> {

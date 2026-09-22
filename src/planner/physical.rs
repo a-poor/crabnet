@@ -157,7 +157,7 @@ impl NodeDomainSpec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ResolvedNodeDomain {
     pub(crate) sql: String,
     pub(crate) bindings: Vec<SqlValue>,
@@ -205,7 +205,7 @@ impl TrailExpansionSpec {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct ResolvedTrailExpansion {
     pub(crate) traversal: usize,
     pub(crate) direction: TrailDirection,
@@ -552,11 +552,13 @@ fn render_source(output: &mut String, name: &str, sql: &str, bindings: &[SqlPara
     }
 }
 
+#[derive(Clone)]
 pub(crate) enum PreparedFragmentArgument {
     Value(SqlValue),
     Runtime(RuntimeSlot),
 }
 
+#[derive(Clone)]
 pub(crate) enum PreparedValueOperator {
     TrailExpand {
         output: RuntimeSlot,
@@ -578,6 +580,7 @@ impl PreparedValueOperator {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct PreparedSqlFragment {
     pub(crate) sql: String,
     pub(crate) columns: Vec<String>,
@@ -586,6 +589,7 @@ pub(crate) struct PreparedSqlFragment {
     pub(crate) inputs: Vec<PreparedValueOperator>,
 }
 
+#[derive(Clone)]
 pub(crate) enum PreparedPhysicalOperator {
     Sqlite(PreparedSqlFragment),
     SemanticDistinct {

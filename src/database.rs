@@ -134,130 +134,14 @@ impl Database {
         // across every matched row before removing anything. A computed value
         // is evaluated for every row over the rows as they stand when its
         // operation starts.
-        for mutation in mutations {
-            match mutation {
-                ResolvedMutation::CreateNode {
-                    slot,
-                    label,
-                    properties,
-                } => {
-                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
-                    for (index, input_row) in input_rows.iter_mut().enumerate() {
-                        let properties = values.get(index);
-                        let id = transaction.query_row(
-                            "INSERT INTO nodes (id, label, props)
-                             VALUES (lower(hex(randomblob(16))), ?1, json(?2))
-                             RETURNING id",
-                            params![label.as_deref(), properties.to_string()],
-                            |row| row.get::<_, String>(0),
-                        )?;
-                        input_row.set(
-                            &slots,
-                            slot,
-                            EntityValue::Node(NodeValue {
-                                element_id: id,
-                                labels: label.iter().cloned().collect(),
-                                properties: cypher_properties(properties.clone())?,
-                            }),
-                        )?;
-                        summary.nodes_created += 1;
-                    }
-                }
-                ResolvedMutation::CreateRelationship {
-                    slot,
-                    relationship_type,
-                    from,
-                    to,
-                    properties,
-                } => {
-                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
-                    for (index, input_row) in input_rows.iter_mut().enumerate() {
-                        let properties = values.get(index);
-                        let from = input_row.node_id(from)?.to_owned();
-                        let to = input_row.node_id(to)?.to_owned();
-                        let id = transaction.query_row(
-                            "INSERT INTO edges (id, edge_type, from_node, to_node, props)
-                             VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, json(?4))
-                             RETURNING id",
-                            params![relationship_type, from, to, properties.to_string()],
-                            |row| row.get::<_, String>(0),
-                        )?;
-                        input_row.set(
-                            &slots,
-                            slot,
-                            EntityValue::Relationship(RelationshipValue {
-                                element_id: id,
-                                relationship_type: relationship_type.clone(),
-                                start_node_element_id: from,
-                                end_node_element_id: to,
-                                properties: cypher_properties(properties.clone())?,
-                            }),
-                        )?;
-                        summary.relationships_created += 1;
-                    }
-                }
-                ResolvedMutation::SetProperty { slot, key, value } => {
-                    let values = row_values(&transaction, &slots, &input_rows, value, false)?;
-                    summary.properties_set += update_properties(
-                        &transaction,
-                        &mut input_rows,
-                        slot,
-                        |index, properties| {
-                            let value = values.get(index);
-                            if value.is_null() {
-                                properties.remove(&key);
-                            } else {
-                                properties.insert(key.clone(), value.clone());
-                            }
-                        },
-                    )?;
-                }
-                ResolvedMutation::ReplaceProperties { slot, properties } => {
-                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
-                    summary.properties_set += update_properties(
-                        &transaction,
-                        &mut input_rows,
-                        slot,
-                        |index, current| {
-                            *current = values
-                                .get(index)
-                                .as_object()
-                                .expect("stored properties are validated maps")
-                                .clone();
-                        },
-                    )?;
-                }
-                ResolvedMutation::MergeProperties { slot, properties } => {
-                    let values = row_values(&transaction, &slots, &input_rows, properties, true)?;
-                    summary.properties_set += update_properties(
-                        &transaction,
-                        &mut input_rows,
-                        slot,
-                        |index, current| {
-                            let patch = values
-                                .get(index)
-                                .as_object()
-                                .expect("stored properties are validated maps");
-                            for (key, value) in patch {
-                                if value.is_null() {
-                                    current.remove(key);
-                                } else {
-                                    current.insert(key.clone(), value.clone());
-                                }
-                            }
-                        },
-                    )?;
-                }
-                ResolvedMutation::RemoveProperty { slot, key } => {
-                    summary.properties_set +=
-                        update_properties(&transaction, &mut input_rows, slot, |_, properties| {
-                            properties.remove(&key);
-                        })?;
-                }
-                ResolvedMutation::Delete { targets, detach } => {
-                    delete_entities(&transaction, &input_rows, &targets, detach, &mut summary)?;
-                }
-            }
+        for mutation in &mutations {
+            apply_mutation(
+                &transaction,
+                &slots,
+                &mut input_rows,
+                mutation,
+                &mut summary,
+            )?;
         }
 
         let (columns, rows) = match result {
@@ -713,6 +597,7 @@ impl EntityValue {
     }
 }
 
+#[derive(Clone)]
 struct ExecutionRow {
     entities: Vec<Option<EntityValue>>,
 }
@@ -799,6 +684,231 @@ impl ExecutionRow {
     }
 }
 
+/// Applies one mutation to every row, in place. Nested mutation lists
+/// (`MERGE` templates and actions) call this on row subsets.
+fn apply_mutation(
+    transaction: &Transaction<'_>,
+    slots: &[EntityKind],
+    rows: &mut Vec<ExecutionRow>,
+    mutation: &ResolvedMutation,
+    summary: &mut QuerySummary,
+) -> Result<()> {
+    match mutation {
+        ResolvedMutation::CreateNode {
+            slot,
+            label,
+            properties,
+        } => {
+            let values = row_values(transaction, slots, rows, properties, true)?;
+            for (index, input_row) in rows.iter_mut().enumerate() {
+                let properties = values.get(index);
+                let id = transaction.query_row(
+                    "INSERT INTO nodes (id, label, props)
+                     VALUES (lower(hex(randomblob(16))), ?1, json(?2))
+                     RETURNING id",
+                    params![label.as_deref(), properties.to_string()],
+                    |row| row.get::<_, String>(0),
+                )?;
+                input_row.set(
+                    slots,
+                    *slot,
+                    EntityValue::Node(NodeValue {
+                        element_id: id,
+                        labels: label.iter().cloned().collect(),
+                        properties: cypher_properties(properties.clone())?,
+                    }),
+                )?;
+                summary.nodes_created += 1;
+            }
+        }
+        ResolvedMutation::CreateRelationship {
+            slot,
+            relationship_type,
+            from,
+            to,
+            properties,
+        } => {
+            let values = row_values(transaction, slots, rows, properties, true)?;
+            for (index, input_row) in rows.iter_mut().enumerate() {
+                let properties = values.get(index);
+                let from = input_row.node_id(*from)?.to_owned();
+                let to = input_row.node_id(*to)?.to_owned();
+                let id = transaction.query_row(
+                    "INSERT INTO edges (id, edge_type, from_node, to_node, props)
+                     VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, json(?4))
+                     RETURNING id",
+                    params![relationship_type, from, to, properties.to_string()],
+                    |row| row.get::<_, String>(0),
+                )?;
+                input_row.set(
+                    slots,
+                    *slot,
+                    EntityValue::Relationship(RelationshipValue {
+                        element_id: id,
+                        relationship_type: relationship_type.clone(),
+                        start_node_element_id: from,
+                        end_node_element_id: to,
+                        properties: cypher_properties(properties.clone())?,
+                    }),
+                )?;
+                summary.relationships_created += 1;
+            }
+        }
+        ResolvedMutation::SetProperty { slot, key, value } => {
+            let values = row_values(transaction, slots, rows, value, false)?;
+            summary.properties_set +=
+                update_properties(transaction, rows, *slot, |index, properties| {
+                    let value = values.get(index);
+                    if value.is_null() {
+                        properties.remove(key);
+                    } else {
+                        properties.insert(key.clone(), value.clone());
+                    }
+                })?;
+        }
+        ResolvedMutation::ReplaceProperties { slot, properties } => {
+            let values = row_values(transaction, slots, rows, properties, true)?;
+            summary.properties_set +=
+                update_properties(transaction, rows, *slot, |index, current| {
+                    *current = values
+                        .get(index)
+                        .as_object()
+                        .expect("stored properties are validated maps")
+                        .clone();
+                })?;
+        }
+        ResolvedMutation::MergeProperties { slot, properties } => {
+            let values = row_values(transaction, slots, rows, properties, true)?;
+            summary.properties_set +=
+                update_properties(transaction, rows, *slot, |index, current| {
+                    let patch = values
+                        .get(index)
+                        .as_object()
+                        .expect("stored properties are validated maps");
+                    for (key, value) in patch {
+                        if value.is_null() {
+                            current.remove(key);
+                        } else {
+                            current.insert(key.clone(), value.clone());
+                        }
+                    }
+                })?;
+        }
+        ResolvedMutation::RemoveProperty { slot, key } => {
+            summary.properties_set +=
+                update_properties(transaction, rows, *slot, |_, properties| {
+                    properties.remove(key);
+                })?;
+        }
+        ResolvedMutation::Delete { targets, detach } => {
+            delete_entities(transaction, rows, targets, *detach, summary)?;
+        }
+        ResolvedMutation::Merge {
+            matcher,
+            fresh,
+            creates,
+            on_create,
+            on_match,
+        } => merge_rows(
+            transaction,
+            slots,
+            rows,
+            matcher,
+            fresh,
+            creates,
+            on_create,
+            on_match,
+            summary,
+        )?,
+    }
+    Ok(())
+}
+
+/// Executes `MERGE` over the rows. Rows are handled in order: each is matched
+/// against the graph as it stands, and a row without a match creates the
+/// pattern once before the next row is matched, so later rows can match what
+/// earlier rows created. Matching rows are expanded once per match.
+#[allow(clippy::too_many_arguments)]
+fn merge_rows(
+    transaction: &Transaction<'_>,
+    slots: &[EntityKind],
+    rows: &mut Vec<ExecutionRow>,
+    matcher: &PreparedReadPlan,
+    fresh: &[(SlotId, EntityKind)],
+    creates: &[ResolvedMutation],
+    on_create: &[ResolvedMutation],
+    on_match: &[ResolvedMutation],
+    summary: &mut QuerySummary,
+) -> Result<()> {
+    let mut pending = rows.drain(..).enumerate().collect::<Vec<_>>();
+    let mut finished: Vec<(usize, ExecutionRow)> = Vec::new();
+    while !pending.is_empty() {
+        let subset = pending
+            .iter()
+            .map(|(_, row)| row.clone())
+            .collect::<Vec<_>>();
+        let result = read_materialized_rows(transaction, slots, &subset, matcher.clone())?;
+        let mut matches: Vec<Vec<Vec<CypherValue>>> = vec![Vec::new(); subset.len()];
+        for mut row in result.rows {
+            let index = match row.remove(0) {
+                CypherValue::Integer(index) => usize::try_from(index).ok(),
+                _ => None,
+            }
+            .filter(|index| *index < matches.len())
+            .ok_or_else(|| crate::Error::Data("MERGE matcher returned a bad row index".into()))?;
+            matches[index].push(row);
+        }
+
+        let mut matched: Vec<(usize, ExecutionRow)> = Vec::new();
+        let mut unmatched = Vec::new();
+        for ((origin, row), found) in pending.into_iter().zip(matches) {
+            if found.is_empty() {
+                unmatched.push((origin, row));
+                continue;
+            }
+            for values in found {
+                let mut expanded = row.clone();
+                for ((slot, kind), value) in fresh.iter().zip(values) {
+                    expanded.set(slots, *slot, entity_from_value(value, *kind)?)?;
+                }
+                matched.push((origin, expanded));
+            }
+        }
+        if !matched.is_empty() {
+            let (origins, mut matched_rows): (Vec<_>, Vec<_>) = matched.into_iter().unzip();
+            for mutation in on_match {
+                apply_mutation(transaction, slots, &mut matched_rows, mutation, summary)?;
+            }
+            finished.extend(origins.into_iter().zip(matched_rows));
+        }
+
+        pending = unmatched;
+        if !pending.is_empty() {
+            let (origin, row) = pending.remove(0);
+            let mut created = vec![row];
+            for mutation in creates.iter().chain(on_create) {
+                apply_mutation(transaction, slots, &mut created, mutation, summary)?;
+            }
+            finished.extend(created.into_iter().map(|row| (origin, row)));
+        }
+    }
+    finished.sort_by_key(|(origin, _)| *origin);
+    rows.extend(finished.into_iter().map(|(_, row)| row));
+    Ok(())
+}
+
+fn entity_from_value(value: CypherValue, kind: EntityKind) -> Result<EntityValue> {
+    match (value, kind) {
+        (CypherValue::Node(node), EntityKind::Node) => Ok(EntityValue::Node(node)),
+        (CypherValue::Relationship(relationship), EntityKind::Relationship) => {
+            Ok(EntityValue::Relationship(relationship))
+        }
+        _ => Err(crate::Error::Data(
+            "MERGE matcher returned a value of the wrong kind".into(),
+        )),
+    }
+}
+
 /// One stored value per input row: a static value shared by every row, or
 /// the per-row results of a computed expression.
 enum RowValues {
@@ -822,12 +932,12 @@ fn row_values(
     transaction: &Transaction<'_>,
     slots: &[EntityKind],
     rows: &[ExecutionRow],
-    value: ResolvedStoredValue,
+    value: &ResolvedStoredValue,
     map: bool,
 ) -> Result<RowValues> {
     let plan = match value {
-        ResolvedStoredValue::Static(value) => return Ok(RowValues::Static(value)),
-        ResolvedStoredValue::Computed(plan) => plan,
+        ResolvedStoredValue::Static(value) => return Ok(RowValues::Static(value.clone())),
+        ResolvedStoredValue::Computed(plan) => plan.clone(),
     };
     let result = read_materialized_rows(transaction, slots, rows, plan)?;
     if result.rows.len() != rows.len() {
@@ -887,25 +997,27 @@ fn read_materialized_rows(
     result: PreparedReadPlan,
 ) -> Result<QueryResult> {
     let table = crate::planner::ROWS_TABLE;
-    let columns = (0..slots.len())
-        .map(|index| format!("e{index} TEXT"))
+    let columns = std::iter::once("k TEXT".to_owned())
+        .chain((0..slots.len()).map(|index| format!("e{index} TEXT")))
         .collect::<Vec<_>>()
         .join(", ");
     transaction.execute_batch(&format!(
         "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
     ))?;
     {
-        let placeholders = (1..=slots.len())
+        let placeholders = (1..=slots.len() + 1)
             .map(|index| format!("?{index}"))
             .collect::<Vec<_>>()
             .join(", ");
         let mut insert =
             transaction.prepare(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
-        for row in rows {
-            let records = row
-                .entities
-                .iter()
-                .map(|entity| entity.as_ref().map(encode_entity))
+        for (index, row) in rows.iter().enumerate() {
+            let records = std::iter::once(Some(index.to_string()))
+                .chain(
+                    row.entities
+                        .iter()
+                        .map(|entity| entity.as_ref().map(encode_entity)),
+                )
                 .collect::<Vec<_>>();
             insert.execute(params_from_iter(records.iter()))?;
         }

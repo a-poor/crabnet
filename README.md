@@ -53,6 +53,8 @@ The accepted statement shapes are:
 - `MATCH ... [MATCH ...] CREATE ... [CREATE ...] [RETURN ...]`
 - `MATCH ... SET/REMOVE ... [RETURN ...]`
 - `MATCH ... DELETE/DETACH DELETE ... [RETURN ...]`
+- `MERGE ... [ON CREATE SET ...] [ON MATCH SET ...]`, alone, after `MATCH`,
+  or mixed with `CREATE`, `SET`, `REMOVE`, and `DELETE`
 
 Within those shapes, the first iteration supports:
 
@@ -275,7 +277,7 @@ part, with a lower bound above one, or in a write query. Named paths or
 relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,
 traversal-fed writes (including writes fed by a relationship list), writes fed
 by any named path, match modes and hints, parameter-map matching,
-`RETURN *`, `MERGE`, exponentiation (`^`), and concatenation (`||`). Paths also cannot
+`RETURN *`, exponentiation (`^`), and concatenation (`||`). Paths also cannot
 themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.

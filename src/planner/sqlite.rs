@@ -9,8 +9,8 @@ use crate::{Error, Parameters, Result};
 use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
     ListVariableId, MatchOperator, MatchPlan, PathFunctionKind, PathId, PathSegment, Projection,
-    ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId,
-    UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    ROW_INDEX_SLOT, ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, SlotId,
+    SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
@@ -157,7 +157,12 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Com
     let mut compiler = Compiler::new();
     match input {
         Input::Unit => {}
-        Input::Rows(slots) => compiler.compile_rows(slots),
+        Input::Rows { slots, pattern } => {
+            compiler.compile_rows(slots);
+            if let Some(pattern) = pattern {
+                compiler.compile_match(pattern)?;
+            }
+        }
         Input::Match(plan) => compiler.compile_match(plan)?,
         Input::Pipeline(pipeline) => {
             for stage in &pipeline.stages {
@@ -472,6 +477,7 @@ impl Compiler {
                 },
             );
         }
+        self.scalars.insert(ROW_INDEX_SLOT, format!("{relation}.k"));
         self.from.push(format!("{ROWS_TABLE} AS {relation}"));
         self.ordering = Some(format!("{relation}.rowid"));
     }

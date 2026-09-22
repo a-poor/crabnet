@@ -36,6 +36,7 @@ clauses/create/Create2.feature::[6] Create a single relationship between two exi
 clauses/create/Create2.feature::[7] Create a single node and a single self loop in a single pattern
 clauses/create/Create2.feature::[8] Create a single node and a single self loop in separate patterns
 clauses/create/Create2.feature::[9] Create a single node and a single self loop in separate clauses
+clauses/create/Create3.feature::[13] Merge followed by multiple creates
 clauses/create/Create3.feature::[1] MATCH-CREATE
 clauses/create/Create3.feature::[4] MATCH-CREATE: Newly-created nodes not visible to preceding MATCH
 clauses/create/Create4.feature::[1] Generate the movie graph
@@ -431,6 +432,53 @@ clauses/match/Match8.feature::[3] Matching and disregarding output, then matchin
 clauses/match/Match9.feature::[2] Return relationships by collecting them as a list - directed, one way
 clauses/match/Match9.feature::[3] Return relationships by collecting them as a list - undirected, starting from two extremes
 clauses/match/Match9.feature::[4] Return relationships by collecting them as a list - undirected, starting from one extreme
+clauses/merge/Merge1.feature::[11] Merge should be able to merge using property of bound node
+clauses/merge/Merge1.feature::[12] Merge should be able to merge using property of freshly created node
+clauses/merge/Merge1.feature::[15] Fail when merge a node that is already bound
+clauses/merge/Merge1.feature::[1] Merge node when no nodes exist
+clauses/merge/Merge1.feature::[2] Merge node with label
+clauses/merge/Merge1.feature::[3] Merge node with label when it exists
+clauses/merge/Merge1.feature::[4] Merge node should create when it doesn't match, properties
+clauses/merge/Merge1.feature::[6] Merge node with prop and label
+clauses/merge/Merge1.feature::[7] Merge should work when finding multiple elements
+clauses/merge/Merge2.feature::[2] ON CREATE on created nodes
+clauses/merge/Merge2.feature::[3] Merge node with label add property on create
+clauses/merge/Merge2.feature::[4] Merge node with label add property on update when it exists
+clauses/merge/Merge2.feature::[5] Merge should be able to use properties of bound node in ON CREATE
+clauses/merge/Merge2.feature::[6] Fail when using undefined variable in ON CREATE
+clauses/merge/Merge3.feature::[3] Merge node and set property on match
+clauses/merge/Merge3.feature::[4] Merge should be able to use properties of bound node in ON MATCH
+clauses/merge/Merge3.feature::[5] Fail when using undefined variable in ON MATCH
+clauses/merge/Merge4.feature::[2] Merge should be able to use properties of bound node in ON MATCH and ON CREATE
+clauses/merge/Merge5.feature::[12] Match outgoing relationship when direction unspecified
+clauses/merge/Merge5.feature::[13] Match both incoming and outgoing relationships when direction unspecified
+clauses/merge/Merge5.feature::[15] Matching using list property
+clauses/merge/Merge5.feature::[1] Creating a relationship
+clauses/merge/Merge5.feature::[22] Fail when imposing new predicates on a variable that is already bound
+clauses/merge/Merge5.feature::[23] Fail when merging relationship without type
+clauses/merge/Merge5.feature::[24] Fail when merging relationship without type, no colon
+clauses/merge/Merge5.feature::[26] Fail when merging relationship that is already bound
+clauses/merge/Merge5.feature::[2] Matching a relationship
+clauses/merge/Merge5.feature::[3] Matching two relationships
+clauses/merge/Merge5.feature::[4] Using bound variables from other updating clause
+clauses/merge/Merge5.feature::[5] Filtering relationships
+clauses/merge/Merge5.feature::[6] Creating relationship when all matches filtered out
+clauses/merge/Merge5.feature::[7] Matching incoming relationship
+clauses/merge/Merge5.feature::[8] Creating relationship with property
+clauses/merge/Merge5.feature::[9] Creating relationship using merged nodes
+clauses/merge/Merge6.feature::[1] Using ON CREATE on a node
+clauses/merge/Merge6.feature::[2] Using ON CREATE on a relationship
+clauses/merge/Merge6.feature::[3] Updating one property with ON CREATE
+clauses/merge/Merge6.feature::[4] Null-setting one property with ON CREATE
+clauses/merge/Merge6.feature::[6] Copying properties from node with ON CREATE
+clauses/merge/Merge6.feature::[7] Copying properties from literal map with ON CREATE
+clauses/merge/Merge7.feature::[1] Using ON MATCH on created node
+clauses/merge/Merge7.feature::[2] Using ON MATCH on created relationship
+clauses/merge/Merge7.feature::[3] Using ON MATCH on a relationship
+clauses/merge/Merge7.feature::[4] Copying properties from node with ON MATCH
+clauses/merge/Merge7.feature::[5] Copying properties from literal map with ON MATCH
+clauses/merge/Merge8.feature::[1] Using ON CREATE and ON MATCH
+clauses/merge/Merge9.feature::[3] Mixing MERGE with CREATE
 clauses/remove/Remove1.feature::[1] Remove a single node property
 clauses/remove/Remove1.feature::[2] Remove multiple node properties
 clauses/remove/Remove1.feature::[3] Remove a single relationship property

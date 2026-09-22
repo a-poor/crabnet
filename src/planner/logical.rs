@@ -883,9 +883,18 @@ pub(crate) enum Input {
     Pipeline(ReadPipeline),
     /// Rows already materialized by a mutation pipeline, exposed to the SQL
     /// compiler through the `_crabnet_rows` temporary table with one encoded
-    /// entity column per slot. The post-mutation `RETURN` runs over it.
-    Rows(Vec<(SlotId, EntityKind)>),
+    /// entity column per slot and the row index as `ROW_INDEX_SLOT`. The
+    /// post-mutation `RETURN` runs over it; a `MERGE` matcher additionally
+    /// matches its pattern against the graph from each row.
+    Rows {
+        slots: Vec<(SlotId, EntityKind)>,
+        pattern: Option<MatchPlan>,
+    },
 }
+
+/// The scalar slot through which a read over materialized rows sees each
+/// row's index.
+pub(crate) const ROW_INDEX_SLOT: ScalarSlotId = ScalarSlotId(usize::MAX);
 
 /// A value written by `CREATE` or `SET`: a literal or parameter shape that
 /// is resolved once per statement, or an expression evaluated per input row
@@ -930,6 +939,17 @@ pub(crate) enum Mutation {
     Delete {
         targets: Vec<(SlotId, EntityKind)>,
         detach: bool,
+    },
+    /// `MERGE pattern [ON CREATE SET ...] [ON MATCH SET ...]`. `pattern`
+    /// matches the whole pattern from each input row with already-bound slots
+    /// fixed; `fresh` are the slots the pattern introduces, which `creates`
+    /// builds when a row has no match.
+    Merge {
+        pattern: MatchPlan,
+        fresh: Vec<(SlotId, EntityKind)>,
+        creates: Vec<Mutation>,
+        on_create: Vec<Mutation>,
+        on_match: Vec<Mutation>,
     },
 }
 

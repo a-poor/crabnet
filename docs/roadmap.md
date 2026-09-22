@@ -328,8 +328,11 @@ composition, the SQLite-depth threshold, and rejection boundaries.
   bound list's identity, so it needed no new operator kind. Optional-bound
   paths or relationship lists, modern selectors, deferred shortest forms, and
   path-fed writes remain explicit rejections.
-- Implement `MERGE` last as transactional whole-pattern match/create behavior,
-  not as a misleading single-row SQLite upsert.
+- `MERGE` is transactional whole-pattern match/create behavior, not a
+  single-row SQLite upsert: the executor matches the pattern from every
+  pending row with one read over the materialized rows, creates the pattern
+  for the first unmatched row, and repeats until every row is matched or
+  created, so rows observe each other's creations in order.
 
 Gate complete: supported queries mix pushable and Rust-executed operators
 without changing scope, ordering, null, bag, snapshot, or parameter-preflight
@@ -428,7 +431,10 @@ ranking now reads qualified function calls (all temporal), the temporal
 functions themselves (which now also account for every remaining setup
 failure), expected errors that are not raised (mostly wrong-kind arguments
 that read as null where Cypher raises a type error, a deliberate choice that
-a future strict-types pass could revisit in one place), and `MERGE`. `rand()` is compiled as a one-row `json_each(json_array(random()))`
+a future strict-types pass could revisit in one place), and result
+mismatches. `MERGE` is in, with only its `WITH`/`UNWIND`-pipeline forms
+left, which belong to the wider "writes in a read pipeline" gap. `rand()` is
+compiled as a one-row `json_each(json_array(random()))`
 source joined after the row sources rather than as an expression, because
 SQLite evaluates an uncorrelated scalar subquery once per statement; that
 gives one draw per call site per row that the value and type SQL share.
