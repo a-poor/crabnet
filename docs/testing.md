@@ -206,6 +206,41 @@ The full suite need not run after every edit; focused commands keep the inner
 loop fast, while the final checks prevent changes in one planner layer from
 breaking another.
 
+## Benchmarks
+
+`benches/queries.rs` is a Criterion suite that measures planning, reads,
+traversal, writes, and `MERGE` through the public `Database` API. It is a measuring
+instrument, not a correctness oracle: every query is executed once before it
+is timed, and the chain traversal cases assert their expected counts, so an
+unsupported or wrongly shaped query fails the run rather than producing a
+meaningless number.
+
+```console
+cargo bench --bench queries
+cargo bench --bench queries -- 'read/.*/1000'
+CRABNET_BENCH_SIZES=1000 cargo bench --bench queries -- traversal
+```
+
+The fixtures are deterministic and built in memory at the start of each group:
+
+- The social graph has `CRABNET_BENCH_SIZES` people (default `1000,10000`)
+  in communities of 250, four intra-community `KNOWS` edges per person, and
+  two bridge edges per community. Communities are created one statement at a
+  time because planning a multi-pattern `CREATE` is quadratic in its pattern
+  count.
+- The chain graph is 1,000 `Step` nodes joined by `NEXT`, so deep,
+  open-ended, and above-threshold traversals have exactly one trail per depth.
+- The fan-out `MERGE` cases rebuild a relationship-free people graph for every
+  iteration, because the merge itself changes the graph; `fanout_shared`
+  collapses the rows onto fifty keys while `fanout_distinct` creates once per
+  row.
+
+Group ids are `plan/*`, `read/<query>/<nodes>`, `traversal/*`, `write/*`,
+and `merge/*`, and Criterion writes HTML reports under `target/criterion/`.
+Compare a change against `main` by running the suite before and after; the
+roadmap's rule still holds that optimizations follow a measured bottleneck
+rather than precede one.
+
 ## Adding broader test techniques
 
 Broader techniques should arrive in an order that keeps their maintenance cost
