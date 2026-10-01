@@ -554,6 +554,7 @@ clauses/merge/Merge8.feature::[1] Using ON CREATE and ON MATCH
 clauses/merge/Merge9.feature::[1] UNWIND with one MERGE
 clauses/merge/Merge9.feature::[2] UNWIND with multiple MERGE
 clauses/merge/Merge9.feature::[3] Mixing MERGE with CREATE
+clauses/merge/Merge9.feature::[4] MERGE after WITH with predicate and WITH with aggregation
 clauses/remove/Remove1.feature::[1] Remove a single node property
 clauses/remove/Remove1.feature::[2] Remove multiple node properties
 clauses/remove/Remove1.feature::[3] Remove a single relationship property
@@ -785,6 +786,8 @@ clauses/with-orderBy/WithOrderBy1.feature::[32] Sort by a list variable projecte
 clauses/with-orderBy/WithOrderBy1.feature::[3] Sort integers in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[43] Sort by a variable that is only partially orderable on a non-distinct binding table::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[43] Sort by a variable that is only partially orderable on a non-distinct binding table::example 2
+clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 1
+clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 2
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 2
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 3
@@ -813,6 +816,8 @@ clauses/with-orderBy/WithOrderBy2.feature::[1] Sort by a boolean expression in a
 clauses/with-orderBy/WithOrderBy2.feature::[1] Sort by a boolean expression in ascending order::example 3
 clauses/with-orderBy/WithOrderBy2.feature::[21] Sort by an expression that is only partially orderable on a non-distinct binding table::example 1
 clauses/with-orderBy/WithOrderBy2.feature::[21] Sort by an expression that is only partially orderable on a non-distinct binding table::example 2
+clauses/with-orderBy/WithOrderBy2.feature::[24] Sort by an expression that is only partially orderable on a non-distinct binding table, but made distinct::example 1
+clauses/with-orderBy/WithOrderBy2.feature::[24] Sort by an expression that is only partially orderable on a non-distinct binding table, but made distinct::example 2
 clauses/with-orderBy/WithOrderBy2.feature::[25] Fail on sorting by an aggregation::example 1
 clauses/with-orderBy/WithOrderBy2.feature::[25] Fail on sorting by an aggregation::example 10
 clauses/with-orderBy/WithOrderBy2.feature::[25] Fail on sorting by an aggregation::example 11
@@ -976,6 +981,7 @@ clauses/with-skip-limit/WithSkipLimit3.feature::[1] Get rows in the middle
 clauses/with-skip-limit/WithSkipLimit3.feature::[2] Get rows in the middle by param
 clauses/with-skip-limit/WithSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument
 clauses/with-where/WithWhere1.feature::[1] Filter node with property predicate on a single variable with multiple bindings
+clauses/with-where/WithWhere1.feature::[2] Filter node with property predicate on a single variable with multiple distinct bindings
 clauses/with-where/WithWhere1.feature::[3] Filter for an unbound relationship variable
 clauses/with-where/WithWhere1.feature::[4] Filter for an unbound node variable
 clauses/with-where/WithWhere2.feature::[1] Filter nodes with conjunctive two-part property predicate on multi variables with multiple bindings
@@ -1005,6 +1011,8 @@ clauses/with/With4.feature::[2] Aliasing expression to new variable name
 clauses/with/With4.feature::[3] Aliasing expression to existing variable name
 clauses/with/With4.feature::[4] Fail when forwarding multiple aliases with the same name
 clauses/with/With4.feature::[7] Multiple aliasing and backreferencing
+clauses/with/With5.feature::[1] DISTINCT on an expression
+clauses/with/With5.feature::[2] Handling DISTINCT with lists in maps
 clauses/with/With6.feature::[1] Implicit grouping with single expression as grouping key and single aggregation
 clauses/with/With6.feature::[2] Implicit grouping with single relationship variable as grouping key and single aggregation
 clauses/with/With6.feature::[3] Implicit grouping with multiple node and relationship variables as grouping key and single aggregation

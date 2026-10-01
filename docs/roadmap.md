@@ -483,7 +483,11 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   connection reuse. Unit tests cover SQLite-initiated rollback and failed
   commits. Full tests, pinned TCK, benchmark smoke checks, doctests, formatting,
   and Clippy pass.
-- [ ] **Everyday query composition.** Start with `WITH DISTINCT`, then
+- [ ] **Everyday query composition.** `WITH DISTINCT` is complete, including
+  typed recursive equality, entity/path/list identity, scope and modifier
+  rules, hybrid reads, and deduplication before later writes with rollback.
+  Ten focused integration tests and eight newly passing TCK scenarios cover
+  the slice. Next implement
   `collect(n)`, `collect(DISTINCT n)`, and unwinding collected entities.
   Extend path-function lists into `UNWIND`, then aggregate expressions such
   as `count(*) + 1`. Preserve entity identity, bag multiplicity, null behavior,
@@ -515,8 +519,9 @@ the workload has reproducible performance and resource measurements.
 
 ## Near-term working order
 
-Multi-query transactions are complete. Next implement `WITH DISTINCT` as the
-first query-composition slice. Develop the dependency-graph example alongside these
+Multi-query transactions and `WITH DISTINCT` are complete. Next implement
+entity collection and expansion (`collect(n)`, `collect(DISTINCT n)`, and
+`UNWIND`). Develop the dependency-graph example alongside these
 APIs so application needs guide constraints, resource controls, and persistent
 operation. Track completion in milestone 10 rather than a separate TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;
@@ -538,7 +543,7 @@ accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
 the pinned openCypher TCK run is in place, and its seven remaining
 `result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,531 passing and 1,351 excluded scenarios, including 13
+record 2,539 passing and 1,343 excluded scenarios, including 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.

@@ -8,9 +8,10 @@ use crate::{Error, Parameters, Result};
 
 use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
-    ListVariableId, MatchOperator, MatchPlan, PathFunctionKind, PathId, PathSegment, Projection,
-    ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, SlotId,
-    SortDirection, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    ListVariableId, MatchOperator, MatchPlan, PathCollectionKind, PathFunctionKind, PathId,
+    PathSegment, Projection, ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse,
+    ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage,
+    ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
@@ -526,6 +527,8 @@ impl From<(String, String)> for Scalar {
 struct Compiler {
     entities: HashMap<SlotId, EntitySource>,
     scalars: HashMap<ScalarSlotId, String>,
+    // Materialized projection expressions visible to DISTINCT modifiers.
+    projected_scalars: Vec<(Expr, String)>,
     // Value and type SQL for each list-bound variable currently in scope.
     list_elements: HashMap<ListVariableId, (String, String)>,
     // Scalar-subquery scopes opened so far; each gets unique column names.
@@ -557,6 +560,7 @@ impl Compiler {
         Self {
             entities: HashMap::new(),
             scalars: HashMap::new(),
+            projected_scalars: Vec::new(),
             list_elements: HashMap::new(),
             scopes: 0,
             traversals: HashMap::new(),
@@ -1392,6 +1396,81 @@ impl Compiler {
     }
 
     fn compile_with(&mut self, stage: &WithStage) -> Result<()> {
+        if !stage.distinct {
+            return self.compile_with_rows(stage);
+        }
+
+        // Evaluate the projection once before DISTINCT's modifiers. Keep
+        // incoming values temporarily so WHERE can still inspect dropped
+        // variables; aliases already refer to the projected scalar slots.
+        let aggregating = stage.bindings.iter().any(|binding| {
+            matches!(binding, WithBinding::Scalar { expression, .. } if expression.contains_aggregate())
+        });
+        let mut projection = WithStage {
+            bindings: stage.bindings.clone(),
+            distinct: false,
+            filter: None,
+            order_by: Vec::new(),
+            offset: None,
+            limit: None,
+        };
+        if !aggregating {
+            let mut entities = self.entities.iter().collect::<Vec<_>>();
+            entities.sort_by_key(|(slot, _)| **slot);
+            projection
+                .bindings
+                .extend(
+                    entities
+                        .into_iter()
+                        .map(|(slot, source)| WithBinding::Entity {
+                            name: String::new(),
+                            slot: *slot,
+                            kind: source.kind(),
+                        }),
+                );
+            let mut scalars = self.scalars.keys().copied().collect::<Vec<_>>();
+            scalars.sort();
+            projection
+                .bindings
+                .extend(scalars.into_iter().map(|slot| WithBinding::Scalar {
+                    name: String::new(),
+                    slot,
+                    expression: Expr::Scalar(slot),
+                }));
+            let mut paths = self.paths.keys().copied().collect::<Vec<_>>();
+            paths.sort();
+            projection
+                .bindings
+                .extend(paths.into_iter().map(|path| WithBinding::Path {
+                    name: String::new(),
+                    path,
+                }));
+        }
+        self.compile_with_rows(&projection)?;
+
+        let mut modifiers = stage.clone();
+        for binding in &mut modifiers.bindings {
+            if let WithBinding::Scalar {
+                slot, expression, ..
+            } = binding
+            {
+                // A written expression such as ORDER BY n.name can refer to
+                // its projected value after grouping has dropped n. A new
+                // rand() call remains a separate evaluation; aliases refer
+                // to slots and never require this expression substitution.
+                if !expression.contains_rand() {
+                    self.projected_scalars
+                        .push((expression.clone(), self.scalars[slot].clone()));
+                }
+                *expression = Expr::Scalar(*slot);
+            }
+        }
+        let result = self.compile_with_rows(&modifiers);
+        self.projected_scalars.clear();
+        result
+    }
+
+    fn compile_with_rows(&mut self, stage: &WithStage) -> Result<()> {
         let aggregating = stage.bindings.iter().any(|binding| {
             matches!(
                 binding,
@@ -1493,7 +1572,13 @@ impl Compiler {
             sql.push_str(&predicate);
             sql.push(')');
         }
-        if !order_items.is_empty() {
+        let ordered = !order_items.is_empty() || inherited_ordering.is_some();
+        if stage.distinct {
+            sql = self.distinct_with_rows(sql, &stage.bindings, ordered);
+        }
+        if stage.distinct && ordered {
+            sql.push_str(" ORDER BY _crabnet_order");
+        } else if !order_items.is_empty() {
             sql.push_str(" ORDER BY ");
             sql.push_str(&order_items.join(", "));
         } else if let Some(ordering) = &inherited_ordering {
@@ -1542,6 +1627,61 @@ impl Compiler {
             .then(|| format!("{relation}._crabnet_order"));
         self.filters.clear();
         Ok(())
+    }
+
+    /// Deduplicate the materialized projection, never hidden ordering columns
+    /// or the input bag. Ranking retains a complete representative row and
+    /// its incoming order, and runs before the caller applies pagination.
+    fn distinct_with_rows(
+        &mut self,
+        sql: String,
+        bindings: &[WithBinding],
+        ordered: bool,
+    ) -> String {
+        let keys = bindings
+            .iter()
+            .map(|binding| match binding {
+                WithBinding::Entity { slot, .. } => {
+                    format!("json_extract(e{}, '$.id')", slot.0)
+                }
+                WithBinding::Scalar { slot, .. } => {
+                    format!("crabnet_semantic_key(s{})", slot.0)
+                }
+                WithBinding::Path { path, .. } => {
+                    format!("crabnet_path_key(p{}, 'path')", path.0)
+                }
+                WithBinding::PathCollection { path, kind, .. } => {
+                    let kind = match kind {
+                        PathCollectionKind::Nodes => "nodes",
+                        PathCollectionKind::Relationships => "relationships",
+                    };
+                    format!("crabnet_path_key(p{}, '{kind}')", path.0)
+                }
+            })
+            .collect::<Vec<_>>();
+        let partition = if keys.is_empty() {
+            // WITH DISTINCT * over an empty scope retains at most one row.
+            "'unit'".to_owned()
+        } else {
+            keys.join(", ")
+        };
+        let order = if ordered {
+            " ORDER BY _crabnet_order"
+        } else {
+            ""
+        };
+        let index = self.ctes.len();
+        let projected = format!("_crabnet_distinct_input_{index}");
+        let ranked = format!("_crabnet_distinct_rank_{index}");
+        self.ctes.push((projected.clone(), sql));
+        self.ctes.push((
+            ranked.clone(),
+            format!(
+                "SELECT *, row_number() OVER (PARTITION BY {partition}{order}) \
+             AS _crabnet_duplicate FROM {projected}"
+            ),
+        ));
+        format!("SELECT * FROM {ranked} WHERE _crabnet_duplicate = 1")
     }
 
     fn compile_unwind(&mut self, stage: &UnwindStage) -> Result<()> {
@@ -2006,6 +2146,16 @@ impl Compiler {
     }
 
     fn compile_scalar(&mut self, expression: &Expr) -> Result<Scalar> {
+        if let Some((_, encoded)) = self
+            .projected_scalars
+            .iter()
+            .find(|(projected, _)| projected == expression)
+        {
+            return Ok(Scalar::sql(
+                format!("json_extract({encoded}, '$')"),
+                format!("json_type({encoded}, '$')"),
+            ));
+        }
         match expression {
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),

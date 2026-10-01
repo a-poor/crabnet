@@ -1900,13 +1900,11 @@ impl<'source> Lowerer<'source> {
 
     fn with_clause(&mut self, with_clause: &WithClause) -> Result<WithStage> {
         let projection = &with_clause.projection;
-        match projection.quantifier.as_ref().map(|value| value.kind) {
-            None | Some(SetQuantifier::All) => {}
-            Some(SetQuantifier::Distinct) => {
-                return Err(unsupported(projection.span, "WITH DISTINCT"));
-            }
+        let distinct = match projection.quantifier.as_ref().map(|value| value.kind) {
+            None | Some(SetQuantifier::All) => false,
+            Some(SetQuantifier::Distinct) => true,
             Some(_) => return Err(unsupported(projection.span, "WITH quantifier")),
-        }
+        };
 
         let incoming_symbols = self.symbols.clone();
         let mut bindings = Vec::with_capacity(projection.items.len());
@@ -2006,7 +2004,14 @@ impl<'source> Lowerer<'source> {
                         expression: expression.clone(),
                     });
                     projected_symbols.insert(name.clone(), Symbol::Scalar(slot));
-                    aliases.insert(name, expression);
+                    aliases.insert(
+                        name,
+                        if distinct {
+                            Expr::Scalar(slot)
+                        } else {
+                            expression
+                        },
+                    );
                 }
             }
         }
@@ -2037,9 +2042,21 @@ impl<'source> Lowerer<'source> {
                 "path values or path collections in aggregating WITH projections",
             ));
         }
-        let grouping = implicit_grouping(&binding_expressions);
+        let mut grouping = implicit_grouping(&binding_expressions);
         if aggregating {
             validate_aggregate_scope(&binding_expressions, &grouping, projection.span)?;
+        }
+        let mut projected_values = binding_expressions.clone();
+        if distinct {
+            let scalar_aliases = bindings
+                .iter()
+                .filter_map(|binding| match binding {
+                    WithBinding::Scalar { slot, .. } => Some(Expr::Scalar(*slot)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+            projected_values.extend(scalar_aliases.clone());
+            grouping.extend(scalar_aliases);
         }
 
         // Cypher permits WITH's WHERE and ORDER BY to refer to projected
@@ -2063,6 +2080,17 @@ impl<'source> Lowerer<'source> {
             })
             .transpose()?;
         let order_by = self.order_by(&projection.order_by, &aliases, false, &[])?;
+        if distinct
+            && order_by.iter().any(|item| {
+                !item.expression.uses_only_grouped_values(&projected_values)
+                    || has_unprojected_aggregate(&item.expression, &projected_values)
+            })
+        {
+            return Err(semantic(
+                projection.span,
+                "ORDER BY with WITH DISTINCT may only use projected values",
+            ));
+        }
         if !aggregating
             && (filter.as_ref().is_some_and(Expr::contains_aggregate)
                 || order_by
@@ -2076,6 +2104,12 @@ impl<'source> Lowerer<'source> {
         }
         if aggregating {
             if let Some(filter) = &filter {
+                if distinct && has_unprojected_aggregate(filter, &projected_values) {
+                    return Err(semantic(
+                        projection.span,
+                        "WITH DISTINCT filters may only use projected aggregate values",
+                    ));
+                }
                 validate_aggregate_scope(std::slice::from_ref(filter), &grouping, projection.span)?;
             }
             validate_aggregate_scope(
@@ -2092,6 +2126,7 @@ impl<'source> Lowerer<'source> {
         self.symbols = projected_symbols;
         Ok(WithStage {
             bindings,
+            distinct,
             filter,
             order_by,
             offset,
@@ -3707,6 +3742,15 @@ fn validate_aggregate_scope(expressions: &[Expr], grouping: &[Expr], span: Span)
             "aggregate query references a value that is not a grouping key",
         ))
     }
+}
+
+fn has_unprojected_aggregate(expression: &Expr, projected: &[Expr]) -> bool {
+    !projected.contains(expression)
+        && (matches!(expression, Expr::Aggregate { .. })
+            || expression
+                .children()
+                .into_iter()
+                .any(|child| has_unprojected_aggregate(child, projected)))
 }
 
 fn symbol_expression(symbol: Symbol) -> Expr {

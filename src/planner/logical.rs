@@ -871,6 +871,7 @@ pub(crate) enum WithBinding {
 #[derive(Clone, Debug)]
 pub(crate) struct WithStage {
     pub(crate) bindings: Vec<WithBinding>,
+    pub(crate) distinct: bool,
     pub(crate) filter: Option<Expr>,
     pub(crate) order_by: Vec<SortItem>,
     pub(crate) offset: Option<ValueExpr>,

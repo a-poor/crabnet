@@ -120,10 +120,7 @@ fn query_errors_abort_prior_and_partial_writes_and_prevent_commit() {
         ("", Error::EmptyQuery),
         ("RETURN (", Error::Parse(String::new())),
         ("RETURN absent", Error::Semantic(String::new())),
-        (
-            "WITH DISTINCT 1 AS x RETURN x",
-            Error::Unsupported(String::new()),
-        ),
+        ("WITH 1 + 2 RETURN 3", Error::Unsupported(String::new())),
         ("RETURN $missing", Error::MissingParameter(String::new())),
         (
             "CREATE (:Temporary) RETURN $missing",

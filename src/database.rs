@@ -1950,6 +1950,25 @@ fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
 
 fn register_functions(connection: &Connection) -> Result<()> {
     connection.create_scalar_function(
+        "crabnet_path_key",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let encoded = context.get::<String>(0)?;
+            let kind = context.get::<String>(1)?;
+            let identity = decode_path_identity(&encoded)
+                .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+            // Ignore segment boundaries and, for graph lists, the identities
+            // belonging only to the other half of the underlying path.
+            let value = match kind.as_str() {
+                "nodes" => serde_json::json!(identity.node_ids),
+                "relationships" => serde_json::json!(identity.relationship_ids),
+                _ => serde_json::json!([identity.node_ids, identity.relationship_ids]),
+            };
+            Ok(semantic_json_key(&value))
+        },
+    )?;
+    connection.create_scalar_function(
         "crabnet_semantic_key",
         1,
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
@@ -2495,6 +2514,31 @@ mod tests {
                 ]),
                 1,
                 0,
+            ),
+            (
+                "with-distinct-typed-keys-and-modifiers",
+                r#"UNWIND $values AS value
+                   WITH DISTINCT value ORDER BY value + $step SKIP $skip LIMIT $limit
+                   WHERE value > $floor
+                   RETURN value"#,
+                Parameters::from([
+                    ("values".to_owned(), json!([1, 1.0, 2])),
+                    ("step".to_owned(), json!(1)),
+                    ("skip".to_owned(), json!(0)),
+                    ("limit".to_owned(), json!(2)),
+                    ("floor".to_owned(), json!(0)),
+                ]),
+                1,
+                0,
+            ),
+            (
+                "with-distinct-graph-list-keys",
+                r#"MATCH p = (a)-[:STEP*0..]->(b)
+                   WITH DISTINCT nodes(p) AS ns, relationships(p) AS rs
+                   RETURN ns, rs"#,
+                Parameters::new(),
+                1,
+                1,
             ),
             (
                 "three-branch-union",

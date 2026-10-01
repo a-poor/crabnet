@@ -160,6 +160,7 @@ fn render_stages(renderer: &mut Renderer, stages: &[ReadStage]) {
 }
 
 fn render_with_stage(renderer: &mut Renderer, stage: &WithStage) {
+    renderer.line(4, format!("distinct: {}", stage.distinct));
     renderer.line(4, "scope:");
     for binding in &stage.bindings {
         match binding {

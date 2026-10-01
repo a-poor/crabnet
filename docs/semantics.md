@@ -9,7 +9,8 @@ conformance or a roadmap for unsupported features.
 Query results use bag semantics. Matching the same bindings through multiple
 input rows produces multiple result rows; Crabnet does not implicitly
 deduplicate them. Comma-separated, disconnected patterns therefore produce a
-Cartesian product unless a read query explicitly uses `RETURN DISTINCT`.
+Cartesian product; `WITH DISTINCT` and `RETURN DISTINCT` explicitly remove
+duplicates at their respective projection boundaries.
 
 Read-only `RETURN DISTINCT` deduplicates the complete projected pending row
 after SQL cursor materialization and before graph-value hydration. Scalar,
@@ -32,7 +33,7 @@ equivalence rules are:
   identity. A zero-hop `relationships(path)` therefore equals a literal empty
   list from another union branch.
 
-For a distinct query, `SKIP`/`OFFSET` and `LIMIT` are applied after semantic
+For `RETURN DISTINCT`, `SKIP`/`OFFSET` and `LIMIT` are applied after semantic
 deduplication and before graph-value hydration. `ORDER BY` may refer only to a
 projected expression or its alias; ordering by an unprojected expression is a
 semantic error. A raw path or path-derived typed list cannot itself be an
@@ -54,8 +55,8 @@ applied after ordering when an order is present. The same rules apply to a
 
 `WITH` may begin a query, appear more than once, separate `MATCH` clauses, or
 sit between reading and updating clauses. Each `WITH` consumes the current row
-bag and emits one row for every retained input row; it does not implicitly
-deduplicate. A later `MATCH` therefore expands every carried row independently,
+bag. Plain `WITH` emits one row for every retained input row; it does not
+implicitly deduplicate. A later `MATCH` expands every carried row independently,
 preserving duplicate and Cartesian-product multiplicity.
 
 A `WITH` projection can carry whole node, relationship, or path bindings and
@@ -89,12 +90,29 @@ contract. Named pagination parameters follow the same validation rules as
 `RETURN` modifiers.
 
 Omitting a quantifier and spelling `WITH ALL` have the same bag-preserving
-behavior. `WITH DISTINCT` is not yet implemented. `WITH *`, computed
-expressions without an alias, and mutation clauses in a query containing
-`WITH` are explicit planning-time rejections. Aggregating `WITH` projections
+behavior. `WITH DISTINCT` deduplicates the complete projected row using the
+same typed equivalence as `RETURN DISTINCT`. The projection is evaluated once;
+aliases in filters and ordering reuse its values, including `rand()` draws.
+An attached `WHERE` filters incoming rows before deduplication and retains the
+incoming-variable visibility described above. Aggregation, when present, runs
+before distinctness. Deduplication precedes pagination and all later clauses,
+including writes; writes before the boundary retain their side effects.
+
+Distinctness uses only projected values, ignoring hidden ordering columns.
+Paths compare ordered identities independently of segment boundaries, and
+path-derived lists compare only their own node or relationship sequence.
+`ORDER BY` at a distinct boundary may use projected values and expressions
+derived from them, including properties of projected entities, but cannot
+use a dropped value or an unprojected aggregate. Scope violations are semantic
+errors. These keys and modifiers execute in SQLite over materialized CTEs;
+graph values remain compact identities until final hydration.
+
+`WITH DISTINCT *` deduplicates all names in scope. Over an empty scope it keeps
+at most one input row; over empty input it produces no rows. Computed `WITH`
+expressions without aliases remain unsupported. Aggregating `WITH` projections
 follow the rules below. The implemented pipeline cases live in
-`tests/with_pipeline.rs`, `tests/aggregation.rs`, `tests/unwind.rs`, and
-`tests/path_values.rs`.
+`tests/with_pipeline.rs`, `tests/with_distinct.rs`, `tests/aggregation.rs`,
+`tests/unwind.rs`, and `tests/path_values.rs`.
 
 ## Aggregation and grouping
 

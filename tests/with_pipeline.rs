@@ -248,15 +248,13 @@ fn parameters_can_cross_with_boundaries_and_filter_a_later_match() {
 }
 
 #[test]
-fn unsupported_with_projection_forms_fail_during_planning() {
+fn computed_with_expressions_require_aliases() {
     let mut database = Database::in_memory().unwrap();
 
-    for query in ["WITH DISTINCT 1 AS one RETURN one", "WITH 1 + 2 RETURN 3"] {
-        assert!(
-            matches!(database.execute(query), Err(Error::Unsupported(_))),
-            "query should be an explicitly unsupported WITH form: {query}"
-        );
-    }
+    assert!(matches!(
+        database.execute("WITH 1 + 2 RETURN 3"),
+        Err(Error::Unsupported(_))
+    ));
 }
 
 #[test]

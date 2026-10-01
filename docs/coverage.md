@@ -42,7 +42,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Legacy relationship-list pattern bindings | Partial | A fresh `[rels:TYPE*min..]` binding in mandatory read-only `MATCH` returns a typed relationship list in traversal order, including deep/open-ended forms and `[]` at zero hops while hydrated relationships retain stored-direction endpoints. Direct `RETURN`, `WITH` aliases, semantic distinctness/pagination, unions, parallel-edge identity, and named-path coexistence are covered in `relationship_list_values.rs` and `unbounded_traversal.rs`. A bound list reused in a later variable-length pattern matches that exact sequence: same-clause re-matching without a uniqueness conflict, SQLite-recursive and Rust-backed forms after `WITH`, direction/bound/type mismatches, multi-segment `relationships(path)` aliases, and shortest-path forms are covered in `same_clause_rematch_denotes_the_same_relationships_without_a_uniqueness_conflict`, `prebound_relationship_lists_match_exactly_after_with`, and `prebound_lists_from_path_functions_and_shortest_forms_match_as_one_sequence`. Optional bindings, writes, and general scalar/list/aggregate/order/group/`UNWIND` contexts are rejected |
 | Other variable-length and path forms | Rejected | Postfix graph quantifiers, modern path selectors, expression-position shortest-path calls, quantified `OPTIONAL MATCH`, and traversal-fed writes are not executable; supported parser forms fail during planning |
 | `OPTIONAL MATCH` | Covered | Fixed-length optional patterns null-extend the complete introduced pattern, preserve outer rows and bag multiplicity, and keep optional `WHERE` predicates in the join condition; writes after it run once per row and skip null targets; see `optional_match.rs`. Quantified optional patterns, match modes, and hints remain rejected |
-| `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/path/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, aggregation, `WITH *`, and later `MATCH`/`UNWIND`/`OPTIONAL MATCH` stages are covered. `WITH ALL` is accepted. Paths may cross directly or feed aliased `length`, `nodes`, and `relationships` projections; fresh relationship-list bindings and other typed graph lists may be carried onward but cannot yet feed `UNWIND`. Updating clauses may appear anywhere in the pipeline (see the row below). `WITH DISTINCT` and unaliased computed expressions remain rejected |
+| `WITH` pipelines | Partial | Standalone and chained `WITH`, entity/path/scalar aliases, scope loss, `WHERE`, intermediate ordering/pagination, aggregation, `WITH *`, and later `MATCH`/`UNWIND`/`OPTIONAL MATCH` stages are covered. `WITH ALL` is accepted. Paths may cross directly or feed aliased `length`, `nodes`, and `relationships` projections; fresh relationship-list bindings and other typed graph lists may be carried onward but cannot yet feed `UNWIND`. Updating clauses may appear anywhere in the pipeline (see the row below). `WITH DISTINCT` supports typed row deduplication before pagination and later clauses, including writes; see `with_distinct.rs` for recursive values, nulls, complete rows, wildcards, graph identity, hybrid traversal, modifier scope, stable projected values, and rollback. Unaliased computed expressions remain rejected |
 | `UNWIND` | Covered | Literal, parameter, property, and prior-aggregate lists expand with bag semantics; null, empty, and non-list runtime values produce no rows. Typed graph lists returned by path functions or relationship-list pattern bindings are explicitly outside the current input contract. Scope and composition cases are covered in `unwind.rs` |
 | `UNION`, `UNION DISTINCT`, `UNION ALL` | Covered | Read-only branches are independently planned and must return the same column names in the same positions. Pending typed cells use recursive row equivalence, including ordered path and graph-list identity; `ALL` preserves duplicates and mixed operators apply left-to-right before shared hydration. See `union.rs`, `path_values.rs`, and `relationship_list_values.rs` |
 
@@ -132,15 +132,13 @@ move the row into the matrix when green.
 The active milestone and task status live in [roadmap.md](roadmap.md),
 milestone 10. Its next test slices are:
 
-1. `WITH DISTINCT` before filtering, pagination, later matches, and writes;
-   include typed recursive equality, entity identity, nulls, and empty inputs.
-2. Entity collection and expansion (`collect(n)`, `collect(DISTINCT n)`,
+1. Entity collection and expansion (`collect(n)`, `collect(DISTINCT n)`,
    `UNWIND`), path-function lists, and aggregates inside expressions.
-3. Uniqueness constraints across existing data, every mutation route,
+2. Uniqueness constraints across existing data, every mutation route,
    transactions, and reopening.
-4. Query cancellation and resource limits across SQLite, Rust, and result
+3. Query cancellation and resource limits across SQLite, Rust, and result
    materialization, with rollback and connection reuse.
-5. A persistent dependency-graph application's lifecycle: repeated import,
+4. A persistent dependency-graph application's lifecycle: repeated import,
    traversal, update, deletion, rollback, reopening, backup, and recovery.
 
 Continue checking the pinned TCK during these slices. Remaining NaN and other

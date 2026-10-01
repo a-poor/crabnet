@@ -155,7 +155,7 @@ Within those shapes, the first iteration supports:
 - scalar, computed scalar, whole-node, and whole-relationship read projections,
   including numeric `+`, `-`, `*`, `/`, `%`, unary `+`/`-`, aliases, and
   `elementId`, `labels`, and `type`
-- `WITH` stages carrying aliased entities, paths, and scalars, with scope
+- `WITH` and `WITH DISTINCT` stages carrying aliased entities, paths, and scalars, with scope
   loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later
   clauses, plus `WITH *` and `RETURN *`
 - implicit grouping with top-level `count`, `sum`, `avg`, `min`, `max`, and
@@ -186,7 +186,17 @@ RETURN candidate.name AS name ORDER BY name
 
 Each `WITH` keeps only the names it projects. It preserves bag multiplicity,
 and a later `MATCH` expands each carried row independently. `WITH ALL` is
-accepted as the default behavior. A `WHERE` attached to `WITH` may inspect both
+accepted as the default behavior. `WITH DISTINCT` removes duplicate projected
+rows using typed equality before pagination, later matches, or writes:
+
+```cypher
+MATCH (person:Person)-[:KNOWS]->()
+WITH DISTINCT person
+SET person.connected = true
+RETURN person.name AS name
+```
+
+A `WHERE` attached to `WITH` may inspect both
 projected aliases and incoming variables, but an incoming variable that was
 not projected is unavailable after that filter and clause boundary.
 
@@ -326,10 +336,10 @@ exponentiation (`^`), and concatenation (`||`). Paths also cannot
 themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
-`WITH DISTINCT`, unaliased computed `WITH` expressions,
+Unaliased computed `WITH` expressions,
 `collect(DISTINCT ...)`, and nested/embedded aggregate projections are
 explicitly rejected, as is an updating clause after `DELETE` in the same
-statement. For now, `DISTINCT` is supported only by `count`; the other
+statement. Among aggregates, `DISTINCT` is supported only by `count`; the other
 aggregate forms fail during planning.
 
 ## Planning and execution
@@ -340,7 +350,8 @@ The planner is deliberately small and layered:
   row plan in `planner/logical.rs`.
 - `planner/sqlite.rs` generates parameterized `SqlFragment` values. Each
   read-only `WITH` boundary becomes a CTE carrying projected entity, path,
-  and scalar slots. Explicit traversal bounds through 32 become recursive CTEs;
+  and scalar slots. `WITH DISTINCT` materializes projections and ranks rows by
+  typed semantic keys before pagination. Explicit traversal bounds through 32 become recursive CTEs;
   deep, open-ended, and shortest-path traversals instead declare typed runtime
   inputs consumed through branch-local runtime slots.
 - `planner/physical.rs` connects SQLite fragments to explicit

@@ -49,6 +49,11 @@ end-to-end result test for user-visible semantics.
 - `tests/arithmetic_and_distinct.rs` locks down numeric expression typing,
   precedence, invalid-operand nulls, typed ordering, and post-decode semantic
   `DISTINCT`, including pagination and ordering-scope boundaries.
+- `tests/with_distinct.rs` covers typed row deduplication at intermediate
+  boundaries: nulls and recursive numeric equality, complete rows and
+  wildcards, entity/path/graph-list identity, filtering and ordering scope,
+  pagination, aggregation, stable projected random values, hybrid traversal,
+  later bag expansion, write multiplicity, and rollback.
 - `tests/membership_and_string_predicates.rs` covers typed `IN` membership and
   the three string predicates across parameters, structured values, empty
   collections/strings, Unicode, null, and wrong-kind operands.
@@ -139,8 +144,8 @@ final graph state when the feature writes.
 
 ## Rows are bags
 
-Unless a read query specifies `RETURN DISTINCT`, Cypher result rows preserve
-bag (multiset) multiplicity. Unless it specifies `ORDER BY`, their order is
+Cypher rows preserve bag (multiset) multiplicity until an explicit distinct
+projection or an aggregation changes it. Unless a query specifies `ORDER BY`, their order is
 unspecified. Tests for unordered results may canonicalize and sort rows for
 comparison, but they must preserve duplicate rows. Never deduplicate the
 result merely to make an assertion convenient; distinct tests must instead
@@ -151,6 +156,9 @@ For `RETURN DISTINCT`, assert that semantic deduplication happens before
 scope. This catches accidental SQLite JSON/text distinctness and incorrect
 pre-dedup pagination. Path rows must compare ordered node and relationship
 identities, not display properties or endpoint pairs alone.
+For `WITH DISTINCT`, also check that later matches and writes consume the
+deduplicated bag, while prior writes remain intact and later failures roll
+back the whole statement. Modifiers must reuse materialized projected values.
 For path-bearing results, also assert that branch-local distinctness and
 pagination plus every union operation precede exactly one query-wide
 `batch-hydrate-paths` stage in the physical explanation.
@@ -300,7 +308,7 @@ the path and traversal integration suites remain the semantic oracle.
 
 Application usability (milestone 10) is the next main milestone; its checklist
 and current working order live in [roadmap.md](roadmap.md). Multi-query
-transactions are its first implementation slice. Milestone 9 continues as
+transactions and `WITH DISTINCT` are complete. Milestone 9 continues as
 supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,
