@@ -113,7 +113,7 @@ fn constrained_trail_endpoints_expose_bound_node_domains() {
     assert_precedes(&explanation, "edge-source:", "start-domain:");
     assert_precedes(&explanation, "start-domain:", "end-domain:");
     assert!(explanation.contains(
-        "start-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.id IN (SELECT node_id FROM node_labels WHERE label = ?1)"
+        "start-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE EXISTS (SELECT 1 FROM node_labels WHERE label = ?1 AND node_id = trail_node.id)"
     ));
     assert!(explanation.contains(
         "end-domain:\n        sql: SELECT trail_node.id FROM nodes AS trail_node WHERE trail_node.id IN (SELECT node_id FROM node_labels WHERE label = ?1) ORDER BY trail_node.id"
@@ -131,19 +131,15 @@ fn sqlite_walks_seed_only_the_constrained_start_endpoint() {
     )
     .unwrap();
     assert_operator_sequence(&constrained, &["sqlite-fragment"]);
-    assert!(constrained.contains(
-        "FROM nodes AS seed WHERE seed.id IN (SELECT node_id FROM node_labels WHERE label = ?"
-    ));
+    assert!(
+        constrained
+            .contains("FROM nodes AS seed WHERE EXISTS (SELECT 1 FROM node_labels WHERE label = ?")
+    );
     assert!(constrained.contains("seed.id IN (SELECT _crabnet_property.node_id"));
     assert!(constrained.contains("json_extract(seed.props,"));
     // Only the start endpoint seeds the walk; the end label stays on the
     // outer join, so exactly one label predicate mentions the seed alias.
-    assert_eq!(
-        constrained
-            .matches("seed.id IN (SELECT node_id FROM node_labels WHERE label = ?")
-            .count(),
-        1
-    );
+    assert_eq!(constrained.matches("AND node_id = seed.id)").count(), 1);
     assert_eq!(
         constrained
             .matches("FROM node_labels WHERE label = ?")
@@ -219,10 +215,9 @@ fn union_branches_converge_before_one_explicit_hydration_operator() {
     }
 }
 #[test]
-fn mixed_three_branch_union_renders_its_left_fold_execution_order() {
+fn three_branch_union_renders_its_left_fold_execution_order() {
     let branch = "MATCH (node) RETURN node.id AS value";
-    let explanation =
-        explain_physical(&format!("{branch} UNION {branch} UNION ALL {branch}")).unwrap();
+    let explanation = explain_physical(&format!("{branch} UNION {branch} UNION {branch}")).unwrap();
 
     assert_operator_sequence(
         &explanation,
@@ -231,7 +226,7 @@ fn mixed_three_branch_union_renders_its_left_fold_execution_order() {
             "sqlite-fragment",
             "union mode=semantic-distinct",
             "sqlite-fragment",
-            "union mode=all",
+            "union mode=semantic-distinct",
         ],
     );
 }

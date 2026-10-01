@@ -675,7 +675,7 @@ fn property_summary_counts_only_observable_storage_changes() {
 }
 
 #[test]
-fn whole_map_replacement_preserves_explicit_json_null() {
+fn whole_map_replacement_drops_null_entries() {
     let mut database = Database::in_memory().unwrap();
     database.execute("CREATE (:Item {old: true})").unwrap();
 
@@ -688,13 +688,13 @@ fn whole_map_replacement_preserves_explicit_json_null() {
         .unwrap();
     let item = updated.rows[0][0].as_node().unwrap();
 
-    assert_eq!(item.properties.get("explicit"), Some(&CypherValue::Null));
+    assert!(!item.properties.contains_key("explicit"));
     assert_eq!(
         item.properties.get("retained"),
         Some(&CypherValue::String("yes".into()))
     );
     assert!(!item.properties.contains_key("old"));
-    assert_eq!(updated.summary.properties_set, 3);
+    assert_eq!(updated.summary.properties_set, 2);
 }
 
 #[test]

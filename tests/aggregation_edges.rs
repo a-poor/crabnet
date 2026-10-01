@@ -172,26 +172,40 @@ fn min_and_max_support_text_and_boolean_families() {
 }
 
 #[test]
-fn min_and_max_return_null_for_incompatible_or_unsupported_mixed_kinds() {
+fn min_and_max_order_mixed_kinds_by_cypher_orderability() {
     let mut database = Database::in_memory().unwrap();
     database
         .execute(
             "CREATE (:MixedExtrema {value: 1}), \
                     (:MixedExtrema {value: 'two'}), \
                     (:MixedExtrema {value: null}), \
-                    (:StructuredExtrema {value: [1]}), \
-                    (:StructuredExtrema {value: [2]})",
+                    (:MixedExtrema {value: [3]}), \
+                    (:StructuredExtrema {value: [1, 'a']}), \
+                    (:StructuredExtrema {value: [2]}), \
+                    (:StructuredExtrema {value: [1]})",
         )
         .unwrap();
 
-    for label in ["MixedExtrema", "StructuredExtrema"] {
+    // Lists sort before strings, and strings before numbers.
+    for (label, minimum, maximum) in [
+        (
+            "MixedExtrema",
+            CypherValue::List(vec![CypherValue::Integer(3)]),
+            CypherValue::Integer(1),
+        ),
+        (
+            "StructuredExtrema",
+            CypherValue::List(vec![CypherValue::Integer(1)]),
+            CypherValue::List(vec![CypherValue::Integer(2)]),
+        ),
+    ] {
         let result = database
             .execute(&format!(
                 "MATCH (item:{label}) \
                  RETURN min(item.value) AS minimum, max(item.value) AS maximum"
             ))
             .unwrap();
-        assert_eq!(result.rows, [vec![CypherValue::Null, CypherValue::Null]]);
+        assert_eq!(result.rows, [vec![minimum, maximum]]);
     }
 }
 
@@ -566,8 +580,11 @@ fn aggregate_values_used_directly_as_predicates_keep_argument_bindings() {
         "WITH collect($value) AS result WHERE collect($value) RETURN result",
         "WITH avg($value) AS result WHERE NOT avg($value) RETURN result",
     ] {
-        let result = database.execute_with(query, &parameters).unwrap();
-        assert!(result.rows.is_empty(), "unexpected rows for {query}");
+        // A number or a list is not a predicate. The statement must reach
+        // that type check with every argument bound, rather than fail on a
+        // binding count mismatch.
+        let error = database.execute_with(query, &parameters).unwrap_err();
+        assert!(matches!(error, Error::Type(_)), "{query}: {error:?}");
     }
 }
 

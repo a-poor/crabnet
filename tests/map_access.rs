@@ -118,17 +118,30 @@ fn map_keys_are_read_from_nested_maps_parameters_properties_and_expressions() {
 }
 
 #[test]
-fn map_key_access_on_non_maps_is_null_and_paths_are_rejected() {
+fn map_key_access_on_non_maps_is_a_type_error_and_paths_are_rejected() {
     let mut database = Database::in_memory().unwrap();
-    // Cypher raises a type error here; this engine's documented three-valued
-    // behavior reads a key of a non-map as null.
+    // A key of null reads as null.
     assert_eq!(
-        row(
-            &mut database,
-            "WITH 5 AS n, 'text' AS s, [1] AS l RETURN n.key, s.key, l.key"
-        ),
-        vec![CypherValue::Null, CypherValue::Null, CypherValue::Null]
+        row(&mut database, "WITH null AS m RETURN m.key"),
+        vec![CypherValue::Null]
     );
+    // A key of any other non-map is a type error: while planning when the
+    // query text fixes the kind, and at runtime otherwise.
+    for query in [
+        "WITH 5 AS n RETURN n.key",
+        "WITH 'text' AS s RETURN s.key",
+        "WITH [1] AS l RETURN l.key",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Semantic(_))),
+            "{query}"
+        );
+    }
+    let parameters = parameters([("value", json!(5))]);
+    assert!(matches!(
+        database.execute_with("WITH $value AS n RETURN n.key", &parameters),
+        Err(Error::Type(_))
+    ));
     let error = database
         .execute("MATCH p = (a) RETURN p.length AS value")
         .unwrap_err();

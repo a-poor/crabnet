@@ -171,6 +171,11 @@ fn indexed_lookups_keep_cypher_equality() {
         (json!("1"), vec!["text"]),
         (json!([1, 2]), vec!["list"]),
         (json!({"a": 1}), vec!["map"]),
+        // Composites equal values whose JSON text differs, so the probe
+        // must not narrow them by text.
+        (json!([1.0, 2]), vec!["list"]),
+        (json!({"a": 1.0}), vec!["map"]),
+        (json!([1, null]), vec![]),
         (json!(null), vec![]),
         (json!(2), vec![]),
     ];

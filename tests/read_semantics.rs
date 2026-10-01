@@ -125,16 +125,16 @@ fn boolean_predicates_preserve_three_valued_logic() {
 }
 
 #[test]
-fn boolean_contexts_do_not_coerce_non_boolean_json_values() {
+fn boolean_contexts_reject_non_boolean_values() {
     let mut database = Database::in_memory().unwrap();
     database
         .execute(
             "CREATE (:BooleanContext {name: 'true', value: true}), \
                     (:BooleanContext {name: 'false', value: false}), \
-                    (:BooleanContext {name: 'number', value: 1}), \
-                    (:BooleanContext {name: 'text', value: 'true'}), \
                     (:BooleanContext {name: 'null', value: null}), \
-                    (:BooleanContext {name: 'missing'})",
+                    (:BooleanContext {name: 'missing'}), \
+                    (:WrongContext {name: 'number', value: 1}), \
+                    (:WrongContext {name: 'text', value: 'true'})",
         )
         .unwrap();
 
@@ -155,13 +155,24 @@ fn boolean_contexts_do_not_coerce_non_boolean_json_values() {
         .unwrap();
     assert_eq!(
         indeterminate.rows,
-        [
-            vec![json!("missing")],
-            vec![json!("null")],
-            vec![json!("number")],
-            vec![json!("text")],
-        ]
+        [vec![json!("missing")], vec![json!("null")]]
     );
+
+    // A number or a string is never coerced to a truth value.
+    for query in [
+        "MATCH (sample:WrongContext) WHERE sample.value RETURN sample.name",
+        "MATCH (sample:WrongContext) RETURN sample.value AND true",
+        "MATCH (sample:WrongContext) RETURN NOT sample.value",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Type(_))),
+            "{query}"
+        );
+    }
+    assert!(matches!(
+        database.execute("MATCH (sample:BooleanContext) WHERE 1 RETURN sample.name"),
+        Err(Error::Semantic(_))
+    ));
 }
 
 #[test]
@@ -265,6 +276,51 @@ fn ordering_uses_cypher_default_null_placement() {
         descending_page.rows,
         [vec![CypherValue::Integer(2)], vec![CypherValue::Integer(1)],]
     );
+}
+
+#[test]
+fn ordering_sorts_mixed_kinds_by_global_orderability() {
+    let mut database = Database::in_memory().unwrap();
+    let values = "[1, 'b', null, true, [1, 'a'], 0.5, {k: 1}, false, 'a', [1], -2, [null]]";
+    let ascending = database
+        .execute(&format!(
+            "UNWIND {values} AS value RETURN value ORDER BY value"
+        ))
+        .unwrap();
+    let expected = [
+        json!({"k": 1}),
+        json!([1]),
+        json!([1, "a"]),
+        json!([null]),
+        json!("a"),
+        json!("b"),
+        json!(false),
+        json!(true),
+        json!(-2),
+        json!(0.5),
+        json!(1),
+        json!(null),
+    ];
+    let rows = |expected: &mut dyn Iterator<Item = &Value>| {
+        expected
+            .map(|value| vec![value.clone()])
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ascending.rows, rows(&mut expected.iter()));
+
+    let descending = database
+        .execute(&format!(
+            "UNWIND {values} AS value WITH value ORDER BY value DESC RETURN value"
+        ))
+        .unwrap();
+    assert_eq!(descending.rows, rows(&mut expected.iter().rev()));
+
+    let extrema = database
+        .execute(&format!(
+            "UNWIND {values} AS value RETURN min(value) AS low, max(value) AS high"
+        ))
+        .unwrap();
+    assert_eq!(extrema.rows, [vec![json!({"k": 1}), json!(1)]]);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crabnet::{CypherValue, Database, Parameters, Value};
+use crabnet::{CypherValue, Database, Error, Parameters, Value};
 use serde_json::json;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,14 +115,6 @@ fn seed_operands(database: &mut Database, operands: &[Operand]) {
     }
 }
 
-fn truth(value: Option<&Value>) -> Truth {
-    match value {
-        Some(Value::Bool(false)) => Truth::False,
-        Some(Value::Bool(true)) => Truth::True,
-        _ => Truth::Null,
-    }
-}
-
 fn is_nullish(value: Option<&Value>) -> bool {
     matches!(value, None | Some(Value::Null))
 }
@@ -178,8 +170,26 @@ fn equality(left: Option<&Value>, right: Option<&Value>) -> Truth {
         }
         (Value::Bool(left), Value::Bool(right)) => Truth::from(*left == *right),
         (Value::String(left), Value::String(right)) => Truth::from(left == right),
-        (left @ Value::Array(_), right @ Value::Array(_))
-        | (left @ Value::Object(_), right @ Value::Object(_)) => Truth::from(left == right),
+        // Collections compare element by element: a definite difference
+        // decides false, and otherwise a null element leaves it unknown.
+        (Value::Array(left), Value::Array(right)) => {
+            if left.len() != right.len() {
+                return Truth::False;
+            }
+            left.iter()
+                .zip(right)
+                .fold(Truth::True, |truth, (left, right)| {
+                    truth.and(equality(Some(left), Some(right)))
+                })
+        }
+        (Value::Object(left), Value::Object(right)) => {
+            if left.len() != right.len() || left.keys().any(|key| !right.contains_key(key)) {
+                return Truth::False;
+            }
+            left.iter().fold(Truth::True, |truth, (key, left)| {
+                truth.and(equality(Some(left), right.get(key)))
+            })
+        }
         _ => Truth::False,
     }
 }
@@ -193,6 +203,17 @@ fn ordering(left: Option<&Value>, right: Option<&Value>) -> Option<Ordering> {
         (Value::Number(left), Value::Number(right)) => Some(compare_numbers(left, right)),
         (Value::Bool(left), Value::Bool(right)) => Some(left.cmp(right)),
         (Value::String(left), Value::String(right)) => Some(left.cmp(right)),
+        // Lists compare lexicographically, a shorter prefix first, and are
+        // incomparable from the first incomparable element pair on.
+        (Value::Array(left), Value::Array(right)) => {
+            for (left, right) in left.iter().zip(right) {
+                match ordering(Some(left), Some(right))? {
+                    Ordering::Equal => {}
+                    decided => return Some(decided),
+                }
+            }
+            Some(left.len().cmp(&right.len()))
+        }
         _ => None,
     }
 }
@@ -201,24 +222,88 @@ fn ordered(comparison: Option<Ordering>, accepts: impl FnOnce(Ordering) -> bool)
     comparison.map_or(Truth::Null, |ordering| Truth::from(accepts(ordering)))
 }
 
-fn membership(left: Option<&Value>, right: Option<&Value>) -> Truth {
-    let Some(Value::Array(members)) = right else {
-        return Truth::Null;
+fn membership(left: Option<&Value>, right: Option<&Value>) -> Outcome {
+    let members = match right {
+        Some(Value::Array(members)) => members,
+        None | Some(Value::Null) => return Outcome::Truth(Truth::Null),
+        Some(_) => return Outcome::TypeError,
     };
     if members.is_empty() {
-        return Truth::False;
+        return Outcome::Truth(Truth::False);
     }
 
     let comparisons = members
         .iter()
         .map(|member| equality(left, Some(member)))
         .collect::<Vec<_>>();
-    if comparisons.contains(&Truth::True) {
+    Outcome::Truth(if comparisons.contains(&Truth::True) {
         Truth::True
     } else if comparisons.contains(&Truth::Null) {
         Truth::Null
     } else {
         Truth::False
+    })
+}
+
+/// What a predicate that can fail produces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Outcome {
+    Truth(Truth),
+    TypeError,
+    /// Either the truth value or a type error. `AND` and `OR` may stop at an
+    /// operand that decides the result without checking the other one.
+    TruthOrTypeError(Truth),
+}
+
+/// A boolean operand, or `None` for a value of another kind.
+fn boolean_operand(value: Option<&Value>) -> Option<Truth> {
+    match value {
+        None | Some(Value::Null) => Some(Truth::Null),
+        Some(Value::Bool(value)) => Some(Truth::from(*value)),
+        Some(_) => None,
+    }
+}
+
+fn connective(
+    left: Option<&Value>,
+    right: Option<&Value>,
+    deciding: Truth,
+    combine: impl FnOnce(Truth, Truth) -> Truth,
+) -> Outcome {
+    match (boolean_operand(left), boolean_operand(right)) {
+        (Some(left), Some(right)) => Outcome::Truth(combine(left, right)),
+        (Some(decided), None) | (None, Some(decided)) if decided == deciding => {
+            Outcome::TruthOrTypeError(deciding)
+        }
+        _ => Outcome::TypeError,
+    }
+}
+
+fn negation(value: Option<&Value>) -> Outcome {
+    boolean_operand(value).map_or(Outcome::TypeError, |truth| Outcome::Truth(truth.not()))
+}
+
+/// Runs a single-cell query and checks it against the expected outcome.
+fn assert_outcome(
+    failures: &mut Vec<String>,
+    database: &mut Database,
+    query: &str,
+    parameters: &Parameters,
+    label: String,
+    expected: Outcome,
+) {
+    let actual = database
+        .execute_with(query, parameters)
+        .map(|result| result.rows[0][0].clone());
+    let accepted = match (expected, &actual) {
+        (Outcome::Truth(truth) | Outcome::TruthOrTypeError(truth), Ok(value)) => {
+            *value == truth.value()
+        }
+        (Outcome::TypeError | Outcome::TruthOrTypeError(_), Err(Error::Type(_))) => true,
+        _ => false,
+    };
+    if !accepted {
+        failures.push(format!("{label}; expected {expected:?}, got {actual:?}"));
     }
 }
 
@@ -286,9 +371,6 @@ fn binary_predicates_match_the_finite_typed_oracle() {
                     lhs.value <= rhs.value AS less_equal, \
                     lhs.value > rhs.value AS greater, \
                     lhs.value >= rhs.value AS greater_equal, \
-                    lhs.value AND rhs.value AS conjunction, \
-                    lhs.value OR rhs.value AS disjunction, \
-                    lhs.value IN rhs.value AS membership, \
                     lhs.value STARTS WITH rhs.value AS starts_with, \
                     lhs.value CONTAINS rhs.value AS contains, \
                     lhs.value ENDS WITH rhs.value AS ends_with",
@@ -306,9 +388,6 @@ fn binary_predicates_match_the_finite_typed_oracle() {
             "less_equal",
             "greater",
             "greater_equal",
-            "conjunction",
-            "disjunction",
-            "membership",
             "starts_with",
             "contains",
             "ends_with",
@@ -343,9 +422,6 @@ fn binary_predicates_match_the_finite_typed_oracle() {
             ("<=", ordered(comparison, |value| value.is_le())),
             (">", ordered(comparison, |value| value.is_gt())),
             (">=", ordered(comparison, |value| value.is_ge())),
-            ("AND", truth(left_value).and(truth(right_value))),
-            ("OR", truth(left_value).or(truth(right_value))),
-            ("IN", membership(left_value, right_value)),
             (
                 "STARTS WITH",
                 string_predicate(left_value, right_value, |left, right| {
@@ -371,6 +447,48 @@ fn binary_predicates_match_the_finite_typed_oracle() {
                 expected,
                 &row[offset + 2],
             );
+        }
+    }
+
+    // Connectives and membership can fail on a value of the wrong kind, so
+    // each pair runs alone.
+    for left in &operands {
+        for right in &operands {
+            let parameters = Parameters::from([
+                ("lhs".to_owned(), json!(left.name)),
+                ("rhs".to_owned(), json!(right.name)),
+            ]);
+            let (left_value, right_value) = (left.value.as_ref(), right.value.as_ref());
+            for (operator, expected) in [
+                (
+                    "AND",
+                    connective(left_value, right_value, Truth::False, Truth::and),
+                ),
+                (
+                    "OR",
+                    connective(left_value, right_value, Truth::True, Truth::or),
+                ),
+                ("IN", membership(left_value, right_value)),
+            ] {
+                assert_outcome(
+                    &mut failures,
+                    &mut database,
+                    &format!(
+                        "MATCH (lhs:PredicateOperand {{name: $lhs}}), \
+                               (rhs:PredicateOperand {{name: $rhs}}) \
+                         RETURN lhs.value {operator} rhs.value AS result"
+                    ),
+                    &parameters,
+                    format!(
+                        "{operator}: left={} ({}); right={} ({})",
+                        left.name,
+                        left.display_value(),
+                        right.name,
+                        right.display_value()
+                    ),
+                    expected,
+                );
+            }
         }
     }
 
@@ -403,16 +521,12 @@ fn unary_predicates_match_the_finite_typed_oracle() {
         .execute(
             "MATCH (operand:PredicateOperand) \
              RETURN operand.name AS name, \
-                    NOT operand.value AS negated, \
                     operand.value IS NULL AS is_null, \
                     operand.value IS NOT NULL AS is_not_null",
         )
         .unwrap();
 
-    assert_eq!(
-        result.columns,
-        ["name", "negated", "is_null", "is_not_null"]
-    );
+    assert_eq!(result.columns, ["name", "is_null", "is_not_null"]);
     assert_eq!(result.rows.len(), operands.len());
     assert_eq!(result.summary, Default::default());
 
@@ -430,19 +544,11 @@ fn unary_predicates_match_the_finite_typed_oracle() {
         let value = operand.value.as_ref();
         assert_truth(
             &mut failures,
-            "NOT",
-            operand,
-            None,
-            truth(value).not(),
-            &row[1],
-        );
-        assert_truth(
-            &mut failures,
             "IS NULL",
             operand,
             None,
             Truth::from(is_nullish(value)),
-            &row[2],
+            &row[1],
         );
         assert_truth(
             &mut failures,
@@ -450,7 +556,17 @@ fn unary_predicates_match_the_finite_typed_oracle() {
             operand,
             None,
             Truth::from(!is_nullish(value)),
-            &row[3],
+            &row[2],
+        );
+    }
+    for operand in &operands {
+        assert_outcome(
+            &mut failures,
+            &mut database,
+            "MATCH (operand:PredicateOperand {name: $name}) RETURN NOT operand.value AS result",
+            &Parameters::from([("name".to_owned(), json!(operand.name))]),
+            format!("NOT: {} ({})", operand.name, operand.display_value()),
+            negation(operand.value.as_ref()),
         );
     }
 

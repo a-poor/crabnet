@@ -251,3 +251,34 @@ fn xor_is_three_valued() {
         2
     );
 }
+
+#[test]
+fn xor_rejects_wrong_kinds_at_the_correct_stage() {
+    let mut database = Database::in_memory().unwrap();
+    for query in [
+        "RETURN true XOR 1 AS x",
+        "WITH 'text' AS x RETURN x XOR false AS y",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Semantic(_))),
+            "{query}"
+        );
+    }
+    let parameters = crabnet::Parameters::from([("value".into(), json!(1))]);
+    assert!(matches!(
+        database.execute_with("RETURN true XOR $value AS x", &parameters),
+        Err(Error::Type(_))
+    ));
+    database.execute("CREATE (:Item {value: 1})").unwrap();
+    assert!(matches!(
+        database.execute("MATCH (n:Item) SET n.changed = true RETURN n.value XOR false AS x"),
+        Err(Error::Type(_))
+    ));
+    assert_eq!(
+        count(
+            &mut database,
+            "MATCH (n:Item) WHERE n.changed IS NOT NULL RETURN count(n)"
+        ),
+        0
+    );
+}

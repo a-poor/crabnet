@@ -2,6 +2,7 @@
 # `CRABNET_TCK_UPDATE=1 cargo test --test tck`; review every change.
 clauses/call/Call1.feature::[13] Standalone call to unknown procedure should fail
 clauses/create/Create1.feature::[10] Create a single node with two properties and return them
+clauses/create/Create1.feature::[11] Create a single node with null properties should not return those properties
 clauses/create/Create1.feature::[12] CREATE does not lose precision on large integers
 clauses/create/Create1.feature::[13] Fail when creating a node that is already bound
 clauses/create/Create1.feature::[14] Fail when creating a node with properties that is already bound
@@ -27,6 +28,7 @@ clauses/create/Create2.feature::[13] Create a single relationship with a propert
 clauses/create/Create2.feature::[14] Create a single relationship with a property and return it
 clauses/create/Create2.feature::[15] Create a single relationship with two properties
 clauses/create/Create2.feature::[16] Create a single relationship with two properties and return them
+clauses/create/Create2.feature::[17] Create a single relationship with null properties should not return those properties
 clauses/create/Create2.feature::[18] Fail when creating a relationship without a type
 clauses/create/Create2.feature::[1] Create two nodes and a single relationship in a single pattern
 clauses/create/Create2.feature::[23] Fail when creating a relationship that is already bound
@@ -79,6 +81,7 @@ clauses/delete/Delete1.feature::[3] Detach deleting connected nodes and relation
 clauses/delete/Delete1.feature::[4] Delete on null node
 clauses/delete/Delete1.feature::[5] Ignore null when deleting node
 clauses/delete/Delete1.feature::[6] Detach delete on null node
+clauses/delete/Delete1.feature::[7] Failing when deleting connected nodes
 clauses/delete/Delete1.feature::[8] Failing when deleting a label
 clauses/delete/Delete2.feature::[1] Delete relationships
 clauses/delete/Delete2.feature::[2] Delete optionally matched relationship
@@ -487,13 +490,16 @@ clauses/match/Match8.feature::[3] Matching and disregarding output, then matchin
 clauses/match/Match9.feature::[2] Return relationships by collecting them as a list - directed, one way
 clauses/match/Match9.feature::[3] Return relationships by collecting them as a list - undirected, starting from two extremes
 clauses/match/Match9.feature::[4] Return relationships by collecting them as a list - undirected, starting from one extreme
+clauses/merge/Merge1.feature::[10] Merge must properly handle multiple labels
 clauses/merge/Merge1.feature::[11] Merge should be able to merge using property of bound node
 clauses/merge/Merge1.feature::[12] Merge should be able to merge using property of freshly created node
 clauses/merge/Merge1.feature::[15] Fail when merge a node that is already bound
+clauses/merge/Merge1.feature::[17] Fail on merging node with null property
 clauses/merge/Merge1.feature::[1] Merge node when no nodes exist
 clauses/merge/Merge1.feature::[2] Merge node with label
 clauses/merge/Merge1.feature::[3] Merge node with label when it exists
 clauses/merge/Merge1.feature::[4] Merge node should create when it doesn't match, properties
+clauses/merge/Merge1.feature::[5] Merge node should create when it doesn't match, properties and label
 clauses/merge/Merge1.feature::[6] Merge node with prop and label
 clauses/merge/Merge1.feature::[7] Merge should work when finding multiple elements
 clauses/merge/Merge1.feature::[8] Merge should handle argument properly
@@ -524,6 +530,7 @@ clauses/merge/Merge5.feature::[22] Fail when imposing new predicates on a variab
 clauses/merge/Merge5.feature::[23] Fail when merging relationship without type
 clauses/merge/Merge5.feature::[24] Fail when merging relationship without type, no colon
 clauses/merge/Merge5.feature::[26] Fail when merging relationship that is already bound
+clauses/merge/Merge5.feature::[29] Fail on merging relationship with null property
 clauses/merge/Merge5.feature::[2] Matching a relationship
 clauses/merge/Merge5.feature::[3] Matching two relationships
 clauses/merge/Merge5.feature::[4] Using bound variables from other updating clause
@@ -580,6 +587,7 @@ clauses/remove/Remove3.feature::[6] Aggregating in `RETURN` after removing a pro
 clauses/remove/Remove3.feature::[7] Aggregating in `WITH` after removing a property from nodes affects the result set but not the side effects
 clauses/remove/Remove3.feature::[8] Limiting to zero results after removing a label from nodes affects the result set but not the side effects
 clauses/remove/Remove3.feature::[9] Skipping all results after removing a label from nodes affects the result set but not the side effects
+clauses/return-orderby/ReturnOrderBy1.feature::[10] ORDER BY DESC should order lists in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[1] ORDER BY should order booleans in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[2] ORDER BY DESC should order booleans in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[3] ORDER BY should order strings in the expected order
@@ -588,6 +596,7 @@ clauses/return-orderby/ReturnOrderBy1.feature::[5] ORDER BY should order ints in
 clauses/return-orderby/ReturnOrderBy1.feature::[6] ORDER BY DESC should order ints in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[7] ORDER BY should order floats in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[8] ORDER BY DESC should order floats in the expected order
+clauses/return-orderby/ReturnOrderBy1.feature::[9] ORDER BY should order lists in the expected order
 clauses/return-orderby/ReturnOrderBy2.feature::[13] Fail when sorting on variable removed by DISTINCT
 clauses/return-orderby/ReturnOrderBy2.feature::[14] Fail on aggregation in ORDER BY after RETURN
 clauses/return-orderby/ReturnOrderBy2.feature::[1] ORDER BY should return results in ascending order
@@ -693,6 +702,7 @@ clauses/set/Set3.feature::[7] Ignore whitespace before colon 3
 clauses/set/Set3.feature::[8] Ignore null when setting label
 clauses/set/Set4.feature::[1] Set multiple properties with a property map
 clauses/set/Set4.feature::[2] Non-existent values in a property map are removed with SET
+clauses/set/Set4.feature::[3] Null values in a property map are removed with SET
 clauses/set/Set4.feature::[4] All properties are removed if node is set to empty property map
 clauses/set/Set4.feature::[5] Ignore null when setting properties using an overriding map
 clauses/set/Set5.feature::[1] Ignore null when setting properties using an appending map
@@ -731,6 +741,8 @@ clauses/union/Union2.feature::[2] Three elements, two unique, not distinct
 clauses/union/Union2.feature::[3] Two single-column inputs, one with duplicates, not distinct
 clauses/union/Union2.feature::[4] Should be able to create text output from union all queries
 clauses/union/Union2.feature::[5] Failing when UNION ALL has different columns
+clauses/union/Union3.feature::[1] Failing when mixing UNION and UNION ALL
+clauses/union/Union3.feature::[2] Failing when mixing UNION ALL and UNION
 clauses/unwind/Unwind1.feature::[10] Unwinding list with duplicates
 clauses/unwind/Unwind1.feature::[11] Unwind does not prune context
 clauses/unwind/Unwind1.feature::[13] Multiple unwinds after each other
@@ -742,6 +754,7 @@ clauses/unwind/Unwind1.feature::[4] Unwinding a collected unwound expression
 clauses/unwind/Unwind1.feature::[7] Double unwinding a list of lists
 clauses/unwind/Unwind1.feature::[8] Unwinding the empty list
 clauses/unwind/Unwind1.feature::[9] Unwinding null
+clauses/with-orderBy/WithOrderBy1.feature::[10] Sort lists in descending order
 clauses/with-orderBy/WithOrderBy1.feature::[1] Sort booleans in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[23] Sort by a boolean variable projected from a node property in ascending order::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[23] Sort by a boolean variable projected from a node property in ascending order::example 2
@@ -764,6 +777,9 @@ clauses/with-orderBy/WithOrderBy1.feature::[29] Sort by a string variable projec
 clauses/with-orderBy/WithOrderBy1.feature::[2] Sort booleans in descending order
 clauses/with-orderBy/WithOrderBy1.feature::[30] Sort by a string variable projected from a node property in descending order::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[30] Sort by a string variable projected from a node property in descending order::example 2
+clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 1
+clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 2
+clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 3
 clauses/with-orderBy/WithOrderBy1.feature::[32] Sort by a list variable projected from a node property in descending order::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[32] Sort by a list variable projected from a node property in descending order::example 2
 clauses/with-orderBy/WithOrderBy1.feature::[3] Sort integers in ascending order
@@ -773,6 +789,7 @@ clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent 
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 2
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 3
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 4
+clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 5
 clauses/with-orderBy/WithOrderBy1.feature::[46] Fail on sorting by an undefined variable #Example: <exampleName>::example 1
 clauses/with-orderBy/WithOrderBy1.feature::[46] Fail on sorting by an undefined variable #Example: <exampleName>::example 10
 clauses/with-orderBy/WithOrderBy1.feature::[46] Fail on sorting by an undefined variable #Example: <exampleName>::example 2
@@ -788,6 +805,7 @@ clauses/with-orderBy/WithOrderBy1.feature::[5] Sort floats in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[6] Sort floats in descending order
 clauses/with-orderBy/WithOrderBy1.feature::[7] Sort strings in ascending order
 clauses/with-orderBy/WithOrderBy1.feature::[8] Sort strings in descending order
+clauses/with-orderBy/WithOrderBy1.feature::[9] Sort lists in ascending order
 clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 1
 clauses/with-orderBy/WithOrderBy2.feature::[10] Sort by a list expression in descending order::example 2
 clauses/with-orderBy/WithOrderBy2.feature::[1] Sort by a boolean expression in ascending order::example 1
@@ -994,6 +1012,9 @@ clauses/with/With7.feature::[1] A simple pattern with one bound endpoint
 clauses/with/With7.feature::[2] Multiple WITHs using a predicate and aggregation
 expressions/aggregation/Aggregation1.feature::[1] Count only non-null values
 expressions/aggregation/Aggregation1.feature::[2] Counting loop relationships
+expressions/aggregation/Aggregation2.feature::[10] `min()` over list values
+expressions/aggregation/Aggregation2.feature::[11] `max()` over mixed values
+expressions/aggregation/Aggregation2.feature::[12] `min()` over mixed values
 expressions/aggregation/Aggregation2.feature::[1] `max()` over integers
 expressions/aggregation/Aggregation2.feature::[2] `min()` over integers
 expressions/aggregation/Aggregation2.feature::[3] `max()` over floats
@@ -1002,6 +1023,7 @@ expressions/aggregation/Aggregation2.feature::[5] `max()` over mixed numeric val
 expressions/aggregation/Aggregation2.feature::[6] `min()` over mixed numeric values
 expressions/aggregation/Aggregation2.feature::[7] `max()` over strings
 expressions/aggregation/Aggregation2.feature::[8] `min()` over strings
+expressions/aggregation/Aggregation2.feature::[9] `max()` over list values
 expressions/aggregation/Aggregation3.feature::[1] Sum only non-null values
 expressions/aggregation/Aggregation3.feature::[2] No overflow during summation
 expressions/aggregation/Aggregation8.feature::[1] Distinct on unbound node
@@ -1013,6 +1035,29 @@ expressions/boolean/Boolean1.feature::[4] Conjunction is commutative on non-null
 expressions/boolean/Boolean1.feature::[5] Conjunction is commutative on null
 expressions/boolean/Boolean1.feature::[6] Conjunction is associative on non-null
 expressions/boolean/Boolean1.feature::[7] Conjunction is associative on null
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 1
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 10
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 11
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 12
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 13
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 14
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 15
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 16
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 17
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 18
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 19
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 2
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 20
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 21
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 22
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 23
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 3
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 4
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 5
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 6
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 7
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 8
+expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 9
 expressions/boolean/Boolean2.feature::[1] Disjunction of two truth values
 expressions/boolean/Boolean2.feature::[2] Disjunction of three truth values
 expressions/boolean/Boolean2.feature::[3] Disjunction of many truth values
@@ -1020,6 +1065,29 @@ expressions/boolean/Boolean2.feature::[4] Disjunction is commutative on non-null
 expressions/boolean/Boolean2.feature::[5] Disjunction is commutative on null
 expressions/boolean/Boolean2.feature::[6] Disjunction is associative on non-null
 expressions/boolean/Boolean2.feature::[7] Disjunction is associative on null
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 1
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 10
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 11
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 12
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 13
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 14
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 15
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 16
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 17
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 18
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 19
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 2
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 20
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 21
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 22
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 23
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 3
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 4
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 5
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 6
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 7
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 8
+expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 9
 expressions/boolean/Boolean3.feature::[1] Exclusive disjunction of two truth values
 expressions/boolean/Boolean3.feature::[2] Exclusive disjunction of three truth values
 expressions/boolean/Boolean3.feature::[3] Exclusive disjunction of many truth values
@@ -1027,9 +1095,81 @@ expressions/boolean/Boolean3.feature::[4] Exclusive disjunction is commutative o
 expressions/boolean/Boolean3.feature::[5] Exclusive disjunction is commutative on null
 expressions/boolean/Boolean3.feature::[6] Exclusive disjunction is associative on non-null
 expressions/boolean/Boolean3.feature::[7] Exclusive disjunction is associative on null
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 1
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 10
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 11
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 12
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 13
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 14
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 15
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 16
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 17
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 18
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 19
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 2
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 20
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 21
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 22
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 23
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 3
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 4
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 5
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 6
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 7
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 8
+expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 9
 expressions/boolean/Boolean4.feature::[1] Logical negation of truth values
 expressions/boolean/Boolean4.feature::[2] Double logical negation of truth values
 expressions/boolean/Boolean4.feature::[3] NOT and false
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 1
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 10
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 11
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 12
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 13
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 14
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 15
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 16
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 17
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 18
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 19
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 2
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 20
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 21
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 22
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 23
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 24
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 25
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 26
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 27
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 28
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 29
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 3
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 30
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 31
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 32
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 33
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 34
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 35
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 36
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 37
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 38
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 39
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 4
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 40
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 41
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 42
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 43
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 44
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 45
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 46
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 47
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 48
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 49
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 5
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 6
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 7
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 8
+expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 9
 expressions/boolean/Boolean5.feature::[1] Disjunction is distributive over conjunction on non-null
 expressions/boolean/Boolean5.feature::[2] Disjunction is distributive over conjunction on null
 expressions/boolean/Boolean5.feature::[3] Conjunction is distributive over disjunction on non-null
@@ -1051,12 +1191,19 @@ expressions/comparison/Comparison1.feature::[3] Any-typed string comparison
 expressions/comparison/Comparison1.feature::[4] Comparing nodes to nodes
 expressions/comparison/Comparison1.feature::[5] Comparing relationships to relationships
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 1
+expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 2
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 3
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 4
+expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 5
 expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 6
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 1
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 10
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 11
+expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 12
+expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 13
+expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 14
+expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 15
+expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 16
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 2
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 3
 expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 4
@@ -1071,8 +1218,11 @@ expressions/comparison/Comparison1.feature::[9] Equality between strings and num
 expressions/comparison/Comparison1.feature::[9] Equality between strings and numbers::example 4
 expressions/comparison/Comparison2.feature::[1] Comparing strings and integers using > in an AND'd predicate
 expressions/comparison/Comparison2.feature::[2] Comparing strings and integers using > in a OR'd predicate
+expressions/comparison/Comparison2.feature::[4] Comparing lists::example 1
+expressions/comparison/Comparison2.feature::[4] Comparing lists::example 2
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 3
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 4
+expressions/comparison/Comparison2.feature::[4] Comparing lists::example 5
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 4
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 1
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 2
@@ -1132,6 +1282,12 @@ expressions/graph/Graph6.feature::[3] Statically access a property of a null nod
 expressions/graph/Graph6.feature::[5] Statically access a property of a non-null relationship
 expressions/graph/Graph6.feature::[6] Statically access a property of a optional non-null relationship
 expressions/graph/Graph6.feature::[7] Statically access a property of a null relationship
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 1
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 2
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 3
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 4
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 5
+expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 6
 expressions/graph/Graph7.feature::[1] Execute n['name'] in read queries
 expressions/graph/Graph7.feature::[2] Execute n['name'] in update queries
 expressions/graph/Graph7.feature::[3] Use dynamic property lookup based on parameters when there is lhs type information
@@ -1147,11 +1303,32 @@ expressions/graph/Graph9.feature::[1] `properties()` on a node
 expressions/graph/Graph9.feature::[2] `properties()` on a relationship
 expressions/graph/Graph9.feature::[3] `properties()` on null
 expressions/graph/Graph9.feature::[4] `properties()` on a map
+expressions/graph/Graph9.feature::[5] `properties()` failing on an integer literal
+expressions/graph/Graph9.feature::[6] `properties()` failing on a string literal
+expressions/graph/Graph9.feature::[7] `properties()` failing on a list of booleans
 expressions/list/List1.feature::[1] Indexing into literal list
 expressions/list/List1.feature::[2] Indexing into nested literal lists
 expressions/list/List1.feature::[3] Use list lookup based on parameters when there is no type information
 expressions/list/List1.feature::[4] Use list lookup based on parameters when there is lhs type information
 expressions/list/List1.feature::[5] Use list lookup based on parameters when there is rhs type information
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 1
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 2
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 3
+expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 4
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 1
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 2
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 3
+expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 4
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 1
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 2
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 3
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 4
+expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 5
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 1
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 2
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 3
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 4
+expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 5
 expressions/list/List11.feature::[1] Create list from `range()` with default step::example 1
 expressions/list/List11.feature::[1] Create list from `range()` with default step::example 10
 expressions/list/List11.feature::[1] Create list from `range()` with default step::example 11
@@ -1196,6 +1373,28 @@ expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::ex
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 2
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 3
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 4
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 1
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 10
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 11
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 12
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 13
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 14
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 15
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 16
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 17
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 18
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 19
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 2
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 20
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 21
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 22
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 3
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 4
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 5
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 6
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 7
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 8
+expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 9
 expressions/list/List12.feature::[6] Using a list comprehension in a WHERE
 expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension
 expressions/list/List2.feature::[10] List slice with parameterised range
@@ -1216,8 +1415,10 @@ expressions/list/List2.feature::[9] List slice with null range::example 5
 expressions/list/List3.feature::[1] Equality between list and literal should return false
 expressions/list/List3.feature::[2] Equality of lists of different length should return false despite nulls
 expressions/list/List3.feature::[3] Equality between different lists with null should return false
+expressions/list/List3.feature::[4] Equality between almost equal lists with null should return null
 expressions/list/List3.feature::[5] Equality of nested lists of different length should return false despite nulls
 expressions/list/List3.feature::[6] Equality between different nested lists with null should return false
+expressions/list/List3.feature::[7] Equality between almost equal nested lists with null should return null
 expressions/list/List4.feature::[1] Concatenating lists of same type
 expressions/list/List4.feature::[2] Concatenating a list with a scalar of same type
 expressions/list/List5.feature::[10] IN should return true when types of LHS and RHS match - list
@@ -1232,6 +1433,7 @@ expressions/list/List5.feature::[18] IN should return false when LHS contains a 
 expressions/list/List5.feature::[19] IN should return false when LHS contains a nested list and type mismatch on RHS
 expressions/list/List5.feature::[1] IN should work with nested list subscripting
 expressions/list/List5.feature::[20] IN should return null if LHS and RHS are null
+expressions/list/List5.feature::[21] IN should return null if LHS and RHS are null - list version
 expressions/list/List5.feature::[22] IN should return null when LHS and RHS both ultimately contain null, even if LHS and RHS are of different types (nested list and flat list)
 expressions/list/List5.feature::[23] IN with different length lists should return false despite nulls
 expressions/list/List5.feature::[24] IN should return true if match despite nulls
@@ -1239,10 +1441,13 @@ expressions/list/List5.feature::[25] IN should return null if comparison with nu
 expressions/list/List5.feature::[26] IN should return true if correct list found despite other lists having nulls
 expressions/list/List5.feature::[27] IN should return true if correct list found despite null being another element within containing list
 expressions/list/List5.feature::[28] IN should return false if no match can be found, despite nulls
+expressions/list/List5.feature::[29] IN should return null if comparison with null is required, list version
 expressions/list/List5.feature::[2] IN should work with nested literal list subscripting
 expressions/list/List5.feature::[30] IN should return false if different length lists compared, even if the extra element is null
+expressions/list/List5.feature::[31] IN should return null when comparing two so-called identical lists where one element is null
 expressions/list/List5.feature::[32] IN should return true with previous null match, list version
 expressions/list/List5.feature::[33] IN should return false if different length lists with nested elements compared, even if the extra element is null
+expressions/list/List5.feature::[34] IN should return null if comparison with null is required, list version 2
 expressions/list/List5.feature::[35] IN should work with an empty list
 expressions/list/List5.feature::[36] IN should return false for the empty list if the LHS and RHS types differ
 expressions/list/List5.feature::[37] IN should work with an empty list in the presence of other list elements: matching
@@ -1251,6 +1456,11 @@ expressions/list/List5.feature::[39] IN should work with an empty list when comp
 expressions/list/List5.feature::[3] IN should work with list slices
 expressions/list/List5.feature::[40] IN should return null if comparison with null is required for empty list
 expressions/list/List5.feature::[41] IN should return true when LHS and RHS contain nested list with multiple empty lists
+expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 1
+expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 2
+expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 3
+expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 4
+expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 5
 expressions/list/List5.feature::[4] IN should work with literal list slices
 expressions/list/List5.feature::[5] IN should return false when matching a number with a string
 expressions/list/List5.feature::[6] IN should return false when matching a number with a string - list version
@@ -1407,6 +1617,12 @@ expressions/map/Map1.feature::[5] Statically access a field with a delimited ide
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 4
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 5
 expressions/map/Map1.feature::[5] Statically access a field with a delimited identifier::example 6
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 1
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 2
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 3
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 4
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 5
+expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 6
 expressions/map/Map2.feature::[1] Dynamically access a field based on parameters when there is no type information
 expressions/map/Map2.feature::[2] Dynamically access a field based on parameters when there is rhs type information
 expressions/map/Map2.feature::[3] Dynamically access a field on null results in null
@@ -1418,6 +1634,9 @@ expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 5
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 6
 expressions/map/Map2.feature::[5] Dynamically access a field is case-sensitive::example 7
+expressions/map/Map2.feature::[6] Fail at runtime when attempting to index with an Int into a Map
+expressions/map/Map2.feature::[7] Fail at runtime when trying to index into a map with a non-string
+expressions/map/Map2.feature::[8] Fail at runtime when trying to index something which is not a map
 expressions/map/Map3.feature::[1] Using `keys()` on a literal map
 expressions/map/Map3.feature::[2] Using `keys()` on a parameter map
 expressions/map/Map3.feature::[3] Using `keys()` on null map
@@ -1593,6 +1812,10 @@ expressions/precedence/Precedence3.feature::[4] List appending takes precedence 
 expressions/precedence/Precedence3.feature::[5] List concatenation takes precedence over list element containment
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 1
 expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 2
+expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 3
+expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 4
+expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 5
+expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 6
 expressions/precedence/Precedence4.feature::[1] Null predicate takes precedence over comparison operator::example 1
 expressions/precedence/Precedence4.feature::[1] Null predicate takes precedence over comparison operator::example 2
 expressions/precedence/Precedence4.feature::[1] Null predicate takes precedence over comparison operator::example 3
@@ -1639,6 +1862,9 @@ expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NUL
 expressions/quantifier/Quantifier1.feature::[12] None quantifier with IS NOT NULL predicate::example 9
 expressions/quantifier/Quantifier1.feature::[13] None quantifier is true if the predicate is statically false and the list is not empty
 expressions/quantifier/Quantifier1.feature::[14] None quantifier is false if the predicate is statically true and the list is not empty
+expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 1
+expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 2
+expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 3
 expressions/quantifier/Quantifier1.feature::[1] None quantifier is always true on empty list
 expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 1
 expressions/quantifier/Quantifier1.feature::[2] None quantifier on list literal containing booleans::example 2
@@ -1787,6 +2013,9 @@ expressions/quantifier/Quantifier2.feature::[12] Single quantifier with IS NOT N
 expressions/quantifier/Quantifier2.feature::[13] Single quantifier is false if the predicate is statically false and the list is not empty
 expressions/quantifier/Quantifier2.feature::[14] Single quantifier is false if the predicate is statically true and the list has more than one element
 expressions/quantifier/Quantifier2.feature::[15] Single quantifier is true if the predicate is statically true and the list has exactly one non-null element
+expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 1
+expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 2
+expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 3
 expressions/quantifier/Quantifier2.feature::[1] Single quantifier is always false on empty list
 expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 1
 expressions/quantifier/Quantifier2.feature::[2] Single quantifier on list literal::example 2
@@ -1887,6 +2116,9 @@ expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL
 expressions/quantifier/Quantifier3.feature::[12] Any quantifier with IS NOT NULL predicate::example 9
 expressions/quantifier/Quantifier3.feature::[13] Any quantifier is false if the predicate is statically false and the list is not empty
 expressions/quantifier/Quantifier3.feature::[14] Any quantifier is true if the predicate is statically true and the list is not empty
+expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 1
+expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 2
+expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 3
 expressions/quantifier/Quantifier3.feature::[1] Any quantifier is always false on empty list
 expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 1
 expressions/quantifier/Quantifier3.feature::[2] Any quantifier on list literal::example 2
@@ -1987,6 +2219,9 @@ expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL
 expressions/quantifier/Quantifier4.feature::[12] All quantifier with IS NOT NULL predicate::example 9
 expressions/quantifier/Quantifier4.feature::[13] All quantifier is false if the predicate is statically false and the list is not empty
 expressions/quantifier/Quantifier4.feature::[14] All quantifier is true if the predicate is statically true and the list is not empty
+expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 1
+expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 2
+expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 3
 expressions/quantifier/Quantifier4.feature::[1] All quantifier is always true on empty list
 expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 1
 expressions/quantifier/Quantifier4.feature::[2] All quantifier on list literal::example 2
@@ -2225,6 +2460,9 @@ expressions/typeConversion/TypeConversion1.feature::[1] `toBoolean()` on boolean
 expressions/typeConversion/TypeConversion1.feature::[2] `toBoolean()` on valid literal string
 expressions/typeConversion/TypeConversion1.feature::[3] `toBoolean()` on variables with valid string values
 expressions/typeConversion/TypeConversion1.feature::[4] `toBoolean()` on invalid strings
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 1
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 2
+expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 3
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 5
 expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 6
@@ -2235,6 +2473,8 @@ expressions/typeConversion/TypeConversion2.feature::[4] `toInteger()` handling A
 expressions/typeConversion/TypeConversion2.feature::[5] `toInteger()` on a list of strings
 expressions/typeConversion/TypeConversion2.feature::[6] `toInteger()` on a complex-typed expression
 expressions/typeConversion/TypeConversion2.feature::[7] `toInteger()` on node property
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 1
+expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 2
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 3
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 5
@@ -2243,9 +2483,14 @@ expressions/typeConversion/TypeConversion3.feature::[2] `toFloat()` returning nu
 expressions/typeConversion/TypeConversion3.feature::[3] `toFloat()` handling Any type
 expressions/typeConversion/TypeConversion3.feature::[4] `toFloat()` on a list of strings
 expressions/typeConversion/TypeConversion3.feature::[5] `toFloat()` on node property
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 1
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 2
+expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 3
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 5
 expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 6
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 1
+expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 2
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 3
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 4
 expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 5

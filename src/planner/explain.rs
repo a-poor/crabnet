@@ -603,6 +603,7 @@ fn render_expr(expression: &Expr) -> String {
     match expression {
         Expr::Value(value) => render_value_expr(value),
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
+        Expr::EntityIdentity(slot) => format!("entity-identity({})", slot_name(*slot)),
         Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
         Expr::Path(path) => format!("path({})", path_slot_name(*path)),
         Expr::PathFunction { kind, path } => format!(
@@ -1110,22 +1111,27 @@ mod tests {
 
     #[test]
     fn explains_union_all_separately_from_semantic_union() {
-        let query = "RETURN 1 AS value \
-                     UNION ALL RETURN 1.0 AS value \
-                     UNION RETURN 2 AS value";
+        for (operator, logical_mode, physical_mode) in [
+            ("UNION ALL", "all", "all"),
+            ("UNION", "semantic-distinct", "semantic-distinct"),
+        ] {
+            let query = format!(
+                "RETURN 1 AS value {operator} RETURN 1.0 AS value {operator} RETURN 2 AS value"
+            );
 
-        let logical = explain_logical(query).unwrap();
-        assert!(logical.starts_with("logical-union\n  branch 0:\n"));
-        assert_eq!(logical.matches("    logical-query\n").count(), 3);
-        assert!(logical.contains("  union: all\n  branch 1:\n"));
-        assert!(logical.contains("  union: semantic-distinct\n  branch 2:\n"));
+            let logical = explain_logical(&query).unwrap();
+            assert!(logical.starts_with("logical-union\n  branch 0:\n"));
+            assert_eq!(logical.matches("    logical-query\n").count(), 3);
+            assert!(logical.contains(&format!("  union: {logical_mode}\n  branch 1:\n")));
+            assert!(logical.contains(&format!("  union: {logical_mode}\n  branch 2:\n")));
 
-        let physical = explain_physical(query).unwrap();
-        assert!(physical.starts_with("physical-plan\n  branch 0:\n"));
-        assert_eq!(physical.matches(": sqlite-fragment").count(), 3);
-        assert!(physical.contains("operator 2: union mode=all"));
-        assert!(physical.contains("operator 4: union mode=semantic-distinct"));
-        assert!(!physical.contains("batch-hydrate-paths"));
+            let physical = explain_physical(&query).unwrap();
+            assert!(physical.starts_with("physical-plan\n  branch 0:\n"));
+            assert_eq!(physical.matches(": sqlite-fragment").count(), 3);
+            assert!(physical.contains(&format!("operator 2: union mode={physical_mode}")));
+            assert!(physical.contains(&format!("operator 4: union mode={physical_mode}")));
+            assert!(!physical.contains("batch-hydrate-paths"));
+        }
     }
 
     #[test]
@@ -1329,16 +1335,16 @@ mod tests {
     #[test]
     fn physical_union_explain_hydrates_path_identities_once_after_union_operations() {
         let branch = "MATCH path = (start)-[:NEXT]->(end) RETURN path";
-        let query = format!("{branch} UNION {branch} UNION ALL {branch}");
+        let query = format!("{branch} UNION {branch} UNION {branch}");
 
         let physical = explain_physical(&query).unwrap();
         assert_eq!(physical.matches(": sqlite-fragment").count(), 3);
         assert!(physical.contains("operator 2: union mode=semantic-distinct"));
-        assert!(physical.contains("operator 4: union mode=all"));
+        assert!(physical.contains("operator 4: union mode=semantic-distinct"));
         assert_eq!(physical.matches("batch-hydrate-paths").count(), 1);
 
         let last_union = physical
-            .rfind("operator 4: union mode=all")
+            .rfind("operator 4: union mode=semantic-distinct")
             .expect("physical plan should contain the final union");
         let hydration = physical
             .rfind(": batch-hydrate-paths")

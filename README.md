@@ -274,8 +274,11 @@ and one edge query. Every branch and hydration read shares one deferred SQLite
 snapshot. Concurrent external writers are not a current goal.
 
 Unsupported syntax is parsed first and then reported as `Error::Unsupported`.
-Malformed Cypher, semantic errors such as unknown variables, and missing
-parameters have separate error variants. All parameters and stored property
+Malformed Cypher, semantic errors such as unknown variables or `NOT 1`, and
+missing parameters have separate error variants. At runtime, a value of the
+wrong kind (`NOT n.name` for a string) fails with `Error::Type`, a function
+argument outside its domain with `Error::Argument`, and a write that would
+break the graph with `Error::Constraint`. All parameters and stored property
 values are resolved and validated before a write transaction begins, including
 integer range, map shape, and recursive depth. Match materialization, every
 mutation, and post-write result evaluation then share one immediate transaction;
@@ -390,10 +393,12 @@ For now, each `edges` row represents one relationship rather than a computed
 multi-edge Cypher path. `edge_type` is relationship data, while both endpoints
 are foreign keys. Foreign-key enforcement is enabled per connection. A
 trigger-maintained `node_labels (label, node_id)` table indexes label lookups,
-and indexes cover endpoint/type lookups. Files written by schema version 1
-(one nullable `label` column) are migrated in place when opened.
+and indexes cover endpoint/type lookups. Schema version 3 combines multiple labels and property indexes. Files from
+main's versions 1 and 2 are upgraded atomically on open, including property-index
+backfill. The experimental single-label version 2 from the former benchmark
+branch is rejected; recreate those experimental databases.
 
-A third table indexes node properties. It holds one row per top-level
+A fourth table indexes node properties. It holds one row per top-level
 non-null property of each node, with the value `json_extract` returns, and
 triggers on `nodes` keep it in step with every write:
 
@@ -412,9 +417,12 @@ When a node scanned by a `MATCH` or `MERGE` has an equality on one of its
 properties, as an inline map like `{id: $id}` or a top-level `WHERE`
 conjunct like `n.id = $id` or `c.name = p.city`, the compiler adds a probe
 of this index beside the exact, type-aware comparison. The probe only narrows
-the candidate nodes, so results are unchanged, and the node's label test is
-written as `+n.label` so SQLite looks the node up through the probe instead of
-scanning its label. Relationship properties are not indexed yet.
+the candidate nodes, so results are unchanged. For those candidates, label
+membership is checked with `EXISTS` against `(label, node_id)` in `node_labels`,
+avoiding materialization of every node with each label. One probe per node is enough; its other equalities filter
+the probed nodes. A list or map value can equal a stored value with different
+JSON text (`[1]` and `[1.0]`), so for those the probe returns every node that
+has the key. Relationship properties are not indexed yet.
 
 Run the full acceptance suite with:
 

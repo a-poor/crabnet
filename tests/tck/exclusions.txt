@@ -51,13 +51,10 @@ clauses/call/Call5.feature::[8] Allow standalone call to procedure with YIELD *	
 clauses/call/Call6.feature::[1] Calling the same STRING procedure twice using the same outputs in each call	unsupported-step: there exists a procedure test.labels() :: (label :: STRING?):
 clauses/call/Call6.feature::[2] Project procedure results between query scopes with WITH clause	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: STRING?):
 clauses/call/Call6.feature::[3] Project procedure results between query scopes with WITH clause and rename the projection	unsupported-step: there exists a procedure test.my.proc(in :: INTEGER?) :: (out :: STRING?):
-clauses/create/Create1.feature::[11] Create a single node with null properties should not return those properties	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 2, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
-clauses/create/Create2.feature::[17] Create a single relationship with null properties should not return those properties	side-effects-mismatch: observed SideEffects { nodes_added: 2, nodes_removed: 0, relationships_added: 1, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 2, properties_removed: 0 }, expected SideEffects { nodes_added: 2, nodes_removed: 0, relationships_added: 1, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
 clauses/create/Create2.feature::[19] Fail when creating a relationship without a direction	wrong-error-kind: unsupported: undirected relationships in CREATE
 clauses/create/Create2.feature::[20] Fail when creating a relationship with two directions	wrong-error-kind: unsupported: undirected relationships in CREATE
 clauses/create/Create2.feature::[21] Fail when creating a relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/create/Create2.feature::[22] Fail when creating a variable-length relationship	wrong-error-kind: unsupported: quantified or filtered relationships in CREATE
-clauses/delete/Delete1.feature::[7] Failing when deleting connected nodes	wrong-error-kind: sqlite-error: FOREIGN KEY constraint failed
 clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional matching	unsupported: writes fed by named paths or relationship-list bindings
 clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: path variable `p` is not a graph entity
 clauses/delete/Delete3.feature::[2] Delete on null path	semantic-error: path variable `p` is not a graph entity
@@ -99,12 +96,9 @@ clauses/match/Match9.feature::[6] Matching relationships into a list and matchin
 clauses/match/Match9.feature::[7] Matching relationships into a list and matching variable length using the list, with bound nodes, wrong direction	semantic-error: graph variable `r1` is not a scalar expression
 clauses/match/Match9.feature::[8] Variable length relationship in OPTIONAL MATCH	unsupported: path collections in scalar expressions
 clauses/match/Match9.feature::[9] Optionally matching named paths with variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
-clauses/merge/Merge1.feature::[10] Merge must properly handle multiple labels	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 2, labels_removed: 0, properties_added: 1, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 1, labels_removed: 0, properties_added: 1, properties_removed: 0 }
 clauses/merge/Merge1.feature::[13] Merge should bind a path	unsupported: path bindings and selectors in MERGE
 clauses/merge/Merge1.feature::[14] Merges should not be able to match on deleted nodes	unsupported: mutation clause after DELETE
 clauses/merge/Merge1.feature::[16] Fail when using parameter as node predicate in MERGE	wrong-error-kind: unsupported: parameter-map pattern matching
-clauses/merge/Merge1.feature::[17] Fail on merging node with null property	expected-error-not-raised
-clauses/merge/Merge1.feature::[5] Merge node should create when it doesn't match, properties and label	side-effects-mismatch: observed SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 1, labels_removed: 0, properties_added: 1, properties_removed: 0 }, expected SideEffects { nodes_added: 1, nodes_removed: 0, relationships_added: 0, relationships_removed: 0, labels_added: 0, labels_removed: 0, properties_added: 1, properties_removed: 0 }
 clauses/merge/Merge5.feature::[10] Merge should bind a path	unsupported: path bindings and selectors in MERGE
 clauses/merge/Merge5.feature::[11] Use outgoing direction when unspecified	unsupported: function `startnode`
 clauses/merge/Merge5.feature::[20] Do not match on deleted entities	unsupported: mutation clause after DELETE
@@ -112,12 +106,9 @@ clauses/merge/Merge5.feature::[21] Do not match on deleted relationships	unsuppo
 clauses/merge/Merge5.feature::[25] Fail when merging relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/merge/Merge5.feature::[27] Fail when using parameter as relationship predicate in MERGE	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/merge/Merge5.feature::[28] Fail when using variable length relationship in MERGE	wrong-error-kind: unsupported: variable-length relationships in MERGE
-clauses/merge/Merge5.feature::[29] Fail on merging relationship with null property	expected-error-not-raised
 clauses/merge/Merge9.feature::[4] MERGE after WITH with predicate and WITH with aggregation	unsupported: WITH DISTINCT
-clauses/return-orderby/ReturnOrderBy1.feature::[10] ORDER BY DESC should order lists in the expected order	result-mismatch: row values differ
 clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
 clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
-clauses/return-orderby/ReturnOrderBy1.feature::[9] ORDER BY should order lists in the expected order	result-mismatch: row values differ
 clauses/return-orderby/ReturnOrderBy2.feature::[10] Returned columns do not change from using ORDER BY	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[11] Aggregates ordered by arithmetics	unsupported: aggregate calls nested in projection expressions
 clauses/return-orderby/ReturnOrderBy2.feature::[12] Aggregation of named paths	unsupported: path values or path collections in aggregate functions
@@ -154,13 +145,9 @@ clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: agg
 clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
-clauses/set/Set4.feature::[3] Null values in a property map are removed with SET	result-mismatch: row values differ
-clauses/union/Union3.feature::[1] Failing when mixing UNION and UNION ALL	expected-error-not-raised
-clauses/union/Union3.feature::[2] Failing when mixing UNION ALL and UNION	expected-error-not-raised
 clauses/unwind/Unwind1.feature::[12] Unwind does not remove variables from scope	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[5] Unwinding a collected expression	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[6] Creating nodes from an unwound parameter list	unsupported: non-literal stored value expression
-clauses/with-orderBy/WithOrderBy1.feature::[10] Sort lists in descending order	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[11] Sort dates in ascending order	unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[12] Sort dates in descending order	unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[13] Sort local times in ascending order	unsupported: function `localtime`
@@ -173,9 +160,6 @@ clauses/with-orderBy/WithOrderBy1.feature::[19] Sort date times in ascending ord
 clauses/with-orderBy/WithOrderBy1.feature::[20] Sort date times in descending order	unsupported: function `datetime`
 clauses/with-orderBy/WithOrderBy1.feature::[21] Sort distinct types in ascending order	semantic-error: graph variable `n` is not a scalar expression
 clauses/with-orderBy/WithOrderBy1.feature::[22] Sort distinct types in descending order	semantic-error: graph variable `n` is not a scalar expression
-clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 1	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 2	result-mismatch: row values differ
-clauses/with-orderBy/WithOrderBy1.feature::[31] Sort by a list variable projected from a node property in ascending order::example 3	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `date`
@@ -204,12 +188,10 @@ clauses/with-orderBy/WithOrderBy1.feature::[42] Sort by a date time variable pro
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 1	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy1.feature::[44] Sort by a variable that is only partially orderable on a non-distinct binding table, but made distinct::example 2	unsupported: WITH DISTINCT
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 10	unsupported: function `datetime`
-clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 5	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 6	unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 7	unsupported: function `localtime`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 8	unsupported: function `time`
 clauses/with-orderBy/WithOrderBy1.feature::[45] Sort order should be consistent with comparisons where comparisons are defined #Example: <exampleName>::example 9	unsupported: function `localdatetime`
-clauses/with-orderBy/WithOrderBy1.feature::[9] Sort lists in ascending order	result-mismatch: row values differ
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 1	setup-failed: unsupported: function `date`
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 2	setup-failed: unsupported: function `date`
 clauses/with-orderBy/WithOrderBy2.feature::[11] Sort by a date expression in ascending order::example 3	setup-failed: unsupported: function `date`
@@ -259,10 +241,6 @@ clauses/with/With6.feature::[6] Handle projected variables inside an expression 
 clauses/with/With6.feature::[7] Handle projected property accesses inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in WITH expressions
 clauses/with/With6.feature::[8] Fail if not projected variables are used inside an expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in WITH expressions
 clauses/with/With6.feature::[9] Fail if more complex expression, even if projected, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in WITH expressions
-expressions/aggregation/Aggregation2.feature::[10] `min()` over list values	result-mismatch: row values differ
-expressions/aggregation/Aggregation2.feature::[11] `max()` over mixed values	result-mismatch: row values differ
-expressions/aggregation/Aggregation2.feature::[12] `min()` over mixed values	result-mismatch: row values differ
-expressions/aggregation/Aggregation2.feature::[9] `max()` over list values	result-mismatch: row values differ
 expressions/aggregation/Aggregation5.feature::[1] `collect()` filtering nulls	unsupported: whole entities in aggregates other than count()
 expressions/aggregation/Aggregation5.feature::[2] OPTIONAL MATCH and `collect()` on node property	unsupported: collect(DISTINCT ...)
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 1	unsupported: function `percentiledisc`
@@ -280,132 +258,7 @@ expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on 
 expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	wrong-error-kind: unsupported: pattern comprehension
 expressions/aggregation/Aggregation8.feature::[3] Collect distinct nulls	unsupported: collect(DISTINCT ...)
 expressions/aggregation/Aggregation8.feature::[4] Collect distinct values mixed with nulls	unsupported: collect(DISTINCT ...)
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 1	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 10	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 11	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 12	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 13	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 14	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 15	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 16	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 17	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 18	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 19	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 2	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 20	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 21	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 22	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 23	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 3	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 4	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 5	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 6	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 7	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 8	expected-error-not-raised
-expressions/boolean/Boolean1.feature::[8] Fail on conjunction of at least one non-booleans::example 9	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 1	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 10	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 11	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 12	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 13	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 14	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 15	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 16	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 17	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 18	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 19	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 2	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 20	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 21	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 22	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 23	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 3	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 4	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 5	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 6	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 7	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 8	expected-error-not-raised
-expressions/boolean/Boolean2.feature::[8] Fail on disjunction of at least one non-booleans::example 9	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 1	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 10	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 11	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 12	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 13	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 14	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 15	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 16	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 17	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 18	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 19	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 2	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 20	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 21	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 22	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 23	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 3	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 4	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 5	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 6	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 7	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 8	expected-error-not-raised
-expressions/boolean/Boolean3.feature::[8] Fail on exclusive disjunction of at least one non-booleans::example 9	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 1	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 10	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 11	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 12	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 13	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 14	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 15	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 16	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 17	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 18	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 19	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 2	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 20	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 21	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 22	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 23	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 24	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 25	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 26	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 27	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 28	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 29	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 3	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 30	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 31	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 32	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 33	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 34	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 35	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 36	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 37	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 38	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 39	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 4	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 40	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 41	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 42	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 43	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 44	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 45	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 46	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 47	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 48	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 49	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 5	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 6	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 7	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 8	expected-error-not-raised
-expressions/boolean/Boolean4.feature::[4] Fail when using NOT on a non-boolean literal::example 9	expected-error-not-raised
 expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path variable `p1` is not a scalar expression
-expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 2	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[6] Comparing lists to lists::example 5	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 12	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 13	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 14	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 15	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[7] Comparing maps to maps::example 16	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 3	result-mismatch: row values differ
@@ -414,9 +267,6 @@ expressions/comparison/Comparison2.feature::[3] Comparing across types yields nu
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 2	semantic-error: graph variable `n` is not a scalar expression
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 3	semantic-error: graph variable `n` is not a scalar expression
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 4	semantic-error: graph variable `n` is not a scalar expression
-expressions/comparison/Comparison2.feature::[4] Comparing lists::example 1	result-mismatch: row values differ
-expressions/comparison/Comparison2.feature::[4] Comparing lists::example 2	result-mismatch: row values differ
-expressions/comparison/Comparison2.feature::[4] Comparing lists::example 5	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 3	result-mismatch: row values differ
@@ -436,72 +286,12 @@ expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-err
 expressions/graph/Graph4.feature::[5] `type()` handling Any type	semantic-error: graph variable `r` is not a scalar expression
 expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	semantic-error: graph variable `n` is not a scalar expression
 expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	semantic-error: graph variable `r` is not a scalar expression
-expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 1	expected-error-not-raised
-expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 2	expected-error-not-raised
-expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 3	expected-error-not-raised
-expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 4	expected-error-not-raised
-expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 5	expected-error-not-raised
-expressions/graph/Graph6.feature::[9] Fail when performing property access on a non-graph element::example 6	expected-error-not-raised
-expressions/graph/Graph9.feature::[5] `properties()` failing on an integer literal	expected-error-not-raised
-expressions/graph/Graph9.feature::[6] `properties()` failing on a string literal	expected-error-not-raised
-expressions/graph/Graph9.feature::[7] `properties()` failing on a list of booleans	expected-error-not-raised
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/list/List1.feature::[6] Fail when indexing a non-list #Example: <exampleName>::example 4	expected-error-not-raised
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/list/List1.feature::[7] Fail when indexing a non-list given by a parameter #Example: <exampleName>::example 4	expected-error-not-raised
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 4	expected-error-not-raised
-expressions/list/List1.feature::[8] Fail when indexing with a non-integer #Example: <exampleName>::example 5	expected-error-not-raised
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 4	expected-error-not-raised
-expressions/list/List1.feature::[9] Fail when indexing with a non-integer given by a parameter #Example: <exampleName>::example 5	expected-error-not-raised
 expressions/list/List11.feature::[3] Create an empty list if range direction and step direction are inconsistent	unsupported: aggregate calls nested in projection expressions
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 1	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 10	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 11	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 12	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 13	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 14	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 15	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 16	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 17	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 18	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 19	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 2	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 20	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 21	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 22	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 3	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 4	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 5	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 6	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 7	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 8	expected-error-not-raised
-expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 9	expected-error-not-raised
 expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[3] Size of list comprehension	unsupported: whole entities in aggregates other than count()
 expressions/list/List12.feature::[4] Returning a list comprehension	unsupported: path values or path collections in aggregate functions
 expressions/list/List12.feature::[5] Using a list comprehension in a WITH	unsupported: path values or path collections in aggregate functions
-expressions/list/List3.feature::[4] Equality between almost equal lists with null should return null	result-mismatch: row values differ
-expressions/list/List3.feature::[7] Equality between almost equal nested lists with null should return null	result-mismatch: row values differ
-expressions/list/List5.feature::[21] IN should return null if LHS and RHS are null - list version	result-mismatch: row values differ
-expressions/list/List5.feature::[29] IN should return null if comparison with null is required, list version	result-mismatch: row values differ
-expressions/list/List5.feature::[31] IN should return null when comparing two so-called identical lists where one element is null	result-mismatch: row values differ
-expressions/list/List5.feature::[34] IN should return null if comparison with null is required, list version 2	result-mismatch: row values differ
-expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 1	expected-error-not-raised
-expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 2	expected-error-not-raised
-expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 3	expected-error-not-raised
-expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 4	expected-error-not-raised
-expressions/list/List5.feature::[42] Failing when using IN on a non-list literal::example 5	expected-error-not-raised
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	expected-error-not-raised
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	expected-error-not-raised
@@ -514,15 +304,6 @@ expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::exa
 expressions/list/List6.feature::[7] Using size of pattern comprehension to test existence	unsupported: pattern comprehension
 expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: pattern comprehension
 expressions/list/List6.feature::[9] Get node degree via size of pattern comprehension that specifies a relationship type	unsupported: pattern comprehension
-expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 1	expected-error-not-raised
-expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 2	expected-error-not-raised
-expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 3	expected-error-not-raised
-expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 4	expected-error-not-raised
-expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 5	expected-error-not-raised
-expressions/map/Map1.feature::[6] Fail when performing property access on a non-map::example 6	expected-error-not-raised
-expressions/map/Map2.feature::[6] Fail at runtime when attempting to index with an Int into a Map	expected-error-not-raised
-expressions/map/Map2.feature::[7] Fail at runtime when trying to index into a map with a non-string	expected-error-not-raised
-expressions/map/Map2.feature::[8] Fail at runtime when trying to index something which is not a map	expected-error-not-raised
 expressions/path/Path1.feature::[1] `nodes()` on null path	semantic-error: non-entity variable `a` cannot be used in a graph pattern
 expressions/path/Path2.feature::[3] `relationships()` on null path	semantic-error: non-entity variable `a` cannot be used in a graph pattern
 expressions/pattern/Pattern1.feature::[10] Fail on introducing unbounded variables in pattern::example 14	wrong-error-kind: unsupported: variable-length pattern predicates
@@ -556,28 +337,12 @@ expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence 
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 1	unsupported: `^`
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 2	unsupported: `^`
 expressions/precedence/Precedence2.feature::[4] Numeric unary negative takes precedence over exponentiation	unsupported: `^`
-expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 3	result-mismatch: row values differ
-expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 4	result-mismatch: row values differ
-expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 5	result-mismatch: row values differ
-expressions/precedence/Precedence3.feature::[6] List element containment takes precedence over comparison operator::example 6	result-mismatch: row values differ
-expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
-expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
-expressions/quantifier/Quantifier1.feature::[15] Fail none quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
 expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes	unsupported: path collections in scalar expressions
 expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
-expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
-expressions/quantifier/Quantifier2.feature::[16] Fail single quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
 expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes	unsupported: path collections in scalar expressions
 expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
-expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
-expressions/quantifier/Quantifier3.feature::[15] Fail any quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
 expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes	unsupported: path collections in scalar expressions
 expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 1	expected-error-not-raised
-expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 2	expected-error-not-raised
-expressions/quantifier/Quantifier4.feature::[15] Fail all quantifier on type mismatch between list elements and predicate::example 3	expected-error-not-raised
 expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes	unsupported: path collections in scalar expressions
 expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships	unsupported: path collections in scalar expressions
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 1	unsupported: function `datetime`
@@ -1584,15 +1349,5 @@ expressions/temporal/Temporal9.feature::[5] Should truncate time::example 6	unsu
 expressions/temporal/Temporal9.feature::[5] Should truncate time::example 7	unsupported: qualified function call
 expressions/temporal/Temporal9.feature::[5] Should truncate time::example 8	unsupported: qualified function call
 expressions/temporal/Temporal9.feature::[5] Should truncate time::example 9	unsupported: qualified function call
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/typeConversion/TypeConversion1.feature::[5] Fail `toBoolean()` on invalid types #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/typeConversion/TypeConversion2.feature::[8] Fail `toInteger()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
-expressions/typeConversion/TypeConversion3.feature::[6] Fail `toFloat()` on invalid types #Example: <exampleName>::example 3	expected-error-not-raised
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 1	expected-error-not-raised
-expressions/typeConversion/TypeConversion4.feature::[10] Fail `toString()` on invalid types #Example: <exampleName>::example 2	expected-error-not-raised
 useCases/triadicSelection/TriadicSelection1.feature::[15] Handling triadic friend of a friend that is a friend with explicit subset of relationship type	unsupported: multiple or boolean relationship types
 useCases/triadicSelection/TriadicSelection1.feature::[6] Handling triadic friend of a friend that is not a friend with explicit subset of relationship type	unsupported: multiple or boolean relationship types

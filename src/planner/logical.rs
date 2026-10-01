@@ -195,6 +195,8 @@ pub(crate) enum Expr {
     },
     Property(SlotId, String),
     ElementId(SlotId),
+    /// An identity used only in comparisons, retaining node/relationship kind.
+    EntityIdentity(SlotId),
     Labels(SlotId),
     /// Whether the node has the label; null for a null node.
     HasLabel(SlotId, String),
@@ -473,6 +475,7 @@ impl Expr {
             | Self::PathFunction { .. }
             | Self::Property(_, _)
             | Self::ElementId(_)
+            | Self::EntityIdentity(_)
             | Self::Labels(_)
             | Self::HasLabel(_, _)
             | Self::Exists { .. }
@@ -632,6 +635,7 @@ impl Expr {
             | Self::PathFunction { .. }
             | Self::Property(_, _)
             | Self::ElementId(_)
+            | Self::EntityIdentity(_)
             | Self::Labels(_)
             | Self::HasLabel(_, _)
             | Self::Exists { .. }
@@ -719,6 +723,7 @@ impl Expr {
             Self::Exists { .. } => false,
             Self::Property(slot, _)
             | Self::ElementId(slot)
+            | Self::EntityIdentity(slot)
             | Self::Labels(slot)
             | Self::HasLabel(slot, _)
             | Self::RelationshipType(slot) => grouping

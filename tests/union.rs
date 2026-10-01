@@ -341,24 +341,17 @@ fn writes_in_union_branches_are_rejected_before_any_side_effect() {
 }
 
 #[test]
-fn mixed_union_operators_apply_from_left_to_right() {
+fn mixed_union_operators_are_rejected() {
     let mut database = Database::in_memory().unwrap();
-
-    let distinct_then_all = database
-        .execute(
-            "RETURN 1 AS value UNION RETURN 1 AS value \
-             UNION ALL RETURN 1 AS value",
-        )
-        .unwrap();
-    assert_eq!(distinct_then_all.rows.len(), 2);
-
-    let all_then_distinct = database
-        .execute(
-            "RETURN 1 AS value UNION ALL RETURN 1 AS value \
-             UNION RETURN 1 AS value",
-        )
-        .unwrap();
-    assert_eq!(all_then_distinct.rows.len(), 1);
+    for query in [
+        "RETURN 1 AS value UNION RETURN 1 AS value UNION ALL RETURN 1 AS value",
+        "RETURN 1 AS value UNION ALL RETURN 1 AS value UNION RETURN 1 AS value",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Semantic(_))),
+            "{query}"
+        );
+    }
 }
 
 #[test]

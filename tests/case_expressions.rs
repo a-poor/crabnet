@@ -74,14 +74,24 @@ fn generic_case_uses_predicate_truth_and_null_defaults() {
         ]
     );
 
-    // Non-boolean and null predicates are not true.
+    // A null predicate is not true.
     assert_eq!(
         single(
             &mut database,
-            "RETURN CASE WHEN null THEN 1 WHEN 1 THEN 2 WHEN 'x' THEN 3 WHEN true THEN 4 END AS r"
+            "RETURN CASE WHEN null THEN 1 WHEN true THEN 4 END AS r"
         ),
         [int(4)]
     );
+    // A predicate of another kind is an error: while planning when the query
+    // text fixes its kind, and at runtime otherwise.
+    assert!(matches!(
+        database.execute("RETURN CASE WHEN 1 THEN 2 END AS r"),
+        Err(Error::Semantic(_))
+    ));
+    assert!(matches!(
+        database.execute("MATCH (p:P) RETURN CASE WHEN p.name THEN 2 END AS r"),
+        Err(Error::Type(_))
+    ));
     // Without a matching branch or an ELSE the result is null.
     assert_eq!(
         single(&mut database, "RETURN CASE WHEN false THEN 1 END AS r"),

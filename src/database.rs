@@ -1,11 +1,14 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeSet, HashMap},
     path::Path,
 };
 
 use rusqlite::{
-    Connection, Transaction, TransactionBehavior, functions::FunctionFlags, params,
-    params_from_iter,
+    Connection, OptionalExtension, Transaction, TransactionBehavior,
+    functions::{Aggregate, Context, FunctionFlags},
+    params, params_from_iter,
+    types::ValueRef,
 };
 
 use crate::{
@@ -19,6 +22,7 @@ use crate::{
     },
 };
 
+mod comparison;
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
@@ -390,7 +394,7 @@ fn execute_sql_fragment(
     // Completely drain and drop the SQLite cursor before a later Rust operator
     // issues another fragment, traversal query, or hydration query.
     let encoded_rows = {
-        let mut statement = connection.prepare(&plan.sql)?;
+        let mut statement = connection.prepare_cached(&plan.sql)?;
         debug_assert!(statement.readonly());
         statement
             .query_map(params_from_iter(bindings.iter()), |row| {
@@ -480,8 +484,24 @@ fn delete_entities(
     }
 
     for id in node_ids {
-        summary.nodes_deleted +=
-            transaction.execute("DELETE FROM nodes WHERE id = ?1", params![id])?;
+        summary.nodes_deleted += transaction
+            .execute("DELETE FROM nodes WHERE id = ?1", params![id])
+            .map_err(|error| match &error {
+                // The edge foreign keys restrict deleting an endpoint. The
+                // index triggers on `nodes` make SQLite report the failure
+                // with the trigger's extended code, so the message decides.
+                rusqlite::Error::SqliteFailure(failure, Some(message))
+                    if failure.code == rusqlite::ErrorCode::ConstraintViolation
+                        && message == "FOREIGN KEY constraint failed" =>
+                {
+                    crate::Error::Constraint(
+                        "cannot delete a node that still has relationships; \
+                         delete them first or use DETACH DELETE"
+                            .into(),
+                    )
+                }
+                _ => error.into(),
+            })?;
     }
 
     Ok(())
@@ -870,7 +890,7 @@ fn apply_mutation(
             let values = row_values(transaction, layout, rows, properties, true)?;
             let encoded_labels = serde_json::Value::from(labels.clone()).to_string();
             for (index, input_row) in rows.iter_mut().enumerate() {
-                let properties = values.get(index);
+                let properties = &stored_properties(values.get(index));
                 let id = transaction.query_row(
                     "INSERT INTO nodes (id, labels, props)
                      VALUES (lower(hex(randomblob(16))), json(?1), json(?2))
@@ -900,7 +920,7 @@ fn apply_mutation(
         } => {
             let values = row_values(transaction, layout, rows, properties, true)?;
             for (index, input_row) in rows.iter_mut().enumerate() {
-                let properties = values.get(index);
+                let properties = &stored_properties(values.get(index));
                 let from = input_row.node_id(*from)?.to_owned();
                 let to = input_row.node_id(*to)?.to_owned();
                 let id = transaction.query_row(
@@ -940,11 +960,12 @@ fn apply_mutation(
             let values = row_values(transaction, layout, rows, properties, true)?;
             summary.properties_set +=
                 update_properties(transaction, rows, *slot, |index, current| {
-                    *current = values
-                        .get(index)
-                        .as_object()
-                        .expect("stored properties are validated maps")
-                        .clone();
+                    let serde_json::Value::Object(replacement) =
+                        stored_properties(values.get(index))
+                    else {
+                        unreachable!("stored properties are validated maps")
+                    };
+                    *current = replacement;
                 })?;
         }
         ResolvedMutation::MergeProperties { slot, properties } => {
@@ -998,6 +1019,21 @@ fn apply_mutation(
         )?,
     }
     Ok(())
+}
+
+/// A property map as it is stored: a property whose value is null does not
+/// exist, so `CREATE ({k: null})` and `SET n = {k: null}` leave `k` absent.
+fn stored_properties(properties: &serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(entries) = properties else {
+        unreachable!("stored properties are validated maps")
+    };
+    serde_json::Value::Object(
+        entries
+            .iter()
+            .filter(|(_, value)| !value.is_null())
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
 }
 
 /// Executes `MERGE` over the rows. Rows are handled in order: each is matched
@@ -1239,7 +1275,12 @@ fn read_materialized_rows(
 
 /// Writes the rows to the temporary rows table, one encoded entity record
 /// per entity slot and one JSON text per scalar slot, runs `body` over it
-/// inside the same transaction, and drops the table again.
+/// inside the same transaction, and empties the table again.
+///
+/// The table outlives the call while its columns fit the next layout:
+/// creating or dropping it changes the schema, which invalidates every
+/// prepared statement, so a `MERGE` that reads once per row would otherwise
+/// re-prepare its matcher each time.
 fn with_rows_table<T>(
     transaction: &Transaction<'_>,
     layout: &RowLayout,
@@ -1252,16 +1293,27 @@ fn with_rows_table<T>(
         .chain((0..layout.scalar_slots).map(|index| format!("s{index} TEXT")))
         .collect::<Vec<_>>()
         .join(", ");
-    transaction.execute_batch(&format!(
-        "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
-    ))?;
+    let existing = transaction
+        .query_row(
+            "SELECT sql FROM temp.sqlite_schema WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if existing.is_some_and(|sql| sql.ends_with(&format!("({columns})"))) {
+        transaction.execute(&format!("DELETE FROM temp.{table}"), [])?;
+    } else {
+        transaction.execute_batch(&format!(
+            "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
+        ))?;
+    }
     {
         let placeholders = (1..=layout.slots.len() + layout.scalar_slots + 1)
             .map(|index| format!("?{index}"))
             .collect::<Vec<_>>()
             .join(", ");
         let mut insert =
-            transaction.prepare(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
+            transaction.prepare_cached(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
         for (index, row) in rows.iter().enumerate() {
             // Unbound slots hold JSON `null` text, exactly as an OPTIONAL
             // MATCH leaves them in a read pipeline's intermediate rows.
@@ -1281,7 +1333,7 @@ fn with_rows_table<T>(
         }
     }
     let result = body(transaction);
-    transaction.execute_batch(&format!("DROP TABLE IF EXISTS temp.{table};"))?;
+    transaction.execute(&format!("DELETE FROM temp.{table}"), [])?;
     result
 }
 
@@ -1349,7 +1401,7 @@ fn read_row_source(
     input: &ResolvedRowSource,
     layout: &RowLayout,
 ) -> Result<Vec<ExecutionRow>> {
-    let mut statement = transaction.prepare(&input.sql)?;
+    let mut statement = transaction.prepare_cached(&input.sql)?;
     debug_assert!(statement.readonly());
     let mut cursor = statement.query(params_from_iter(input.bindings.iter()))?;
     let mut input_rows = Vec::new();
@@ -1873,6 +1925,63 @@ fn register_functions(connection: &Connection) -> Result<()> {
             Ok(semantic_json_key(&value))
         },
     )?;
+    // Cypher equality, comparison, and sort order for values SQLite cannot
+    // compare natively. Each takes JSON text; generated SQL routes lists and
+    // maps here and keeps primitives in plain SQL.
+    connection.create_scalar_function(
+        "crabnet_equals",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let left = json_argument(context, 0)?;
+            let right = json_argument(context, 1)?;
+            Ok(comparison::equals(&left, &right))
+        },
+    )?;
+    connection.create_scalar_function(
+        "crabnet_compare",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let left = json_argument(context, 0)?;
+            let right = json_argument(context, 1)?;
+            Ok(comparison::compare(&left, &right).map(|ordering| ordering as i64))
+        },
+    )?;
+    // The sort key takes a JSON type name and the SQL value, so primitives
+    // need no JSON round trip; lists and maps arrive as JSON text.
+    connection.create_scalar_function(
+        "crabnet_order_key",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let value_type = context.get::<Option<String>>(0)?;
+            let value = match (value_type.as_deref(), context.get_raw(1)) {
+                (_, ValueRef::Null) | (None | Some("null"), _) => serde_json::Value::Null,
+                (Some("true"), _) => serde_json::Value::Bool(true),
+                (Some("false"), _) => serde_json::Value::Bool(false),
+                (Some("integer"), ValueRef::Integer(integer)) => integer.into(),
+                (Some("real"), ValueRef::Real(real)) => real.into(),
+                (Some("real"), ValueRef::Integer(integer)) => (integer as f64).into(),
+                (Some("text"), ValueRef::Text(text)) => {
+                    serde_json::Value::String(String::from_utf8_lossy(text).into_owned())
+                }
+                _ => json_argument(context, 1)?,
+            };
+            Ok(comparison::order_key(&value))
+        },
+    )?;
+    for (name, keep) in [
+        ("crabnet_min", Ordering::Less),
+        ("crabnet_max", Ordering::Greater),
+    ] {
+        connection.create_aggregate_function(
+            name,
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            Extremum(keep),
+        )?;
+    }
     // SQLite renders REAL values into JSON text with fifteen significant
     // digits, which silently perturbs any float that needs more. Every scalar
     // leaves SQL as JSON text, so the encoder routes reals through this
@@ -1972,7 +2081,68 @@ fn register_functions(connection: &Connection) -> Result<()> {
             ))
         },
     )?;
+    // Generated SQL raises a runtime type error, such as `NOT` of a number,
+    // the same way.
+    connection.create_scalar_function(
+        "crabnet_type_error",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| -> rusqlite::Result<Option<i64>> {
+            let message = context.get::<String>(0)?;
+            Err(rusqlite::Error::UserFunctionError(
+                format!("{}{message}", crate::error::TYPE_ERROR_TAG).into(),
+            ))
+        },
+    )?;
     Ok(())
+}
+
+fn json_argument(context: &Context<'_>, index: usize) -> rusqlite::Result<serde_json::Value> {
+    let encoded = context.get::<String>(index)?;
+    serde_json::from_str(&encoded)
+        .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+}
+
+/// `min()` and `max()` under Cypher orderability: the argument is a value's
+/// JSON text, nulls are skipped, and the result is the JSON text of the
+/// least or greatest value, or NULL when there was none.
+struct Extremum(Ordering);
+
+impl Aggregate<Option<(Vec<u8>, String)>, Option<String>> for Extremum {
+    fn init(&self, _: &mut Context<'_>) -> rusqlite::Result<Option<(Vec<u8>, String)>> {
+        Ok(None)
+    }
+
+    fn step(
+        &self,
+        context: &mut Context<'_>,
+        best: &mut Option<(Vec<u8>, String)>,
+    ) -> rusqlite::Result<()> {
+        let Some(encoded) = context.get::<Option<String>>(0)? else {
+            return Ok(());
+        };
+        let value: serde_json::Value = serde_json::from_str(&encoded)
+            .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+        if value.is_null() {
+            return Ok(());
+        }
+        let key = comparison::order_key(&value);
+        if best
+            .as_ref()
+            .is_none_or(|(best, _)| key.cmp(best) == self.0)
+        {
+            *best = Some((key, encoded));
+        }
+        Ok(())
+    }
+
+    fn finalize(
+        &self,
+        _: &mut Context<'_>,
+        best: Option<Option<(Vec<u8>, String)>>,
+    ) -> rusqlite::Result<Option<String>> {
+        Ok(best.flatten().map(|(_, encoded)| encoded))
+    }
 }
 
 /// `toInteger()` of a string: an integer literal, or a finite float literal
@@ -2295,7 +2465,7 @@ mod tests {
                 "three-branch-union",
                 r#"RETURN $left AS value
                    UNION RETURN $middle AS value
-                   UNION ALL RETURN $right AS value"#,
+                   UNION RETURN $right AS value"#,
                 Parameters::from([
                     ("left".to_owned(), json!(1)),
                     ("middle".to_owned(), json!(1.0)),
@@ -2954,7 +3124,7 @@ mod tests {
 
     #[test]
     fn version_two_upgrade_backfills_properties_and_preserves_labels() {
-        let mut connection = Connection::open_in_memory().unwrap();
+        let connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(INITIAL_SCHEMA).unwrap();
         connection
             .execute_batch(
@@ -3018,6 +3188,70 @@ mod tests {
             )
             .unwrap();
         assert_eq!(objects, 0);
+    }
+
+    #[test]
+    fn entities_with_the_same_id_but_different_kinds_are_not_equal() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .connection
+            .execute_batch(
+                "INSERT INTO nodes (id) VALUES ('same');
+            INSERT INTO edges (id, edge_type, from_node, to_node)
+                VALUES ('same', 'SELF', 'same', 'same');",
+            )
+            .unwrap();
+        let result = database
+            .execute("MATCH (n)-[r]->(n) RETURN n = r AS same, n <> r AS different")
+            .unwrap();
+        assert_eq!(
+            result.rows,
+            vec![vec![
+                CypherValue::Boolean(false),
+                CypherValue::Boolean(true)
+            ]]
+        );
+    }
+
+    #[test]
+    fn indexed_property_lookups_probe_each_candidates_labels() {
+        let database = Database::in_memory().unwrap();
+        let Plan::Read(plan) =
+            planner::compile("MATCH (n:Person:Member {id: 7}) RETURN n.id").unwrap()
+        else {
+            panic!("expected a read");
+        };
+        let PreparedPhysicalOperator::Sqlite(fragment) =
+            plan.prepare(&Parameters::new()).unwrap().root
+        else {
+            panic!("expected a SQLite fragment");
+        };
+        let values = fragment
+            .arguments
+            .into_iter()
+            .map(|argument| match argument {
+                PreparedFragmentArgument::Value(value) => value,
+                _ => panic!("unexpected runtime input"),
+            })
+            .collect::<Vec<_>>();
+        let details = database
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", fragment.sql))
+            .unwrap()
+            .query_map(params_from_iter(values.iter()), |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+            .join("\n");
+        assert!(details.contains("node_properties_by_value"), "{details}");
+        assert_eq!(
+            details.matches("label=? AND node_id=?").count(),
+            2,
+            "{details}"
+        );
+        assert!(details.contains("label=? AND node_id=?"), "{details}");
     }
 
     #[test]
