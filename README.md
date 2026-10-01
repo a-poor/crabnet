@@ -162,7 +162,8 @@ Within those shapes, the first iteration supports:
   `collect` projections in `RETURN` or `WITH`, including `collect(n)` and
   `collect(DISTINCT n)` for nodes and relationships, and typed scalar deduplication
 - list expansion with `UNWIND`, including collected entities that can feed
-  later matches and writes, plus typed semantic `UNION` deduplication and
+  later matches and writes, and path-function or legacy relationship lists
+  that can feed later reads, plus typed semantic `UNION` deduplication and
   bag-preserving `UNION ALL`
 - `RETURN DISTINCT`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only
   returns
@@ -289,16 +290,20 @@ SQL-backed integer across filters, arithmetic, ordering, implicit grouping,
 and aggregate arguments. `nodes(path)` and `relationships(path)` return
 `CypherValue::List` values whose members are typed `NodeValue` and
 `RelationshipValue` cells in traversal order; zero-hop relationships are an
-empty list. These graph lists may be returned directly or carried through a
-computed `WITH` alias, but they are not yet accepted as predicates, arithmetic
-operands, ordering/grouping keys, aggregate inputs, or `UNWIND` inputs.
+empty list. These graph lists may be returned directly, carried through a
+computed `WITH` alias, or expanded with `UNWIND` into entity bindings for later
+reads and matches. Segment junctions appear once in `nodes(path)`; repeated
+nodes in cycles and self-loops retain their multiplicity. They are not yet
+accepted as predicates, arithmetic operands, ordering/grouping keys, or
+aggregate inputs. Path-fed writes remain unsupported.
 
 A fresh variable on a legacy relationship pattern, for example
 `[rels:NEXT*0..]`, binds the same public relationship-list value shape. Its
 members follow traversal order while each relationship keeps its stored
 start/end direction, and zero hops bind `[]`. The list may be returned directly,
-carried through a `WITH` alias, shaped by `RETURN DISTINCT` and pagination, and
-combined through `UNION` or `UNION ALL`; it can also coexist with a named path
+carried through a `WITH` alias, expanded with `UNWIND`, shaped by
+`RETURN DISTINCT` and pagination, and combined through `UNION` or `UNION ALL`;
+it can also coexist with a named path
 for the same pattern. Reusing a bound relationship-list variable in a later
 variable-length pattern, in the same `MATCH` or after `WITH`, matches only
 traversals whose relationship sequence equals the bound list position by

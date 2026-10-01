@@ -1698,13 +1698,68 @@ impl Compiler {
     }
 
     fn compile_unwind(&mut self, stage: &UnwindStage) -> Result<()> {
-        let (list_value, list_type) = self.scalar_parts(&stage.expression)?;
         let stage_index = self.ctes.len();
         let member = format!("u{stage_index}");
-        self.from.push(format!(
-            "json_each(CASE WHEN ({list_type}) = 'array' \
-             THEN ({list_value}) ELSE '[]' END) AS {member}"
-        ));
+        if let Expr::PathFunction {
+            kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+            path,
+        } = &stage.expression
+        {
+            let UnwindBinding::Entity(slot, kind) = stage.binding else {
+                return Err(Error::Data("path UNWIND requires an entity binding".into()));
+            };
+            let source = self.path_source(*path)?.to_owned();
+            let segment = format!("usegment{stage_index}");
+            let entity = format!("uentity{stage_index}");
+            let (field, table) = match kind {
+                EntityKind::Node => ("nodes", "nodes"),
+                EntityKind::Relationship => ("relationships", "edges"),
+            };
+            self.from
+                .push(format!("json_each({source}, '$.segments') AS {segment}"));
+            self.from.push(format!(
+                "json_each({segment}.value, '$.{field}') AS {member}"
+            ));
+            self.from.push(format!("{table} AS {entity}"));
+            self.filters.push(format!("{entity}.id = {member}.value"));
+            if kind == EntityKind::Node {
+                // Adjacent segments share one endpoint. Skip that duplicate
+                // position, but retain repeated identities from cycles and
+                // self-loops, including when a segment has zero hops.
+                self.filters
+                    .push(format!("({segment}.key = 0 OR {member}.key > 0)"));
+            }
+            self.entities.insert(
+                slot,
+                EntitySource::Table {
+                    alias: entity,
+                    kind,
+                },
+            );
+        } else {
+            let (list_value, list_type) = self.scalar_parts(&stage.expression)?;
+            self.from.push(format!(
+                "json_each(CASE WHEN ({list_type}) = 'array' \
+                 THEN ({list_value}) ELSE '[]' END) AS {member}"
+            ));
+            match stage.binding {
+                UnwindBinding::Scalar(slot) => {
+                    self.scalars.insert(
+                        slot,
+                        encoded_scalar(&format!("{member}.value"), &format!("{member}.type")),
+                    );
+                }
+                UnwindBinding::Entity(slot, kind) => {
+                    self.entities.insert(
+                        slot,
+                        EntitySource::Encoded {
+                            sql: format!("{member}.value"),
+                            kind,
+                        },
+                    );
+                }
+            }
+        }
 
         let mut entity_bindings = self
             .entities
@@ -1742,24 +1797,10 @@ impl Compiler {
                 path.0
             )
         }));
-        match stage.binding {
-            UnwindBinding::Scalar(slot) => select.push(format!(
-                "{} AS s{}",
-                encoded_scalar(&format!("{member}.value"), &format!("{member}.type")),
-                slot.0
-            )),
-            UnwindBinding::Entity(slot, _) => select.push(format!("{member}.value AS e{}", slot.0)),
-        }
-
         let sql = self.select_sql(&select);
         let cte = format!("_crabnet_unwind_{stage_index}");
         self.ctes.push((cte.clone(), sql));
         let relation = format!("urows{stage_index}");
-
-        match stage.binding {
-            UnwindBinding::Scalar(slot) => scalar_bindings.push(slot),
-            UnwindBinding::Entity(slot, kind) => entity_bindings.push((slot, kind)),
-        }
 
         self.entities = entity_bindings
             .into_iter()

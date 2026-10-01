@@ -2690,6 +2690,30 @@ mod tests {
                 1,
             ),
             (
+                "path-lists-unwind-into-entities",
+                r#"MATCH p = (start:Start {key: $key})-[:STEP*0..2]->()-[:STEP]->()
+                   WITH DISTINCT nodes(p) AS ns, relationships(p) AS rs LIMIT $limit
+                   UNWIND ns AS node UNWIND rs AS edge
+                   OPTIONAL MATCH (node)-[:EXTRA]->(other)
+                   RETURN node, edge, other"#,
+                Parameters::from([("key".to_owned(), json!(1)), ("limit".to_owned(), json!(2))]),
+                1,
+                0,
+            ),
+            (
+                "runtime-path-unwind-seeds-another-runtime-traversal",
+                r#"MATCH p = (start:Start {key: $key})-[rels:STEP*]->()
+                   UNWIND nodes(p) AS node UNWIND rels AS edge
+                   MATCH (node)-[:MORE* {enabled: $enabled}]->(target)
+                   RETURN p, node, edge, target"#,
+                Parameters::from([
+                    ("key".to_owned(), json!(1)),
+                    ("enabled".to_owned(), json!(true)),
+                ]),
+                1,
+                2,
+            ),
+            (
                 "three-branch-union",
                 r#"RETURN $left AS value
                    UNION RETURN $middle AS value

@@ -493,9 +493,14 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   Nine integration tests cover aliases, grouping, graph reads, property/label
   refreshes, delete snapshots, and rollback; seven more TCK scenarios pass.
   Scalar `collect(DISTINCT ...)` uses recursive typed equality.
-  Next extend path-function lists into `UNWIND`, then aggregate expressions such
-  as `count(*) + 1`. Preserve entity identity, bag multiplicity, null behavior,
-  ordering, and deduplication before pagination or later writes.
+  Path-list `UNWIND` is complete for `nodes(path)`, `relationships(path)`,
+  their aliases, and legacy relationship-list bindings. Eight integration
+  tests cover segment junctions, repeated identities, zero hops, all supported
+  path producers, entity reads and matches, collection, distinctness, unions,
+  and hydration. Path-fed writes remain unsupported.
+  Next support aggregate expressions such as `count(*) + 1`.
+  Preserve entity identity, bag multiplicity, null behavior, ordering, and
+  deduplication before pagination or later writes.
 - [ ] **Application uniqueness constraints.** Allow applications to declare
   label/property keys such as `:Person.email`. Define missing/null and typed
   equality semantics, reject conflicting existing data when installing a
@@ -524,12 +529,13 @@ the workload has reproducible performance and resource measurements.
 ## Near-term working order
 
 Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
-(`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete. Next extend
-`UNWIND` to path-function lists, then support aggregate expressions such as
-`count(*) + 1`. Track broader entity-list operations (indexing, comprehensions,
-and nested collections) as follow-up composition work. Develop the
-dependency-graph example alongside these APIs so application needs guide constraints, resource controls, and persistent
-operation. Track completion in milestone 10 rather than a separate TODO file.
+(`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete, as is `UNWIND`
+for path-function and legacy relationship lists. Next support aggregate
+expressions such as `count(*) + 1`. Track broader entity-list operations
+(indexing, comprehensions, and nested collections) as follow-up composition
+work. Develop the dependency-graph example alongside these APIs so application
+needs guide constraints, resource controls, and persistent operation. Track
+completion in milestone 10 rather than a separate TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;
 temporal support and broad differential testing remain follow-up conformance
 work rather than prerequisites for this usability milestone.

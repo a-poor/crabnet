@@ -92,6 +92,12 @@ end-to-end result test for user-visible semantics.
 - `tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs` cover the
   row-expanding and null/deduplication composition operators, including bag
   multiplicity and clause-local scope.
+- `tests/path_unwind.rs` covers expansion of `nodes(path)`,
+  `relationships(path)`, and legacy relationship lists into entity bindings:
+  aliases, scope, segment junctions, zero hops, cycles, self-loops, parallel
+  edges, stored direction, bounded/runtime/shortest producers, later matches,
+  collection, distinctness/pagination, unions, hydration, parameters, and
+  retained write rejections without side effects.
 - `tests/bounded_traversal.rs` covers exact/ranged/zero bounds, outgoing,
   incoming, and undirected traversal, per-hop type/property filters, cycles,
   self-loops, diamonds, parallel edges, dead ends, edge-trail uniqueness,
@@ -312,7 +318,8 @@ the path and traversal integration suites remain the semantic oracle.
 
 Application usability (milestone 10) is the next main milestone; its checklist
 and current working order live in [roadmap.md](roadmap.md). Multi-query
-transactions, `WITH DISTINCT`, and entity collection/expansion are complete. Milestone 9 continues as
+transactions, `WITH DISTINCT`, entity collection/expansion, and path-list
+`UNWIND` are complete. Milestone 9 continues as
 supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,

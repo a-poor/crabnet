@@ -191,8 +191,22 @@ SET person.active = true
 RETURN person
 ```
 
-The typed graph lists produced by `nodes(path)` and
-`relationships(path)` are not yet accepted as `UNWIND` inputs.
+The typed graph lists produced by `nodes(path)` and `relationships(path)`,
+including their `WITH` aliases and legacy relationship-list bindings, also
+expand into entity bindings. Those bindings support property reads, entity
+functions, later matches, and collection. This works for fixed, bounded,
+deep/open-ended, and shortest paths. A shared segment endpoint occurs once in
+the node list; cycles and self-loops still repeat a node for every visit.
+Zero-hop paths expand to one node and no relationships. The resulting rows
+preserve input-bag multiplicity, and relationship values retain their stored
+endpoint direction. Path-fed writes and named paths in `OPTIONAL MATCH`
+remain unsupported.
+
+```cypher
+MATCH route = (:Person {name: 'Ada'})-[:KNOWS*1..3]->()
+UNWIND nodes(route) AS person
+RETURN DISTINCT person
+```
 
 ## Query unions
 
@@ -750,7 +764,8 @@ traversal-ordered relationships while each relationship retains its stored
 start/end direction. Both are public `CypherValue::List` values containing
 typed graph entities. They may be returned directly or carried through
 computed `WITH` aliases, and their compact identities participate in semantic
-distinctness, pagination, and unions before hydration.
+distinctness, pagination, and unions before hydration. `UNWIND` resolves each
+member's identity into a node or relationship binding for subsequent reads.
 
 Each function requires exactly one in-scope path argument; bad arity, unknown
 variables, and wrong variable kinds fail during planning. Property access and
@@ -761,9 +776,9 @@ A fresh legacy relationship variable in `[rels:TYPE*min..]` is a
 relationship-list binding, not a stored relationship or a first-class path. It
 returns a public `CypherValue::List` of typed relationships in traversal order;
 zero hops return `[]`, and each member retains its stored endpoint direction.
-The list can be returned directly, carried through `WITH`, shaped by semantic
-distinctness and pagination, combined through unions, and bound alongside the
-named path for the same pattern.
+The list can be returned directly, carried through `WITH`, expanded with
+`UNWIND`, shaped by semantic distinctness and pagination, combined through
+unions, and bound alongside the named path for the same pattern.
 
 A relationship-list variable that is already bound, whether by an earlier
 pattern in the same `MATCH`, by an earlier clause, or as a `WITH` alias of
@@ -778,7 +793,7 @@ a re-matched occurrence denotes the same relationships as the binding it refers
 to and therefore does not take part in relationship uniqueness against it; a
 list bound by an earlier clause still cannot share relationships with the
 other traversals of the clause that re-matches it. Use in the scalar,
-aggregate, grouping, ordering, or `UNWIND` contexts above remains unsupported.
+aggregate, grouping, or ordering contexts above remains unsupported.
 Named paths or relationship-list bindings in `OPTIONAL MATCH`, postfix graph
 quantifiers, and writes fed by variable-length traversal, a named path, or a
 relationship list also remain unsupported.

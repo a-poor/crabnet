@@ -1920,8 +1920,16 @@ impl<'source> Lowerer<'source> {
             ));
         }
         let name = unwind_clause.variable.kind.text.clone();
-        let binding = if let Expr::EntityList { kind, .. } = &expression {
-            let kind = *kind;
+        let entity_kind = match &expression {
+            Expr::EntityList { kind, .. } => Some(*kind),
+            Expr::PathFunction { kind, .. } => match kind {
+                PathFunctionKind::Nodes => Some(EntityKind::Node),
+                PathFunctionKind::Relationships => Some(EntityKind::Relationship),
+                PathFunctionKind::Length => None,
+            },
+            _ => None,
+        };
+        let binding = if let Some(kind) = entity_kind {
             let slot = self.allocate(kind);
             self.symbols.insert(name.clone(), Symbol::Entity(slot));
             UnwindBinding::Entity(slot, kind)

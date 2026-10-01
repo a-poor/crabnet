@@ -712,8 +712,6 @@ fn relationship_lists_remain_rejected_in_unimplemented_value_contexts() {
          RETURN rels, count(*) AS paths",
         "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
          RETURN collect(rels) AS lists",
-        "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
-         UNWIND rels AS relationship RETURN relationship",
         "OPTIONAL MATCH (:RelListNode)-[rels:NEXT*1]->(:RelListNode) \
          RETURN rels",
     ] {
