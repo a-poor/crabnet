@@ -59,12 +59,12 @@ clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional match
 clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: path variable `p` is not a graph entity
 clauses/delete/Delete3.feature::[2] Delete on null path	semantic-error: path variable `p` is not a graph entity
 clauses/delete/Delete4.feature::[2] Undirected variable length expand followed by delete and count	unsupported: writes fed by variable-length traversal
-clauses/delete/Delete5.feature::[1] Delete node from a list	unsupported: whole entities in aggregates other than count()
-clauses/delete/Delete5.feature::[2] Delete relationship from a list	unsupported: whole entities in aggregates other than count()
+clauses/delete/Delete5.feature::[1] Delete node from a list	semantic-error: DELETE target must be a node or relationship variable
+clauses/delete/Delete5.feature::[2] Delete relationship from a list	semantic-error: DELETE target must be a node or relationship variable
 clauses/delete/Delete5.feature::[3] Delete nodes from a map	semantic-error: graph variable `u` is not a scalar expression
 clauses/delete/Delete5.feature::[4] Delete relationships from a map	semantic-error: graph variable `r` is not a scalar expression
-clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: whole entities in aggregates other than count()
-clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: whole entities in aggregates other than count()
+clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: collected entity lists in scalar expressions
+clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: collected entity lists in scalar expressions
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
@@ -130,7 +130,6 @@ clauses/return/Return2.feature::[1] Arithmetic expressions should propagate null
 clauses/return/Return4.feature::[11] Reusing variable names in RETURN	unsupported: aggregate calls nested in WITH expressions
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
 clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[10] Multiple aggregates on same variable	unsupported: whole entities in aggregates other than count()
 clauses/return/Return6.feature::[17] Handle constants and parameters inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[18] Handle returned variables inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[19] Handle returned property accesses inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
@@ -138,14 +137,12 @@ clauses/return/Return6.feature::[20] Fail if not returned variables are used ins
 clauses/return/Return6.feature::[21] Fail if more complex expressions, even if returned, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[2] Projecting an arithmetic expression with aggregation	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[5] Aggregates inside normal functions	unsupported: whole entities in aggregates other than count()
+clauses/return/Return6.feature::[5] Aggregates inside normal functions	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: aggregate calls nested in projection expressions
 clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
-clauses/unwind/Unwind1.feature::[12] Unwind does not remove variables from scope	unsupported: whole entities in aggregates other than count()
-clauses/unwind/Unwind1.feature::[5] Unwinding a collected expression	unsupported: whole entities in aggregates other than count()
 clauses/unwind/Unwind1.feature::[6] Creating nodes from an unwound parameter list	unsupported: non-literal stored value expression
 clauses/with-orderBy/WithOrderBy1.feature::[11] Sort dates in ascending order	unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[12] Sort dates in descending order	unsupported: function `date`
@@ -233,8 +230,6 @@ clauses/with/With6.feature::[6] Handle projected variables inside an expression 
 clauses/with/With6.feature::[7] Handle projected property accesses inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in WITH expressions
 clauses/with/With6.feature::[8] Fail if not projected variables are used inside an expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in WITH expressions
 clauses/with/With6.feature::[9] Fail if more complex expression, even if projected, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in WITH expressions
-expressions/aggregation/Aggregation5.feature::[1] `collect()` filtering nulls	unsupported: whole entities in aggregates other than count()
-expressions/aggregation/Aggregation5.feature::[2] OPTIONAL MATCH and `collect()` on node property	unsupported: collect(DISTINCT ...)
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 1	unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 2	unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 3	unsupported: function `percentiledisc`
@@ -248,8 +243,6 @@ expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on 
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 2	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 3	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	wrong-error-kind: unsupported: pattern comprehension
-expressions/aggregation/Aggregation8.feature::[3] Collect distinct nulls	unsupported: collect(DISTINCT ...)
-expressions/aggregation/Aggregation8.feature::[4] Collect distinct values mixed with nulls	unsupported: collect(DISTINCT ...)
 expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path variable `p1` is not a scalar expression
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	result-mismatch: row values differ
@@ -279,9 +272,9 @@ expressions/graph/Graph4.feature::[5] `type()` handling Any type	semantic-error:
 expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	semantic-error: graph variable `n` is not a scalar expression
 expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	semantic-error: graph variable `r` is not a scalar expression
 expressions/list/List11.feature::[3] Create an empty list if range direction and step direction are inconsistent	unsupported: aggregate calls nested in projection expressions
-expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: whole entities in aggregates other than count()
-expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: whole entities in aggregates other than count()
-expressions/list/List12.feature::[3] Size of list comprehension	unsupported: whole entities in aggregates other than count()
+expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: collected entity lists in scalar expressions
+expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: collected entity lists in scalar expressions
+expressions/list/List12.feature::[3] Size of list comprehension	unsupported: collected entity lists in scalar expressions
 expressions/list/List12.feature::[4] Returning a list comprehension	unsupported: path values or path collections in aggregate functions
 expressions/list/List12.feature::[5] Using a list comprehension in a WITH	unsupported: path values or path collections in aggregate functions
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension

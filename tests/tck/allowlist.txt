@@ -669,6 +669,7 @@ clauses/return/Return5.feature::[2] DISTINCT on nullable values
 clauses/return/Return5.feature::[3] DISTINCT inside aggregation should work with nested lists in maps
 clauses/return/Return5.feature::[4] DISTINCT inside aggregation should work with nested lists of maps in maps
 clauses/return/Return5.feature::[5] Aggregate on list values
+clauses/return/Return6.feature::[10] Multiple aggregates on same variable
 clauses/return/Return6.feature::[11] Counting matches
 clauses/return/Return6.feature::[12] Counting matches per group
 clauses/return/Return6.feature::[13] Returning the minimum length of paths
@@ -746,12 +747,14 @@ clauses/union/Union3.feature::[1] Failing when mixing UNION and UNION ALL
 clauses/union/Union3.feature::[2] Failing when mixing UNION ALL and UNION
 clauses/unwind/Unwind1.feature::[10] Unwinding list with duplicates
 clauses/unwind/Unwind1.feature::[11] Unwind does not prune context
+clauses/unwind/Unwind1.feature::[12] Unwind does not remove variables from scope
 clauses/unwind/Unwind1.feature::[13] Multiple unwinds after each other
 clauses/unwind/Unwind1.feature::[14] Unwind with merge
 clauses/unwind/Unwind1.feature::[1] Unwinding a list
 clauses/unwind/Unwind1.feature::[2] Unwinding a range
 clauses/unwind/Unwind1.feature::[3] Unwinding a concatenation of lists
 clauses/unwind/Unwind1.feature::[4] Unwinding a collected unwound expression
+clauses/unwind/Unwind1.feature::[5] Unwinding a collected expression
 clauses/unwind/Unwind1.feature::[7] Double unwinding a list of lists
 clauses/unwind/Unwind1.feature::[8] Unwinding the empty list
 clauses/unwind/Unwind1.feature::[9] Unwinding null
@@ -1034,8 +1037,12 @@ expressions/aggregation/Aggregation2.feature::[8] `min()` over strings
 expressions/aggregation/Aggregation2.feature::[9] `max()` over list values
 expressions/aggregation/Aggregation3.feature::[1] Sum only non-null values
 expressions/aggregation/Aggregation3.feature::[2] No overflow during summation
+expressions/aggregation/Aggregation5.feature::[1] `collect()` filtering nulls
+expressions/aggregation/Aggregation5.feature::[2] OPTIONAL MATCH and `collect()` on node property
 expressions/aggregation/Aggregation8.feature::[1] Distinct on unbound node
 expressions/aggregation/Aggregation8.feature::[2] Distinct on null
+expressions/aggregation/Aggregation8.feature::[3] Collect distinct nulls
+expressions/aggregation/Aggregation8.feature::[4] Collect distinct values mixed with nulls
 expressions/boolean/Boolean1.feature::[1] Conjunction of two truth values
 expressions/boolean/Boolean1.feature::[2] Conjunction of three truth values
 expressions/boolean/Boolean1.feature::[3] Conjunction of many truth values

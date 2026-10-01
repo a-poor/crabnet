@@ -188,6 +188,12 @@ pub(crate) enum Expr {
     Value(ValueExpr),
     Entity(SlotId),
     Scalar(ScalarSlotId),
+    /// A homogeneous list of graph entities, carried as encoded records in
+    /// a scalar column but never exposed as ordinary JSON maps.
+    EntityList {
+        kind: EntityKind,
+        expression: Box<Self>,
+    },
     Path(PathId),
     PathFunction {
         kind: PathFunctionKind,
@@ -492,6 +498,7 @@ impl Expr {
             } => vec![list, predicate],
             Self::MapProperty { base, .. } => vec![base],
             Self::Size(operand) => vec![operand],
+            Self::EntityList { expression, .. } => vec![expression],
             Self::List(items) => items.iter().collect(),
             Self::Map(entries) => entries.iter().map(|(_, value)| value).collect(),
             Self::Index { base, index } => vec![base, index],
@@ -536,6 +543,7 @@ impl Expr {
 
     pub(crate) fn contains_aggregate(&self) -> bool {
         match self {
+            Self::EntityList { expression, .. } => expression.contains_aggregate(),
             Self::Function { arguments, .. } => arguments.iter().any(Self::contains_aggregate),
             Self::Case {
                 operand,
@@ -583,6 +591,7 @@ impl Expr {
 
     pub(crate) fn is_row_dependent(&self) -> bool {
         match self {
+            Self::EntityList { expression, .. } => expression.is_row_dependent(),
             Self::Value(_) => false,
             Self::Aggregate { .. } => false,
             Self::Binary { left, right, .. } => left.is_row_dependent() || right.is_row_dependent(),
@@ -649,6 +658,7 @@ impl Expr {
         }
         match self {
             Self::Value(_) | Self::Aggregate { .. } => true,
+            Self::EntityList { expression, .. } => expression.uses_only_grouped_values(grouping),
             Self::Binary { left, right, .. } => {
                 left.uses_only_grouped_values(grouping) && right.uses_only_grouped_values(grouping)
             }
@@ -881,8 +891,14 @@ pub(crate) struct WithStage {
 #[derive(Clone, Debug)]
 pub(crate) struct UnwindStage {
     pub(crate) name: String,
-    pub(crate) slot: ScalarSlotId,
+    pub(crate) binding: UnwindBinding,
     pub(crate) expression: Expr,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum UnwindBinding {
+    Scalar(ScalarSlotId),
+    Entity(SlotId, EntityKind),
 }
 
 #[derive(Clone, Debug)]
@@ -1025,6 +1041,7 @@ pub(crate) struct Projection {
 pub(crate) struct Query {
     pub(crate) slots: Vec<EntityKind>,
     pub(crate) scalar_slots: usize,
+    pub(crate) entity_lists: Vec<(ScalarSlotId, EntityKind)>,
     pub(crate) path_slots: usize,
     pub(crate) input: Input,
     pub(crate) mutations: Vec<Mutation>,

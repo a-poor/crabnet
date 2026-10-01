@@ -159,8 +159,10 @@ Within those shapes, the first iteration supports:
   loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later
   clauses, plus `WITH *` and `RETURN *`
 - implicit grouping with top-level `count`, `sum`, `avg`, `min`, `max`, and
-  `collect` projections in `RETURN` or `WITH`
-- list expansion with `UNWIND`, plus typed semantic `UNION` deduplication and
+  `collect` projections in `RETURN` or `WITH`, including `collect(n)` and
+  `collect(DISTINCT n)` for nodes and relationships, and typed scalar deduplication
+- list expansion with `UNWIND`, including collected entities that can feed
+  later matches and writes, plus typed semantic `UNION` deduplication and
   bag-preserving `UNION ALL`
 - `RETURN DISTINCT`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only
   returns
@@ -336,11 +338,13 @@ exponentiation (`^`), and concatenation (`||`). Paths also cannot
 themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
-Unaliased computed `WITH` expressions,
-`collect(DISTINCT ...)`, and nested/embedded aggregate projections are
-explicitly rejected, as is an updating clause after `DELETE` in the same
-statement. Among aggregates, `DISTINCT` is supported only by `count`; the other
-aggregate forms fail during planning.
+Collected entity lists support direct projection, aliases, grouping,
+`DISTINCT`, `size()`, and `UNWIND`; indexing, comprehensions, nested collections,
+and other scalar operations on them remain unsupported.
+Unaliased computed `WITH` expressions and nested/embedded aggregate projections
+are explicitly rejected, as is an updating clause after `DELETE` in the same
+statement. Among aggregates, `DISTINCT` is supported by `count` and `collect`;
+the other aggregate forms fail during planning.
 
 ## Planning and execution
 

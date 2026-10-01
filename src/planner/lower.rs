@@ -25,7 +25,8 @@ use super::logical::{
     ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
     PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage,
     RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId, SortDirection, SortItem,
-    StoredValue, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
+    StoredValue, TraversalId, UnaryOp, UnwindBinding, UnwindStage, ValueExpr, WithBinding,
+    WithStage,
 };
 use super::typecheck;
 
@@ -330,6 +331,16 @@ fn lower_clause_sequence(source: &str, clauses: &[open_cypher::ast::Clause]) -> 
     Ok(Query {
         slots: lowerer.slots.into_inner(),
         scalar_slots: lowerer.scalar_slots,
+        entity_lists: lowerer
+            .kinds
+            .into_inner()
+            .scalars
+            .into_iter()
+            .filter_map(|(slot, kind)| match kind {
+                typecheck::Kind::EntityList(kind) => Some((slot, kind)),
+                _ => None,
+            })
+            .collect(),
         path_slots: lowerer.path_slots,
         input,
         mutations: head_mutations,
@@ -385,6 +396,16 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
     Ok(Query {
         slots: lowerer.slots.into_inner(),
         scalar_slots: lowerer.scalar_slots,
+        entity_lists: lowerer
+            .kinds
+            .into_inner()
+            .scalars
+            .into_iter()
+            .filter_map(|(slot, kind)| match kind {
+                typecheck::Kind::EntityList(kind) => Some((slot, kind)),
+                _ => None,
+            })
+            .collect(),
         path_slots: lowerer.path_slots,
         input: Input::Pipeline(ReadPipeline { stages }),
         mutations: Vec::new(),
@@ -463,6 +484,25 @@ impl<'source> Lowerer<'source> {
         let slot = ScalarSlotId(self.scalar_slots);
         self.scalar_slots += 1;
         slot
+    }
+
+    /// Restore graph-list types when a scalar slot is used as a value.
+    fn symbol_expression(&self, symbol: Symbol) -> Expr {
+        match symbol {
+            Symbol::Entity(slot) => Expr::Entity(slot),
+            Symbol::Scalar(slot) => match self.kinds.borrow().scalars.get(&slot) {
+                Some(typecheck::Kind::EntityList(kind)) => Expr::EntityList {
+                    kind: *kind,
+                    expression: Box::new(Expr::Scalar(slot)),
+                },
+                _ => Expr::Scalar(slot),
+            },
+            Symbol::Path(path) => Expr::Path(path),
+            Symbol::PathCollection { path, kind } => Expr::PathFunction {
+                kind: path_function_kind(kind),
+                path,
+            },
+        }
     }
 
     /// The variables `*` expands to: everything in scope, by name.
@@ -1872,28 +1912,40 @@ impl<'source> Lowerer<'source> {
                 ),
             ));
         }
-        let expression = self.scalar_expression(&unwind_clause.expression)?;
+        let expression = self.output_expression(&unwind_clause.expression)?;
         if expression.contains_aggregate() {
             return Err(semantic(
                 unwind_clause.expression.span,
                 "aggregate functions in UNWIND must cross a WITH boundary",
             ));
         }
-        let slot = self.allocate_scalar();
-        if let Some(element) = self
-            .check_kinds(&expression, unwind_clause.expression.span)?
-            .and_then(|kind| match kind {
-                typecheck::Kind::List(element) => element.map(|element| *element),
-                _ => None,
-            })
-        {
-            self.kinds.borrow_mut().scalars.insert(slot, element);
-        }
         let name = unwind_clause.variable.kind.text.clone();
-        self.symbols.insert(name.clone(), Symbol::Scalar(slot));
+        let binding = if let Expr::EntityList { kind, .. } = &expression {
+            let kind = *kind;
+            let slot = self.allocate(kind);
+            self.symbols.insert(name.clone(), Symbol::Entity(slot));
+            UnwindBinding::Entity(slot, kind)
+        } else {
+            let expression =
+                require_scalar_context(expression.clone(), unwind_clause.expression.span)?;
+            if matches!(expression, Expr::Entity(_) | Expr::Path(_)) {
+                return Err(semantic(
+                    unwind_clause.expression.span,
+                    "UNWIND requires a list",
+                ));
+            }
+            let slot = self.allocate_scalar();
+            if let Some(typecheck::Kind::List(Some(element))) =
+                self.check_kinds(&expression, unwind_clause.expression.span)?
+            {
+                self.kinds.borrow_mut().scalars.insert(slot, *element);
+            }
+            self.symbols.insert(name.clone(), Symbol::Scalar(slot));
+            UnwindBinding::Scalar(slot)
+        };
         Ok(UnwindStage {
             name,
-            slot,
+            binding,
             expression,
         })
     }
@@ -1920,7 +1972,7 @@ impl<'source> Lowerer<'source> {
                 ProjectionItemKind::Wildcard => {
                     saw_wildcard = true;
                     for (name, symbol) in self.wildcard_items() {
-                        items.push((item.span, name, symbol_expression(symbol)));
+                        items.push((item.span, name, self.symbol_expression(symbol)));
                     }
                 }
                 ProjectionItemKind::Expression { expression, alias } => {
@@ -1935,9 +1987,7 @@ impl<'source> Lowerer<'source> {
                         }
                     };
                     let expression = self.output_expression(expression)?;
-                    if expression.contains_aggregate()
-                        && !matches!(expression, Expr::Aggregate { .. })
-                    {
+                    if expression.contains_aggregate() && !is_aggregate_projection(&expression) {
                         return Err(unsupported(
                             item.span,
                             "aggregate calls nested in WITH expressions",
@@ -2007,7 +2057,7 @@ impl<'source> Lowerer<'source> {
                     aliases.insert(
                         name,
                         if distinct {
-                            Expr::Scalar(slot)
+                            self.symbol_expression(Symbol::Scalar(slot))
                         } else {
                             expression
                         },
@@ -2161,14 +2211,14 @@ impl<'source> Lowerer<'source> {
                         items.push((
                             item.span,
                             name.clone(),
-                            symbol_expression(symbol),
+                            self.symbol_expression(symbol),
                             Some(name),
                         ));
                     }
                 }
                 ProjectionItemKind::Expression { expression, alias } => {
                     let lowered = self.output_expression(expression)?;
-                    if lowered.contains_aggregate() && !matches!(lowered, Expr::Aggregate { .. }) {
+                    if lowered.contains_aggregate() && !is_aggregate_projection(&lowered) {
                         return Err(unsupported(
                             expression.span,
                             "aggregate calls nested in projection expressions",
@@ -2318,7 +2368,7 @@ impl<'source> Lowerer<'source> {
                 }
                 match self.resolve_symbol(variable)? {
                     Symbol::Entity(slot) => Ok(Expr::Entity(slot)),
-                    Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
+                    Symbol::Scalar(slot) => Ok(self.symbol_expression(Symbol::Scalar(slot))),
                     Symbol::Path(path) => Ok(Expr::Path(path)),
                     Symbol::PathCollection { path, kind } => Ok(Expr::PathFunction {
                         kind: path_function_kind(kind),
@@ -2618,49 +2668,7 @@ impl<'source> Lowerer<'source> {
             ExprKind::Parenthesized(inner) => {
                 self.scalar_expression_with_aliases_at_depth(inner, aliases, expression_depth + 1)
             }
-            ExprKind::Variable(variable) => {
-                if let Some(expression) = aliases.get(&variable.kind.text) {
-                    return match expression {
-                        Expr::Entity(_) | Expr::Path(_) => Err(semantic(
-                            variable.span,
-                            format!(
-                                "graph or path variable `{}` is not a scalar expression",
-                                variable.kind.text
-                            ),
-                        )),
-                        Expr::PathFunction { kind, .. }
-                            if path_collection_kind(*kind).is_some() =>
-                        {
-                            Err(unsupported(
-                                variable.span,
-                                "path collections in scalar expressions",
-                            ))
-                        }
-                        expression => Ok(expression.clone()),
-                    };
-                }
-                match self.resolve_symbol(variable)? {
-                    Symbol::Scalar(slot) => Ok(Expr::Scalar(slot)),
-                    Symbol::Entity(_) => Err(semantic(
-                        variable.span,
-                        format!(
-                            "graph variable `{}` is not a scalar expression",
-                            variable.kind.text
-                        ),
-                    )),
-                    Symbol::Path(_) => Err(semantic(
-                        variable.span,
-                        format!(
-                            "path variable `{}` is not a scalar expression",
-                            variable.kind.text
-                        ),
-                    )),
-                    Symbol::PathCollection { .. } => Err(unsupported(
-                        variable.span,
-                        "path collections in scalar expressions",
-                    )),
-                }
-            }
+            ExprKind::Variable(variable) => self.scalar_variable_expression(variable, aliases),
             // Name every remaining expression kind so unsupported-feature
             // reports rank real gaps instead of one opaque bucket.
             ExprKind::MapProjection(_) => Err(unsupported(expression.span, "map projection")),
@@ -2684,6 +2692,10 @@ impl<'source> Lowerer<'source> {
                 )?;
                 match base {
                     Expr::Entity(slot) => Ok(Expr::DynamicProperty(slot, Box::new(key))),
+                    Expr::EntityList { .. } => Err(unsupported(
+                        expression.span,
+                        "indexing collected entity lists",
+                    )),
                     Expr::Path(_) | Expr::PathFunction { .. } => Err(semantic(
                         expression.span,
                         "paths and path collections cannot be indexed",
@@ -2864,6 +2876,54 @@ impl<'source> Lowerer<'source> {
             ExprKind::Wildcard => Err(unsupported(expression.span, "`*` in an expression")),
             ExprKind::Error(_) => Err(unsupported(expression.span, "malformed expression")),
             _ => Err(unsupported(expression.span, "expression")),
+        }
+    }
+
+    // Keep variable/type resolution out of the recursive scalar-expression
+    // frame: deep unary expressions must reach the syntax-depth guard on a
+    // normal thread stack even in debug builds.
+    fn scalar_variable_expression(
+        &self,
+        variable: &open_cypher::ast::Name,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
+        if let Some(expression) = aliases.get(&variable.kind.text) {
+            return match expression {
+                Expr::Entity(_) | Expr::Path(_) => Err(semantic(
+                    variable.span,
+                    format!(
+                        "graph or path variable `{}` is not a scalar expression",
+                        variable.kind.text
+                    ),
+                )),
+                Expr::PathFunction { kind, .. } if path_collection_kind(*kind).is_some() => Err(
+                    unsupported(variable.span, "path collections in scalar expressions"),
+                ),
+                expression => require_scalar_context(expression.clone(), variable.span),
+            };
+        }
+        match self.resolve_symbol(variable)? {
+            Symbol::Scalar(slot) => {
+                require_scalar_context(self.symbol_expression(Symbol::Scalar(slot)), variable.span)
+            }
+            Symbol::Entity(_) => Err(semantic(
+                variable.span,
+                format!(
+                    "graph variable `{}` is not a scalar expression",
+                    variable.kind.text
+                ),
+            )),
+            Symbol::Path(_) => Err(semantic(
+                variable.span,
+                format!(
+                    "path variable `{}` is not a scalar expression",
+                    variable.kind.text
+                ),
+            )),
+            Symbol::PathCollection { .. } => Err(unsupported(
+                variable.span,
+                "path collections in scalar expressions",
+            )),
         }
     }
 
@@ -3122,7 +3182,9 @@ impl<'source> Lowerer<'source> {
                     "rand() is not allowed inside an aggregate function",
                 ));
             }
-            if matches!(argument, Expr::Entity(_)) && kind != AggregateKind::Count {
+            if matches!(argument, Expr::Entity(_))
+                && !matches!(kind, AggregateKind::Count | AggregateKind::Collect)
+            {
                 return Err(unsupported(
                     span,
                     "whole entities in aggregates other than count()",
@@ -3134,10 +3196,13 @@ impl<'source> Lowerer<'source> {
                     "path values or path collections in aggregate functions",
                 ));
             }
-            if distinct && kind == AggregateKind::Collect {
-                return Err(unsupported(span, "collect(DISTINCT ...)"));
+            if matches!(argument, Expr::EntityList { .. }) {
+                return Err(unsupported(
+                    span,
+                    "collected entity lists in aggregate functions",
+                ));
             }
-            if distinct && kind != AggregateKind::Count {
+            if distinct && !matches!(kind, AggregateKind::Count | AggregateKind::Collect) {
                 return Err(unsupported(
                     span,
                     "DISTINCT for aggregates other than count()",
@@ -3146,10 +3211,21 @@ impl<'source> Lowerer<'source> {
             Some(Box::new(argument))
         };
 
-        Ok(Expr::Aggregate {
+        let entity_kind = match argument.as_deref() {
+            Some(Expr::Entity(slot)) if kind == AggregateKind::Collect => Some(self.kind(*slot)),
+            _ => None,
+        };
+        let aggregate = Expr::Aggregate {
             kind,
             argument,
             distinct,
+        };
+        Ok(match entity_kind {
+            Some(kind) => Expr::EntityList {
+                kind,
+                expression: Box::new(aggregate),
+            },
+            None => aggregate,
         })
     }
 
@@ -3707,10 +3783,25 @@ fn is_deferred_graph_value(expression: &Expr) -> bool {
 }
 
 fn require_scalar_context(expression: Expr, span: Span) -> Result<Expr> {
-    if is_deferred_graph_value(&expression) {
+    if matches!(expression, Expr::EntityList { .. }) {
+        Err(unsupported(
+            span,
+            "collected entity lists in scalar expressions",
+        ))
+    } else if is_deferred_graph_value(&expression) {
         Err(unsupported(span, "path collections in scalar expressions"))
     } else {
         Ok(expression)
+    }
+}
+
+fn is_aggregate_projection(expression: &Expr) -> bool {
+    match expression {
+        Expr::Aggregate { .. } => true,
+        Expr::EntityList { expression, .. } => {
+            matches!(expression.as_ref(), Expr::Aggregate { .. })
+        }
+        _ => false,
     }
 }
 
@@ -3751,18 +3842,6 @@ fn has_unprojected_aggregate(expression: &Expr, projected: &[Expr]) -> bool {
                 .children()
                 .into_iter()
                 .any(|child| has_unprojected_aggregate(child, projected)))
-}
-
-fn symbol_expression(symbol: Symbol) -> Expr {
-    match symbol {
-        Symbol::Entity(slot) => Expr::Entity(slot),
-        Symbol::Scalar(slot) => Expr::Scalar(slot),
-        Symbol::Path(path) => Expr::Path(path),
-        Symbol::PathCollection { path, kind } => Expr::PathFunction {
-            kind: path_function_kind(kind),
-            path,
-        },
-    }
 }
 
 fn comparison_operator(operator: BinaryOperator) -> Option<BinaryOp> {

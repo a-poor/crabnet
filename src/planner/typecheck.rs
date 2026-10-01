@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::logical::{
-    BinaryOp, Expr, ListVariableId, ScalarFunction, ScalarSlotId, UnaryOp, ValueExpr,
+    BinaryOp, EntityKind, Expr, ListVariableId, ScalarFunction, ScalarSlotId, UnaryOp, ValueExpr,
 };
 
 /// A statically known value kind. Lists remember their element kind when
@@ -22,6 +22,7 @@ pub(crate) enum Kind {
     Float,
     String,
     List(Option<Box<Kind>>),
+    EntityList(EntityKind),
     Map,
 }
 
@@ -34,6 +35,7 @@ impl Kind {
             Self::Float => "a float",
             Self::String => "a string",
             Self::List(_) => "a list",
+            Self::EntityList(_) => "a list of graph entities",
             Self::Map => "a map",
         }
     }
@@ -64,6 +66,10 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
         Expr::Value(value) => value_kind(value),
         Expr::HasLabel(..) | Expr::Exists { .. } => Some(Kind::Boolean),
         Expr::Scalar(slot) => kinds.scalars.get(slot).cloned(),
+        Expr::EntityList { kind, expression } => {
+            check(expression, kinds)?;
+            Some(Kind::EntityList(*kind))
+        }
         Expr::ListElement(variable) => kinds.elements.get(variable).cloned(),
         Expr::Binary {
             left,

@@ -484,30 +484,10 @@ fn aggregate_arguments_in_with_subclauses_can_use_projected_aliases() {
 }
 
 #[test]
-fn collection_aggregate_rejects_entities_and_distinct_for_now() {
+fn distinct_is_rejected_for_numeric_and_extremum_aggregates() {
     let mut database = Database::in_memory().unwrap();
 
-    let entity = unsupported_error(&mut database, "MATCH (item) RETURN collect(item) AS items");
-    assert!(
-        entity.contains("whole entities in aggregates other than count()"),
-        "unexpected error: {entity}"
-    );
-
-    let distinct = unsupported_error(
-        &mut database,
-        "MATCH (item) RETURN collect(DISTINCT item.value) AS values",
-    );
-    assert!(
-        distinct.contains("collect(DISTINCT ...)"),
-        "unexpected error: {distinct}"
-    );
-}
-
-#[test]
-fn distinct_is_rejected_for_non_count_aggregates_until_typed_semantics_are_defined() {
-    let mut database = Database::in_memory().unwrap();
-
-    for function in ["sum", "avg", "min", "max", "collect"] {
+    for function in ["sum", "avg", "min", "max"] {
         let query = format!("RETURN {function}(DISTINCT 1) AS value");
         assert!(
             matches!(database.execute(&query), Err(Error::Unsupported(_))),

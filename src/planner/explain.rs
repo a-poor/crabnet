@@ -4,7 +4,7 @@ use super::logical::{
     AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, MatchOperator,
     Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
     ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, StoredValue, UnaryOp,
-    ValueExpr, WithBinding, WithStage,
+    UnwindBinding, ValueExpr, WithBinding, WithStage,
 };
 
 /// Render a logical plan using canonical slots and semantic operator names.
@@ -149,9 +149,13 @@ fn render_stages(renderer: &mut Renderer, stages: &[ReadStage]) {
             ReadStage::Unwind(stage) => renderer.line(
                 3,
                 format!(
-                    "stage {index}: unwind {} = scalar({}) <- {}",
+                    "stage {index}: unwind {} = {} <- {}",
                     quote(&stage.name),
-                    scalar_slot_name(stage.slot),
+                    match stage.binding {
+                        UnwindBinding::Scalar(slot) =>
+                            format!("scalar({})", scalar_slot_name(slot)),
+                        UnwindBinding::Entity(slot, _) => format!("entity({})", slot_name(slot)),
+                    },
                     render_expr(&stage.expression)
                 ),
             ),
@@ -606,6 +610,9 @@ fn render_expr(expression: &Expr) -> String {
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
         Expr::EntityIdentity(slot) => format!("entity-identity({})", slot_name(*slot)),
         Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
+        Expr::EntityList { kind, expression } => {
+            format!("entity-list({kind:?}, {})", render_expr(expression))
+        }
         Expr::Path(path) => format!("path({})", path_slot_name(*path)),
         Expr::PathFunction { kind, path } => format!(
             "{}(path({}))",

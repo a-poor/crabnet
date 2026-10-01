@@ -7,8 +7,8 @@ use crate::{Error, Result};
 /// A value returned by a Cypher query.
 ///
 /// Unlike JSON, this type can distinguish graph entities from ordinary maps.
-/// Lists and maps are recursive because Cypher collections may eventually
-/// contain nodes and relationships as well as property values.
+/// Lists may contain nodes and relationships as well as property values.
+/// Lists and maps preserve the types of their nested values.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum CypherValue {

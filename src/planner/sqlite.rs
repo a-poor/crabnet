@@ -10,8 +10,8 @@ use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
     ListVariableId, MatchOperator, MatchPlan, PathCollectionKind, PathFunctionKind, PathId,
     PathSegment, Projection, ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse,
-    ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindStage,
-    ValueExpr, WithBinding, WithStage,
+    ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindBinding,
+    UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
@@ -1462,7 +1462,13 @@ impl Compiler {
                     self.projected_scalars
                         .push((expression.clone(), self.scalars[slot].clone()));
                 }
-                *expression = Expr::Scalar(*slot);
+                *expression = match expression {
+                    Expr::EntityList { kind, .. } => Expr::EntityList {
+                        kind: *kind,
+                        expression: Box::new(Expr::Scalar(*slot)),
+                    },
+                    _ => Expr::Scalar(*slot),
+                };
             }
         }
         let result = self.compile_with_rows(&modifiers);
@@ -1644,8 +1650,15 @@ impl Compiler {
                 WithBinding::Entity { slot, .. } => {
                     format!("json_extract(e{}, '$.id')", slot.0)
                 }
-                WithBinding::Scalar { slot, .. } => {
-                    format!("crabnet_semantic_key(s{})", slot.0)
+                WithBinding::Scalar {
+                    slot, expression, ..
+                } => {
+                    let function = if matches!(expression, Expr::EntityList { .. }) {
+                        "crabnet_entity_list_key"
+                    } else {
+                        "crabnet_semantic_key"
+                    };
+                    format!("{function}(s{})", slot.0)
                 }
                 WithBinding::Path { path, .. } => {
                     format!("crabnet_path_key(p{}, 'path')", path.0)
@@ -1729,16 +1742,24 @@ impl Compiler {
                 path.0
             )
         }));
-        select.push(format!(
-            "{} AS s{}",
-            encoded_scalar(&format!("{member}.value"), &format!("{member}.type")),
-            stage.slot.0
-        ));
+        match stage.binding {
+            UnwindBinding::Scalar(slot) => select.push(format!(
+                "{} AS s{}",
+                encoded_scalar(&format!("{member}.value"), &format!("{member}.type")),
+                slot.0
+            )),
+            UnwindBinding::Entity(slot, _) => select.push(format!("{member}.value AS e{}", slot.0)),
+        }
 
         let sql = self.select_sql(&select);
         let cte = format!("_crabnet_unwind_{stage_index}");
         self.ctes.push((cte.clone(), sql));
         let relation = format!("urows{stage_index}");
+
+        match stage.binding {
+            UnwindBinding::Scalar(slot) => scalar_bindings.push(slot),
+            UnwindBinding::Entity(slot, kind) => entity_bindings.push((slot, kind)),
+        }
 
         self.entities = entity_bindings
             .into_iter()
@@ -1752,7 +1773,6 @@ impl Compiler {
                 )
             })
             .collect();
-        scalar_bindings.push(stage.slot);
         self.scalars = scalar_bindings
             .into_iter()
             .map(|slot| (slot, format!("{relation}.s{}", slot.0)))
@@ -1931,6 +1951,12 @@ impl Compiler {
     }
 
     fn output_expression(&mut self, expression: &Expr) -> Result<(String, OutputShape)> {
+        if let Expr::EntityList { kind, .. } = expression {
+            return Ok((
+                self.encoded_expression(expression)?,
+                OutputShape::EntityList(*kind),
+            ));
+        }
         if let Expr::Entity(slot) = expression {
             let kind = self.entity_kind(*slot)?;
             return Ok((self.encoded_entity(*slot, kind)?, OutputShape::Entity(kind)));
@@ -1972,7 +1998,12 @@ impl Compiler {
             ));
         }
         let encoded = self.encoded_expression(expression)?;
-        Ok(vec![format!("crabnet_semantic_key({encoded})")])
+        let key = if matches!(expression, Expr::EntityList { .. }) {
+            format!("crabnet_entity_list_key({encoded})")
+        } else {
+            format!("crabnet_semantic_key({encoded})")
+        };
+        Ok(vec![key])
     }
 
     fn raw_expression(&mut self, expression: &Expr) -> Result<String> {
@@ -2157,6 +2188,7 @@ impl Compiler {
             ));
         }
         match expression {
+            Expr::EntityList { expression, .. } => self.compile_scalar(expression),
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),
             )),
@@ -3232,6 +3264,11 @@ impl Compiler {
         })?;
 
         if let Expr::Entity(slot) = argument {
+            if kind == AggregateKind::Collect {
+                let encoded = self.encoded_entity(*slot, self.entity_kind(*slot)?)?;
+                let key = self.entity_field(*slot, "id")?;
+                return Ok(self.collect_scalar(encoded, key, distinct));
+            }
             if kind != AggregateKind::Count {
                 return Err(Error::Data(
                     "logical aggregate contains an unsupported entity argument".into(),
@@ -3264,7 +3301,6 @@ impl Compiler {
             )
         };
         let numeric_of = |value_type: &str| format!("({value_type}) IN ('integer', 'real')");
-        let non_null = bind(&|value, value_type| non_null_of(value, value_type))?;
         let numeric = bind(&|_, value_type| numeric_of(value_type))?;
         let invalid = bind(&|value, value_type| {
             format!(
@@ -3333,23 +3369,27 @@ impl Compiler {
                 ))
             }
             AggregateKind::Collect => {
-                if distinct {
-                    return Err(Error::Unsupported("collect(DISTINCT ...)".into()));
-                }
                 let encoded = bind(&|value, value_type| encoded_scalar(value, value_type))?;
-                let ordering = self
-                    .ordering
-                    .as_ref()
-                    .map(|ordering| format!(" ORDER BY {ordering}"))
-                    .unwrap_or_default();
-                Ok(Scalar::sql(
-                    format!(
-                        "json_group_array(json({encoded}){ordering}) FILTER (WHERE {non_null})"
-                    ),
-                    "'array'",
-                ))
+                let key = format!("crabnet_semantic_key({encoded})");
+                Ok(self.collect_scalar(encoded, key, distinct))
             }
         }
+    }
+
+    fn collect_scalar(&self, encoded: String, key: String, distinct: bool) -> Scalar {
+        let ordering = self
+            .ordering
+            .as_ref()
+            .map(|ordering| format!(" ORDER BY {ordering}"))
+            .unwrap_or_default();
+        let sql = if distinct {
+            format!("crabnet_collect_distinct({encoded}, {key}{ordering})")
+        } else {
+            format!(
+                "json_group_array(json({encoded}){ordering}) FILTER (WHERE ({encoded}) <> 'null')"
+            )
+        };
+        Scalar::sql(sql, "'array'")
     }
 
     /// `+` adds numbers, concatenates strings, and concatenates lists (a

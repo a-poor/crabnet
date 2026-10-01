@@ -273,6 +273,7 @@ impl FragmentArgument {
 pub(crate) enum OutputShape {
     Json,
     Entity(EntityKind),
+    EntityList(EntityKind),
     PathIdentity,
     PathNodes,
     PathRelationships,

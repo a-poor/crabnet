@@ -116,14 +116,15 @@ follow the rules below. The implemented pipeline cases live in
 
 ## Aggregation and grouping
 
-Read-only `RETURN` and `WITH` support top-level `count`, `sum`, `avg`, `min`,
+`RETURN` and `WITH` support top-level `count`, `sum`, `avg`, `min`,
 `max`, and `collect` calls. A projection containing an aggregate is an
 aggregating projection. Every non-aggregate, row-dependent projection item is
 then an implicit grouping key; constants do not create grouping keys. A global
 aggregate over empty input emits one row, while an aggregate with grouping keys
 emits no rows for empty input.
 
-Grouping and `count(DISTINCT expression)` use typed Cypher equivalence rather
+Grouping, `count(DISTINCT expression)`, and `collect(DISTINCT expression)`
+use typed Cypher equivalence rather
 than raw SQLite JSON text. Integers and equal integral floats share a group,
 booleans remain distinct from numbers, lists and maps apply the rule
 recursively, and whole graph entities group by element ID. Null values form one
@@ -140,10 +141,29 @@ strings is a number and `min` over a list and strings is the list. `collect` omi
 duplicates, and returns an empty list for empty input. Ordering established by
 an immediately preceding `WITH ... ORDER BY` controls collection order.
 
-Explicit `ALL` has the same bag behavior as an omitted aggregate quantifier.
-`count(DISTINCT expression)` is supported. `DISTINCT` on the other aggregates,
-collecting whole entities, nested aggregate calls, aggregate calls embedded in
-a larger projection expression, and aggregate-only ordering/filtering without
+`collect(n)` and `collect(r)` return lists of typed nodes or relationships.
+Entities with identical properties remain distinct when their element IDs
+differ. `collect(DISTINCT ...)` omits nulls and keeps the first representative
+of each typed value in collection order. Without an upstream `ORDER BY`, that
+order is unspecified. Scalar values use recursive typed equality; entities
+use identity. These lists survive aliases, wildcard projections, grouping,
+`WITH DISTINCT`, `RETURN DISTINCT`, and unions. `size(list)` returns their
+length after a `WITH` boundary. Their ordered entity identities determine
+list equality, independently of properties.
+
+Collected entities can feed `UNWIND`, property reads, later matches, and
+writes. Property and label changes refresh all retained copies in collected
+lists as well as direct entity bindings; deletion retains the same pre-delete
+snapshots as direct entity returns. Lists do not become ordinary JSON maps
+or storable properties. Indexing, slicing, comprehensions, nested collections,
+other scalar operations, and further aggregation of entity lists remain
+unsupported; expand with `UNWIND` before operating on their entities.
+
+Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
+behavior as an omitted aggregate quantifier. The parser currently rejects
+`collect(ALL ...)`; use `collect(...)` for bag collection.
+`DISTINCT` on aggregates other than `count` and `collect`, nested aggregate
+calls, aggregate calls embedded in a larger projection expression, and aggregate-only ordering/filtering without
 an aggregating projection are structured planning-time rejections; a `RETURN`
 after a mutation may aggregate over the post-mutation rows. Aggregates are not allowed in `MATCH` predicates or
 directly in `UNWIND`; a `WITH` boundary must materialize them first.
@@ -159,7 +179,19 @@ and `UNWIND` stages while carrying the current entity and scalar scope. Empty
 lists, null, and dynamic non-list values produce zero rows; Crabnet does not
 coerce a scalar or map to a singleton list. The new alias must not replace a
 name already in scope. Unless a later clause orders the result, row order after
-`UNWIND` is unspecified. The typed graph lists produced by `nodes(path)` and
+`UNWIND` is unspecified. A collected node or relationship list binds each
+member as a graph entity with its original kind and identity, so the alias
+supports graph functions, matches, and mutations. For example:
+
+```cypher
+MATCH (person:Person)
+WITH collect(DISTINCT person) AS people
+UNWIND people AS person
+SET person.active = true
+RETURN person
+```
+
+The typed graph lists produced by `nodes(path)` and
 `relationships(path)` are not yet accepted as `UNWIND` inputs.
 
 ## Query unions
@@ -342,8 +374,8 @@ the same stored entity and `a <> b` when they differ, null when either side
 is null, and `r IS NULL` tests an entity the same way. An entity compared
 with a non-entity value is not equal, including its own `elementId()` string.
 Node and relationship identities remain distinct even when their IDs match.
-Entities still cannot be ordered,
-collected, or placed in lists.
+Entities can be collected and then expanded with `UNWIND`. They still cannot
+be ordered directly or placed in literal lists.
 
 ## Membership and string predicates
 

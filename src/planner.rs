@@ -146,6 +146,7 @@ fn compile_logical(query: Query) -> Result<Plan> {
     let layout = RowLayout {
         slots: query.slots.clone(),
         scalar_slots: query.scalar_slots,
+        entity_lists: query.entity_lists.clone(),
     };
     // Every later read segment continues from the rows the mutations before
     // it leave behind, seeing the variables live at that point.
@@ -264,6 +265,7 @@ pub(crate) struct MutationPlan {
 pub(crate) struct RowLayout {
     pub(crate) slots: Vec<EntityKind>,
     pub(crate) scalar_slots: usize,
+    pub(crate) entity_lists: Vec<(ScalarSlotId, EntityKind)>,
 }
 
 impl RowLayout {

@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     path::Path,
 };
 
@@ -583,7 +583,7 @@ fn update_labels(
             )?;
         }
         for row in rows.iter_mut() {
-            for entity in row.entities.iter_mut().flatten() {
+            for entity in row.all_entities_mut() {
                 if let EntityValue::Node(node) = entity
                     && node.element_id == id
                 {
@@ -815,6 +815,9 @@ impl EntityValue {
 struct ExecutionRow {
     entities: Vec<Option<EntityValue>>,
     scalars: Vec<Option<String>>,
+    // Typed collection slots live here during writes, so identity-based
+    // property/label refreshes also reach entities retained inside a list.
+    entity_lists: Vec<Option<Vec<EntityValue>>>,
 }
 
 impl ExecutionRow {
@@ -822,7 +825,15 @@ impl ExecutionRow {
         Self {
             entities: vec![None; layout.slots.len()],
             scalars: vec![None; layout.scalar_slots],
+            entity_lists: vec![None; layout.scalar_slots],
         }
+    }
+
+    fn all_entities_mut(&mut self) -> impl Iterator<Item = &mut EntityValue> {
+        self.entities
+            .iter_mut()
+            .flatten()
+            .chain(self.entity_lists.iter_mut().flatten().flatten())
     }
 
     fn set(&mut self, slots: &[EntityKind], slot: SlotId, entity: EntityValue) -> Result<()> {
@@ -887,7 +898,7 @@ impl ExecutionRow {
         properties: &std::collections::BTreeMap<String, CypherValue>,
     ) -> bool {
         let mut found = false;
-        for entity in self.entities.iter_mut().flatten() {
+        for entity in self.all_entities_mut() {
             match entity {
                 EntityValue::Node(node) if kind == EntityKind::Node && node.element_id == id => {
                     node.properties = properties.clone();
@@ -1352,18 +1363,27 @@ fn with_rows_table<T>(
         for (index, row) in rows.iter().enumerate() {
             // Unbound slots hold JSON `null` text, exactly as an OPTIONAL
             // MATCH leaves them in a read pipeline's intermediate rows.
-            let records = std::iter::once(index.to_string())
-                .chain(row.entities.iter().map(|entity| {
-                    entity
-                        .as_ref()
-                        .map_or_else(|| "null".to_owned(), encode_entity)
-                }))
-                .chain(
-                    row.scalars
-                        .iter()
-                        .map(|scalar| scalar.clone().unwrap_or_else(|| "null".to_owned())),
-                )
-                .collect::<Vec<_>>();
+            let records =
+                std::iter::once(index.to_string())
+                    .chain(row.entities.iter().map(|entity| {
+                        entity
+                            .as_ref()
+                            .map_or_else(|| "null".to_owned(), encode_entity)
+                    }))
+                    .chain(row.scalars.iter().enumerate().map(|(slot, scalar)| {
+                        match &row.entity_lists[slot] {
+                            Some(entities) => format!(
+                                "[{}]",
+                                entities
+                                    .iter()
+                                    .map(encode_entity)
+                                    .collect::<Vec<_>>()
+                                    .join(",")
+                            ),
+                            None => scalar.clone().unwrap_or_else(|| "null".to_owned()),
+                        }
+                    }))
+                    .collect::<Vec<_>>();
             insert.execute(params_from_iter(records.iter()))?;
         }
     }
@@ -1459,10 +1479,28 @@ fn read_row_source(
                 .get_mut(slot.0)
                 .ok_or_else(|| crate::Error::Data(format!("unknown scalar slot {}", slot.0)))?;
             *destination = row.get::<_, Option<String>>(column)?;
+            if let Some((_, kind)) = layout
+                .entity_lists
+                .iter()
+                .find(|(candidate, _)| candidate == slot)
+                && let Some(encoded) = destination.as_deref().filter(|value| *value != "null")
+            {
+                execution_row.entity_lists[slot.0] = Some(decode_entity_list(encoded, *kind)?);
+                *destination = None;
+            }
         }
         input_rows.push(execution_row);
     }
     Ok(input_rows)
+}
+
+fn decode_entity_list(encoded: &str, kind: EntityKind) -> Result<Vec<EntityValue>> {
+    let values: Vec<serde_json::Value> = serde_json::from_str(encoded)
+        .map_err(|error| crate::Error::Data(format!("malformed entity list: {error}")))?;
+    values
+        .into_iter()
+        .map(|value| decode_entity(&value.to_string(), kind))
+        .collect()
 }
 
 fn decode_entity(encoded: &str, kind: EntityKind) -> Result<EntityValue> {
@@ -1850,6 +1888,13 @@ fn decode_pending_output(encoded: &str, shape: OutputShape) -> Result<PendingVal
         }
         OutputShape::Entity(kind) => decode_entity(encoded, kind)
             .map(|value| PendingValue::Materialized(value.to_cypher_value())),
+        OutputShape::EntityList(kind) => {
+            let values = decode_entity_list(encoded, kind)?
+                .into_iter()
+                .map(|entity| entity.to_cypher_value())
+                .collect();
+            Ok(PendingValue::Materialized(CypherValue::List(values)))
+        }
         OutputShape::PathIdentity => decode_path_identity(encoded).map(PendingValue::Path),
         OutputShape::PathNodes => {
             decode_path_identity(encoded).map(|identity| PendingValue::PathNodes(identity.node_ids))
@@ -1949,6 +1994,41 @@ fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
 }
 
 fn register_functions(connection: &Connection) -> Result<()> {
+    connection.create_aggregate_function(
+        "crabnet_collect_distinct",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        CollectDistinct,
+    )?;
+    connection.create_scalar_function(
+        "crabnet_entity_list_key",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let value = json_argument(context, 0)?;
+            let ids = value
+                .as_array()
+                .ok_or_else(|| {
+                    rusqlite::Error::UserFunctionError(Box::new(crate::Error::Data(
+                        "entity list is not an array".into(),
+                    )))
+                })?
+                .iter()
+                .map(|entity| {
+                    entity
+                        .get("id")
+                        .filter(|id| id.is_string())
+                        .cloned()
+                        .ok_or_else(|| {
+                            rusqlite::Error::UserFunctionError(Box::new(crate::Error::Data(
+                                "collected entity is missing its identity".into(),
+                            )))
+                        })
+                })
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(semantic_json_key(&serde_json::Value::Array(ids)))
+        },
+    )?;
     connection.create_scalar_function(
         "crabnet_path_key",
         2,
@@ -2161,6 +2241,48 @@ fn json_argument(context: &Context<'_>, index: usize) -> rusqlite::Result<serde_
 /// JSON text, nulls are skipped, and the result is the JSON text of the
 /// least or greatest value, or NULL when there was none.
 struct Extremum(Ordering);
+
+/// Keeps the first representative of each typed value in input order.
+struct CollectDistinct;
+
+#[derive(Default)]
+struct CollectedValues {
+    keys: HashSet<Vec<u8>>,
+    values: Vec<serde_json::Value>,
+}
+
+impl Aggregate<CollectedValues, String> for CollectDistinct {
+    fn init(&self, _: &mut Context<'_>) -> rusqlite::Result<CollectedValues> {
+        Ok(CollectedValues::default())
+    }
+
+    fn step(&self, context: &mut Context<'_>, state: &mut CollectedValues) -> rusqlite::Result<()> {
+        let value = json_argument(context, 0)?;
+        if value.is_null() {
+            return Ok(());
+        }
+        let key = match context.get_raw(1) {
+            ValueRef::Blob(key) | ValueRef::Text(key) => key.to_vec(),
+            _ => {
+                return Err(rusqlite::Error::UserFunctionError(Box::new(
+                    crate::Error::Data("collected value has no identity key".into()),
+                )));
+            }
+        };
+        if state.keys.insert(key) {
+            state.values.push(value);
+        }
+        Ok(())
+    }
+
+    fn finalize(
+        &self,
+        _: &mut Context<'_>,
+        state: Option<CollectedValues>,
+    ) -> rusqlite::Result<String> {
+        Ok(serde_json::Value::Array(state.unwrap_or_default().values).to_string())
+    }
+}
 
 impl Aggregate<Option<(Vec<u8>, String)>, Option<String>> for Extremum {
     fn init(&self, _: &mut Context<'_>) -> rusqlite::Result<Option<(Vec<u8>, String)>> {
@@ -2537,6 +2659,33 @@ mod tests {
                    WITH DISTINCT nodes(p) AS ns, relationships(p) AS rs
                    RETURN ns, rs"#,
                 Parameters::new(),
+                1,
+                1,
+            ),
+            (
+                "collected-entities-and-distinct-scalars",
+                r#"MATCH (node:Thing {kind: $kind})
+                   WITH node ORDER BY node.value
+                   WITH collect(DISTINCT node) AS entities,
+                        collect(DISTINCT node.value + $step) AS values
+                   WITH DISTINCT entities, values WHERE size(entities) > $floor
+                   UNWIND entities AS entity
+                   RETURN entity, entities, values"#,
+                Parameters::from([
+                    ("kind".to_owned(), json!("sample")),
+                    ("step".to_owned(), json!(1)),
+                    ("floor".to_owned(), json!(0)),
+                ]),
+                1,
+                0,
+            ),
+            (
+                "collected-entities-seed-runtime-traversal",
+                r#"MATCH (node:Start {key: $key})
+                   WITH collect(node) AS entities UNWIND entities AS entity
+                   MATCH (entity)-[:STEP*1..]->(target)
+                   RETURN collect(DISTINCT target) AS targets"#,
+                Parameters::from([("key".to_owned(), json!(1))]),
                 1,
                 1,
             ),

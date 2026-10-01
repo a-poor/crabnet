@@ -487,9 +487,13 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   typed recursive equality, entity/path/list identity, scope and modifier
   rules, hybrid reads, and deduplication before later writes with rollback.
   Ten focused integration tests and eight newly passing TCK scenarios cover
-  the slice. Next implement
-  `collect(n)`, `collect(DISTINCT n)`, and unwinding collected entities.
-  Extend path-function lists into `UNWIND`, then aggregate expressions such
+  the slice. Entity collection and expansion are also complete:
+  `collect(n)`, `collect(DISTINCT n)`, relationship collections, and `UNWIND`
+  preserve typed identity, ordering, null behavior, and write multiplicity.
+  Nine integration tests cover aliases, grouping, graph reads, property/label
+  refreshes, delete snapshots, and rollback; seven more TCK scenarios pass.
+  Scalar `collect(DISTINCT ...)` uses recursive typed equality.
+  Next extend path-function lists into `UNWIND`, then aggregate expressions such
   as `count(*) + 1`. Preserve entity identity, bag multiplicity, null behavior,
   ordering, and deduplication before pagination or later writes.
 - [ ] **Application uniqueness constraints.** Allow applications to declare
@@ -519,10 +523,12 @@ the workload has reproducible performance and resource measurements.
 
 ## Near-term working order
 
-Multi-query transactions and `WITH DISTINCT` are complete. Next implement
-entity collection and expansion (`collect(n)`, `collect(DISTINCT n)`, and
-`UNWIND`). Develop the dependency-graph example alongside these
-APIs so application needs guide constraints, resource controls, and persistent
+Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
+(`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete. Next extend
+`UNWIND` to path-function lists, then support aggregate expressions such as
+`count(*) + 1`. Track broader entity-list operations (indexing, comprehensions,
+and nested collections) as follow-up composition work. Develop the
+dependency-graph example alongside these APIs so application needs guide constraints, resource controls, and persistent
 operation. Track completion in milestone 10 rather than a separate TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;
 temporal support and broad differential testing remain follow-up conformance
@@ -543,7 +549,7 @@ accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
 the pinned openCypher TCK run is in place, and its seven remaining
 `result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,539 passing and 1,343 excluded scenarios, including 13
+record 2,546 passing and 1,336 excluded scenarios, including 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.
