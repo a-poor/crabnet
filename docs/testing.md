@@ -36,6 +36,13 @@ end-to-end result test for user-visible semantics.
 - `tests/engine.rs` is the broad end-to-end acceptance layer. It exercises
   Cypher text through the public `Database` API, including planner errors,
   matched writes, rollback, and resulting graph state.
+- `tests/transactions.rs` exercises the public multi-query transaction API:
+  read-your-writes, parameterized application decisions, commit and rollback,
+  drop/panic cleanup, query errors aborting all prior work, graph and index
+  restoration, per-query summaries and traversal budgets, hybrid hydration,
+  write-lock release, and persistence after reopening. Transaction unit tests
+  cover cleanup after SQLite itself has already rolled back and after a
+  failed commit.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
@@ -291,7 +298,10 @@ root hydration operator. Planner/database unit tests additionally prove
 whole-tree parameter preparation and one work budget across `UNION` branches;
 the path and traversal integration suites remain the semantic oracle.
 
-Milestone 9 is in progress. Its deterministic invariants now exhaust
+Application usability (milestone 10) is the next main milestone; its checklist
+and current working order live in [roadmap.md](roadmap.md). Multi-query
+transactions are its first implementation slice. Milestone 9 continues as
+supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,
 and compare 9,492 predicate outcomes with a finite independent Rust oracle.

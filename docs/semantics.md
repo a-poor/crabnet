@@ -855,15 +855,54 @@ one result per materialized input row and evaluates against its pre-delete
 entity snapshots. This intentionally allows the returned node or relationship
 value to describe an entity that no longer exists after commit.
 
-All parameters and storable property values for a write are resolved and
-validated before the write transaction starts, including recursive value depth,
-integer range, complete-map shape, and every parameter referenced by a later
+For standalone `Database::execute` / `execute_with`, all parameters and storable
+property values for a write are resolved and validated before the write
+transaction starts, including recursive value depth, integer range,
+complete-map shape, and every parameter referenced by a later
 mutation or result. Match materialization, all mutations, and post-write result
 evaluation then occur in one immediate SQLite transaction. Any execution
 failure rolls back every mutation performed by the statement. An optional
 `RETURN` emits one row per mutation input row and may
 project whole matched or created entities as well as supported properties and
 metadata; for deleted entities it follows the snapshot rule above.
+
+### Application transactions
+
+`Database::transaction()` returns a `Transaction` that exclusively borrows the
+database and begins one immediate SQLite transaction. It reserves the writer
+before the application's first query, avoiding a deferred read-to-write
+upgrade. Its `execute` and `execute_with` methods use the same planner and
+executor as standalone queries, without starting or committing an inner
+transaction. A later query sees earlier queries' writes, including property
+and label indexes, relationship changes, hybrid traversal, and graph-value
+hydration. Query variables and parameters remain local to each call.
+
+`commit(self)` makes every successful query's writes persistent and consumes
+the handle. `rollback(self)` undoes them and consumes the handle. Dropping an
+active handle also attempts rollback, including on early return or panic
+unwinding; explicit rollback allows the caller to observe cleanup errors.
+The parent database cannot be used until the handle is consumed or dropped.
+Empty transactions may be committed or rolled back. This initial API exposes
+neither nested transactions nor savepoints nor a read-only transaction mode.
+
+Any query error aborts the entire application transaction, including parse,
+semantic, unsupported-feature, missing-parameter, runtime type, constraint,
+and resource-limit errors. The failing call rolls back immediately and returns
+the query's original error unless rollback itself fails. If SQLite has
+already rolled back, cleanup does not replace the original error with a
+redundant-rollback error. Further query execution and commit return
+`Error::TransactionAborted`; explicit rollback on an aborted handle succeeds
+as a no-op. A failed SQLite commit consumes the handle and attempts rollback
+on drop. Applications must handle the error rather than assuming persistence.
+
+Each call completes planning and parameter validation before that query's
+execution, although the outer transaction is already open. Read results are
+owned snapshots; `QuerySummary` reports only the current query's changes.
+Both remain provisional until the application transaction commits: retaining
+a returned node or summary does not preserve a write that was rolled back.
+Hybrid traversal budgets reset for each query, while all operators within a
+query continue sharing that query's budget. Standalone execution retains its
+existing per-statement transaction and preflight behavior.
 
 ## Unsupported constructs and errors
 

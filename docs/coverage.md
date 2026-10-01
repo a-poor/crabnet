@@ -111,7 +111,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Writes in a clause pipeline | Covered | Reading clauses (`MATCH`, `OPTIONAL MATCH`, `WITH`, `UNWIND`) and updating clauses alternate freely; each run of reading clauses after a write reads on from the materialized rows through the `_crabnet_rows` table and sees the graph as the earlier writes left it. Scalar values from `UNWIND`/`WITH` feed written properties and `MERGE` patterns, aliases keep entity identity, modifiers and aggregation after a write shape only the result, `MATCH` may follow a write directly, and null targets after `OPTIONAL MATCH` are skipped by `SET`/`REMOVE`/`DELETE`; see `write_pipelines.rs`. An updating clause after `DELETE` remains rejected |
 | Writes fed by traversal or named paths | Rejected | A mutation whose matched input contains variable-length or shortest-path traversal, a relationship-list binding, or any named path fails before execution and cannot leave side effects; see the write-rejection cases in `bounded_traversal.rs`, `unbounded_traversal.rs`, `path_values.rs`, `relationship_list_values.rs`, and `shortest_paths.rs` |
 | Computed projections and projection modifiers after mutations | Covered | The post-mutation `RETURN` is compiled as a read over the `_crabnet_rows` temporary table holding the materialized rows, so computed expressions, aggregates, `DISTINCT`, ordering, skip/offset, and limit all work; `post_mutation_return_supports_computed_projections_and_modifiers` in `write_semantics.rs` and the TCK post-mutation buckets (now empty) cover it |
-| Query-wide graph-value hydration | Covered | After branch-local semantic distinctness/pagination and left-to-right unions, IDs surviving in paths, path-function lists, and relationship-list bindings are deduplicated query-wide. Directly projected entities seed the cache; remaining values use at most one node query and one edge query. Runtime producers, SQL fragments, unions, and hydration share one deferred read snapshot; concurrent external writers remain outside the project goal |
+| Application transactions | Covered | `Database::transaction()` exposes parameterized multi-query execution, read-your-writes, explicit commit/rollback, and rollback on drop or panic unwinding. Any query error rolls back the entire transaction immediately and prevents later execution or commit with `Error::TransactionAborted`. `transactions.rs` covers typed parameters, bags/nulls, per-query summaries, pipelines, MERGE, indexed property/label rollback, hybrid paths/unions/hydration, per-query traversal budgets, runtime and planning failures, write-lock release, and reopen. A transaction unit test covers SQLite-initiated rollback preserving the original error |
+| Query-wide graph-value hydration | Covered | After branch-local semantic distinctness/pagination and left-to-right unions, IDs surviving in paths, path-function lists, and relationship-list bindings are deduplicated query-wide. Directly projected entities seed the cache; remaining values use at most one node query and one edge query. Runtime producers, SQL fragments, unions, and hydration share one snapshot: a deferred read transaction for standalone reads or the enclosing application transaction |
 | Hybrid traversal resource guards | Covered | Deep/open-ended enumeration and shortest-path BFS share fixed query-wide limits of 100,000 explored trail states and 128 MiB of exact compact JSON runtime payload. Exhaustion returns `Error::ResourceLimit` without truncation. Tests cover public default state exhaustion with zero emitted rows, exact/one-byte-short UTF-8 payload boundaries, `[]`, shortest paths, and cross-`UNION` sharing |
 | Selective hybrid traversal seeding | Covered | Start-endpoint label and inline-property constraints compile to a bound node-domain query that seeds the Rust producer; an unconstrained positive-hop start seeds only nodes beginning an eligible edge, and end-endpoint constraints filter emitted rows before serialization. Domains are supersets of the SQLite join, so results are unchanged while explored states and payload shrink. `explain_physical` shows each domain or `unrestricted` |
 | Hybrid traversal retained-memory bounds | Covered | Eligible edges, seed and end-domain lists, adjacency maps, frontiers, visited maps, and retained cycles are charged to a deterministic 256 MiB retained-memory budget and released per producer. `retained_memory_accounting_is_deterministic_and_released_on_completion` pins a hand-computed peak and its exact boundary, `depth_first_frontier_is_released_as_states_pop` and `shortest_search_releases_per_start_structures_and_retained_cycles` prove release discipline, and `retained_memory_is_released_between_producers_rather_than_accumulated` shows two `UNION` branches fitting inside one branch's peak through the executor |
@@ -128,11 +129,20 @@ Add a case here before or alongside implementation work. Once work starts, turn 
 smallest relevant case into a normal failing test, run it by name while iterating, and
 move the row into the matrix when green.
 
-1. Pull an `open-cypher` release containing the node-local-`WHERE`
-   label-context fix (`0.2.1` does not), then promote the
-   following-label regression matrix.
-2. Burn down `tests/tck/exclusions.txt`: first the `result-mismatch` and
-   `side-effects-mismatch` rows (list ordering and comparison, NaN equality,
-   `min`/`max` over mixed values, explicit-null properties), then the largest
-   `unsupported` buckets.
-3. Deterministic differential tests against a pinned reference engine.
+The active milestone and task status live in [roadmap.md](roadmap.md),
+milestone 10. Its next test slices are:
+
+1. `WITH DISTINCT` before filtering, pagination, later matches, and writes;
+   include typed recursive equality, entity identity, nulls, and empty inputs.
+2. Entity collection and expansion (`collect(n)`, `collect(DISTINCT n)`,
+   `UNWIND`), path-function lists, and aggregates inside expressions.
+3. Uniqueness constraints across existing data, every mutation route,
+   transactions, and reopening.
+4. Query cancellation and resource limits across SQLite, Rust, and result
+   materialization, with rollback and connection reuse.
+5. A persistent dependency-graph application's lifecycle: repeated import,
+   traversal, update, deletion, rollback, reopening, backup, and recovery.
+
+Continue checking the pinned TCK during these slices. Remaining NaN and other
+correctness gaps, the upstream parser label-context fix, temporal support,
+and deterministic differential tests remain explicit conformance follow-ups.

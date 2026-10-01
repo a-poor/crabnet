@@ -4,6 +4,11 @@ This is a living plan for an experimental embedded property-graph database. It
 is intentionally a direction of travel rather than a compatibility promise.
 Update it when implementation work teaches us something better.
 
+The next main milestone is **usable inside a real embedded Rust application**
+(milestone 10). Its checklist below is the active task list. Conformance and
+optimization continue to support that work; broad temporal compatibility is
+deferred until an application needs it.
+
 ## Project posture
 
 - Crabnet is used only in this repository today. We may freely reshape its
@@ -462,7 +467,63 @@ Concurrent external-writer semantics remain a non-goal.
 Gate: the allowlist is entirely green, exclusions are explicit, randomized
 failures are reproducible, and optimizations preserve plan/result contracts.
 
+### 10. Application usability — in progress
+
+The goal is one real Rust application that can import a graph, query it,
+update it atomically, and reopen it with predictable behavior. Keep the
+existing semantic tests and pinned TCK outcomes green throughout this work.
+
+- [x] **Transactions spanning multiple queries — complete.**
+  `Database::transaction()` exposes parameterized execution, read-your-writes,
+  explicit commit and rollback, and rollback on drop. Any query error aborts
+  and rolls back the entire transaction; an aborted handle cannot execute or
+  commit. `tests/transactions.rs` covers Rust read/decide/write workflows,
+  later-statement and post-write result failures, graph/index restoration,
+  hybrid reads, per-query budgets, file-backed visibility and reopening, and
+  connection reuse. Unit tests cover SQLite-initiated rollback and failed
+  commits. Full tests, pinned TCK, benchmark smoke checks, doctests, formatting,
+  and Clippy pass.
+- [ ] **Everyday query composition.** Start with `WITH DISTINCT`, then
+  `collect(n)`, `collect(DISTINCT n)`, and unwinding collected entities.
+  Extend path-function lists into `UNWIND`, then aggregate expressions such
+  as `count(*) + 1`. Preserve entity identity, bag multiplicity, null behavior,
+  ordering, and deduplication before pagination or later writes.
+- [ ] **Application uniqueness constraints.** Allow applications to declare
+  label/property keys such as `:Person.email`. Define missing/null and typed
+  equality semantics, reject conflicting existing data when installing a
+  constraint, and enforce it across `CREATE`, `MERGE`, property and label
+  changes, rollback, and reopening.
+- [ ] **Caller-controlled query resources.** Add configurable budgets,
+  deadlines, cancellation, and result-size limits. Cover SQLite execution,
+  Rust operators, and materialized results; failures must leave the connection
+  usable and roll back writes. Add incremental result consumption where the
+  physical operators permit it, with explicit cursor/snapshot lifetime rules.
+- [ ] **Dependable on-disk operation.** Establish opening options and the
+  supported reader/writer and lock-contention contract. Cover close/reopen,
+  interrupted writes, migration failures, and backup/restore; document file
+  compatibility and recovery behavior. Broader concurrency remains outside
+  the current contract until this work supplies implementation and tests.
+- [ ] **A realistic application and workload.** Build a runnable dependency
+  graph example exercising import, repeat import, traversal, update, delete,
+  rollback, and reopen. Measure disk-backed ingestion, query latency, and peak
+  memory at a declared scale. Use the measurements to prioritize Cypher plan
+  reuse, semantic deduplication, or other bottlenecks.
+
+Gate: the example completes its lifecycle using the public API, documented
+failure paths preserve graph state, persistent data survives reopening, and
+the workload has reproducible performance and resource measurements.
+
 ## Near-term working order
+
+Multi-query transactions are complete. Next implement `WITH DISTINCT` as the
+first query-composition slice. Develop the dependency-graph example alongside these
+APIs so application needs guide constraints, resource controls, and persistent
+operation. Track completion in milestone 10 rather than a separate TODO file.
+Fix correctness regressions as they appear and keep reviewing TCK changes;
+temporal support and broad differential testing remain follow-up conformance
+work rather than prerequisites for this usability milestone.
+
+## Milestone 9 implementation notes
 
 Milestone 9 is in progress. Runtime slots are exhaustively checked,
 representative generated SQL is prepared directly by SQLite,
@@ -475,14 +536,13 @@ when released; it no longer blocks local hardening.
 Public default state-budget exhaustion, exact query-wide serialized-payload
 accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
-the pinned openCypher TCK run is in place, its wrong-answer rows are fixed
-except the seven that need NaN, and all but four of its missing-error rows
-raise the expected error. The working order from here is to burn down
-`tests/tck/exclusions.txt` by category: the largest `unsupported` buckets
-(temporal functions and unsupported expression forms), before
-adding deterministic differential cases. Every unsupported expression kind and
-operator is now named in its rejection, so the exclusions file ranks the gaps
-directly. List quantifiers, map key access, list comprehensions, `size`,
+the pinned openCypher TCK run is in place, and its seven remaining
+`result-mismatch` rows need NaN support. The checked-in manifests currently
+record 2,531 passing and 1,351 excluded scenarios, including 13
+`expected-error-not-raised` cases. Temporal features dominate the unsupported
+categories. Every unsupported expression kind and operator is now named in
+its rejection, so the exclusions file exposes those compatibility gaps.
+List quantifiers, map key access, list comprehensions, `size`,
 computed list and map literals, indexing, slicing, `range`, string and list
 concatenation with `+`, `CASE`, `rand`, and a scalar function library
 (`coalesce`, `keys`, `properties`, conversions, string and math functions)

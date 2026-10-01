@@ -14,6 +14,9 @@ pub enum Error {
     Semantic(String),
     /// A referenced named parameter was not supplied.
     MissingParameter(String),
+    /// A query failed in an explicit transaction. Its handle can no longer
+    /// execute queries or commit.
+    TransactionAborted,
     /// Execution stopped because a built-in query resource budget was exhausted.
     ResourceLimit(String),
     /// SQLite rejected a schema or query operation.
@@ -41,6 +44,7 @@ impl fmt::Display for Error {
             Self::Unsupported(message) => write!(formatter, "unsupported Cypher: {message}"),
             Self::Semantic(message) => write!(formatter, "invalid Cypher semantics: {message}"),
             Self::MissingParameter(name) => write!(formatter, "missing Cypher parameter `${name}`"),
+            Self::TransactionAborted => formatter.write_str("the transaction has been aborted"),
             Self::ResourceLimit(message) => write!(formatter, "query resource limit: {message}"),
             Self::Sqlite(error) => write!(formatter, "SQLite error: {error}"),
             Self::Data(message) => write!(formatter, "invalid graph data: {message}"),

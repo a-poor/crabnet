@@ -23,6 +23,7 @@ use crate::{
 };
 
 mod comparison;
+pub(crate) mod transaction;
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
@@ -138,8 +139,10 @@ INSERT INTO node_properties (node_id, key, value)
 
 /// An embedded graph database connection.
 ///
-/// Each `Database` owns one SQLite connection. Queries are planned completely,
-/// and all named parameters are resolved, before a write transaction begins.
+/// Each `Database` owns one SQLite connection. Standalone queries are planned
+/// completely, and all named parameters are resolved, before a write
+/// transaction begins. Use [`Database::transaction`] to group queries into one
+/// atomic unit.
 pub struct Database {
     connection: Connection,
 }
@@ -159,6 +162,30 @@ impl Database {
         initialize(&mut connection)?;
         register_functions(&connection)?;
         Ok(Self { connection })
+    }
+
+    /// Begins a transaction that can execute multiple Cypher queries.
+    ///
+    /// The transaction reserves the SQLite writer immediately and exclusively
+    /// borrows this database until it is consumed or dropped. Queries see the
+    /// transaction's earlier writes. Any query error rolls back the entire
+    /// transaction and prevents further execution or commit. Dropping an
+    /// uncommitted transaction also rolls it back.
+    ///
+    /// ```
+    /// use crabnet::Database;
+    ///
+    /// let mut database = Database::in_memory()?;
+    /// let mut transaction = database.transaction()?;
+    /// transaction.execute("CREATE (:Person {name: 'Ada'})")?;
+    /// let people = transaction.execute("MATCH (p:Person) RETURN p")?;
+    /// assert_eq!(people.rows.len(), 1);
+    /// transaction.execute("MATCH (p:Person) SET p.verified = true")?;
+    /// transaction.commit()?;
+    /// # Ok::<(), crabnet::Error>(())
+    /// ```
+    pub fn transaction(&mut self) -> Result<crate::Transaction<'_>> {
+        transaction::Transaction::begin(&mut self.connection)
     }
 
     /// Executes a Cypher query without parameters.
@@ -199,66 +226,74 @@ impl Database {
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let ResolvedMutationPlan {
-            input,
-            layout,
-            mutations,
-            segments,
-            result,
-        } = plan;
-        let mut input_rows = match &input {
-            Some(input) => read_row_source(&transaction, input, &layout)?,
-            None => vec![ExecutionRow::empty(&layout)],
-        };
-        let mut summary = QuerySummary::default();
+        let result = execute_mutation_plan(&transaction, plan)?;
+        transaction.commit()?;
+        Ok(result)
+    }
+}
 
-        // Mutation-major execution mirrors a Cypher update pipeline: each
-        // operation observes the complete input bag before the next operation
-        // starts. DELETE in particular must gather and deduplicate its targets
-        // across every matched row before removing anything. A computed value
-        // is evaluated for every row over the rows as they stand when its
-        // operation starts.
-        for mutation in &mutations {
+fn execute_mutation_plan(
+    transaction: &Transaction<'_>,
+    plan: ResolvedMutationPlan,
+) -> Result<QueryResult> {
+    let ResolvedMutationPlan {
+        input,
+        layout,
+        mutations,
+        segments,
+        result,
+    } = plan;
+    let mut input_rows = match &input {
+        Some(input) => read_row_source(transaction, input, &layout)?,
+        None => vec![ExecutionRow::empty(&layout)],
+    };
+    let mut summary = QuerySummary::default();
+
+    // Mutation-major execution mirrors a Cypher update pipeline: each
+    // operation observes the complete input bag before the next operation
+    // starts. DELETE in particular must gather and deduplicate its targets
+    // across every matched row before removing anything. A computed value
+    // is evaluated for every row over the rows as they stand when its
+    // operation starts.
+    for mutation in &mutations {
+        apply_mutation(
+            transaction,
+            &layout,
+            &mut input_rows,
+            mutation,
+            &mut summary,
+        )?;
+    }
+    // Each later segment reads on from the rows so far (its WITH, UNWIND,
+    // and MATCH stages see the graph as the mutations left it) and then
+    // applies its own mutations to the rows it produced.
+    for ResolvedSegment { source, mutations } in &segments {
+        input_rows = with_rows_table(transaction, &layout, &input_rows, |transaction| {
+            read_row_source(transaction, source, &layout)
+        })?;
+        for mutation in mutations {
             apply_mutation(
-                &transaction,
+                transaction,
                 &layout,
                 &mut input_rows,
                 mutation,
                 &mut summary,
             )?;
         }
-        // Each later segment reads on from the rows so far (its WITH, UNWIND,
-        // and MATCH stages see the graph as the mutations left it) and then
-        // applies its own mutations to the rows it produced.
-        for ResolvedSegment { source, mutations } in &segments {
-            input_rows = with_rows_table(&transaction, &layout, &input_rows, |transaction| {
-                read_row_source(transaction, source, &layout)
-            })?;
-            for mutation in mutations {
-                apply_mutation(
-                    &transaction,
-                    &layout,
-                    &mut input_rows,
-                    mutation,
-                    &mut summary,
-                )?;
-            }
-        }
-
-        let (columns, rows) = match result {
-            Some(result) => {
-                let result = read_materialized_rows(&transaction, &layout, &input_rows, result)?;
-                (result.columns, result.rows)
-            }
-            None => (Vec::new(), Vec::new()),
-        };
-        transaction.commit()?;
-        Ok(QueryResult {
-            columns,
-            rows,
-            summary,
-        })
     }
+
+    let (columns, rows) = match result {
+        Some(result) => {
+            let result = read_materialized_rows(transaction, &layout, &input_rows, result)?;
+            (result.columns, result.rows)
+        }
+        None => (Vec::new(), Vec::new()),
+    };
+    Ok(QueryResult {
+        columns,
+        rows,
+        summary,
+    })
 }
 
 #[derive(Clone, Debug)]

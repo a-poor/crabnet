@@ -10,7 +10,7 @@ mod error;
 mod planner;
 mod value;
 
-pub use database::Database;
+pub use database::{Database, transaction::Transaction};
 pub use error::{Error, Result};
 pub use serde_json::Value;
 pub use value::{CypherValue, NodeValue, PathValue, RelationshipValue};

@@ -38,6 +38,35 @@ cells use `CypherValue`, which keeps scalar, list, and map kinds distinct and
 represents whole nodes, relationships, and paths without disguising them as
 maps.
 
+## Transactions across queries
+
+Use `Database::transaction()` when a Rust operation needs several queries to
+commit together. Queries see earlier writes in the same transaction:
+
+```rust
+use crabnet::Database;
+
+fn main() -> crabnet::Result<()> {
+    let mut graph = Database::in_memory()?;
+    let mut transaction = graph.transaction()?;
+    transaction.execute("CREATE (:Person {name: 'Ada'})")?;
+    let people = transaction.execute("MATCH (p:Person) RETURN p")?;
+    if people.rows.len() == 1 {
+        transaction.execute("MATCH (p:Person) SET p.verified = true")?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+```
+
+The handle also supports `execute_with` and explicit `rollback`. Dropping it
+without committing rolls back all its writes. Any query error, including
+invalid syntax or missing parameters, immediately rolls back the whole
+transaction; later execution or commit returns `Error::TransactionAborted`.
+Results and mutation summaries are per query and provisional until commit.
+The transaction reserves SQLite's writer immediately and borrows the database
+until consumed or dropped. Nested transactions and savepoints are not exposed.
+
 ## Current query slice
 
 The accepted statement shapes are:
@@ -278,9 +307,10 @@ Malformed Cypher, semantic errors such as unknown variables or `NOT 1`, and
 missing parameters have separate error variants. At runtime, a value of the
 wrong kind (`NOT n.name` for a string) fails with `Error::Type`, a function
 argument outside its domain with `Error::Argument`, and a write that would
-break the graph with `Error::Constraint`. All parameters and stored property
-values are resolved and validated before a write transaction begins, including
-integer range, map shape, and recursive depth. Match materialization, every
+break the graph with `Error::Constraint`. For standalone queries, parameters
+and stored property values are resolved and validated before a write
+transaction begins, including integer range, map shape, and recursive depth.
+Match materialization, every
 mutation, and post-write result evaluation then share one immediate transaction;
 any runtime failure rolls the whole statement back.
 
