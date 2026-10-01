@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::types::Value as SqlValue;
 #[cfg(test)]
@@ -197,8 +197,8 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Com
             .order_by
             .iter()
             .map(|item| {
-                let expression = compiler.raw_expression(&item.expression)?;
-                Ok(order_expression(expression, item.direction))
+                let key = compiler.order_key(&item.expression)?;
+                Ok(order_expression(&key, item.direction))
             })
             .collect::<Result<Vec<_>>>()?;
         sql.push_str(" ORDER BY ");
@@ -341,6 +341,82 @@ impl EntitySource {
     }
 }
 
+/// Alias of the `nodes` row that starts each SQLite recursive walk.
+const WALK_SEED: &str = "seed";
+const PROPERTY_INDEX: &str = "_crabnet_property";
+
+/// Node slots scanned by `operators` that also carry an equality on one of
+/// their properties, which the property index can answer.
+fn property_indexed_nodes(operators: &[MatchOperator]) -> HashSet<SlotId> {
+    let scanned = operators
+        .iter()
+        .filter_map(|operator| match operator {
+            MatchOperator::ScanNode { slot } => Some(*slot),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    operators
+        .iter()
+        .flat_map(|operator| match operator {
+            MatchOperator::PropertyEquals { slot, .. } => vec![*slot],
+            MatchOperator::Filter(expression) => indexable_equalities(expression)
+                .into_iter()
+                .map(|(slot, _, _)| slot)
+                .collect(),
+            _ => Vec::new(),
+        })
+        .filter(|slot| scanned.contains(slot))
+        .collect()
+}
+
+/// The `entity.key = expected` conjuncts at the top of a filter whose other
+/// side is cheap, deterministic, and independent of that entity, so it can be
+/// compiled a second time as a property-index probe.
+fn indexable_equalities(expression: &Expr) -> Vec<(SlotId, &str, &Expr)> {
+    match expression {
+        Expr::Binary {
+            left,
+            operator: BinaryOp::And,
+            right,
+        } => {
+            let mut equalities = indexable_equalities(left);
+            equalities.extend(indexable_equalities(right));
+            equalities
+        }
+        Expr::Binary {
+            left,
+            operator: BinaryOp::Equal,
+            right,
+        } => property_probe(left, right)
+            .map(|(slot, key)| (slot, key, right.as_ref()))
+            .or_else(|| property_probe(right, left).map(|(slot, key)| (slot, key, left.as_ref())))
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn property_probe<'a>(property: &'a Expr, expected: &Expr) -> Option<(SlotId, &'a str)> {
+    match (property, expected) {
+        (Expr::Property(slot, _), Expr::Property(other, _)) if slot == other => None,
+        (Expr::Property(slot, key), Expr::Value(_) | Expr::Scalar(_) | Expr::Property(..)) => {
+            Some((*slot, key.as_str()))
+        }
+        _ => None,
+    }
+}
+
+/// Keep label-only scans indexable. Once a property probe supplies candidate
+/// IDs, test each candidate's labels directly instead of materializing every
+/// node with the label.
+fn node_label_predicate(id: &str, label: &str, property_indexed: bool) -> String {
+    if property_indexed {
+        format!("EXISTS (SELECT 1 FROM node_labels WHERE label = {label} AND node_id = {id})")
+    } else {
+        format!("{id} IN (SELECT node_id FROM node_labels WHERE label = {label})")
+    }
+}
+
 struct VariableLengthSpec<'a> {
     traversal: TraversalId,
     left: SlotId,
@@ -350,6 +426,9 @@ struct VariableLengthSpec<'a> {
     maximum: usize,
     relationship_type: Option<&'a str>,
     properties: &'a [(String, ValueExpr)],
+    /// Label and inline-property predicates on the start endpoint, already
+    /// rendered against the recursive seed alias.
+    seed_filters: Vec<String>,
 }
 
 struct HybridVariableLengthSpec<'a> {
@@ -589,6 +668,10 @@ impl Compiler {
     }
 
     fn compile_match(&mut self, plan: &MatchPlan) -> Result<()> {
+        let indexed = property_indexed_nodes(&plan.operators);
+        // One probe per node is enough to drive its lookup; the remaining
+        // equalities filter the probed nodes.
+        let mut probed = HashSet::new();
         for operator in &plan.operators {
             match operator {
                 MatchOperator::ScanNode { slot } => {
@@ -603,7 +686,11 @@ impl Compiler {
                 }
                 MatchOperator::HasLabel { slot, label } => {
                     let value = self.push_binding(SqlParameter::Text(label.clone()));
-                    let test = self.label_test(*slot, &value)?;
+                    let test = if indexed.contains(slot) {
+                        node_label_predicate(&self.entity_field(*slot, "id")?, &value, true)
+                    } else {
+                        self.label_test(*slot, &value)?
+                    };
                     self.filters.push(test);
                 }
                 MatchOperator::HasRelationshipType {
@@ -615,6 +702,13 @@ impl Compiler {
                     self.filters.push(format!("{type_sql} = {value}"));
                 }
                 MatchOperator::PropertyEquals { slot, key, value } => {
+                    if indexed.contains(slot) && probed.insert(*slot) {
+                        let id = self.entity_field(*slot, "id")?;
+                        let (expected, expected_type) = self.probe_value(value);
+                        let prefilter =
+                            self.property_index_prefilter(&id, key, (&expected, &expected_type));
+                        self.filters.push(prefilter);
+                    }
                     let (property, property_type) = self.entity_property_parts(*slot, key)?;
                     let comparison = self.typed_value_comparison(
                         property,
@@ -654,6 +748,8 @@ impl Compiler {
                     relationship_type,
                     properties,
                 } => {
+                    let seed_filters =
+                        self.endpoint_constraint_filters(&plan.operators, *left, WALK_SEED);
                     self.compile_variable_length(VariableLengthSpec {
                         traversal: *traversal,
                         left: *left,
@@ -663,6 +759,7 @@ impl Compiler {
                         maximum: *maximum,
                         relationship_type: relationship_type.as_deref(),
                         properties,
+                        seed_filters,
                     })?;
                 }
                 MatchOperator::ExpandHybridVariableLength {
@@ -730,6 +827,18 @@ impl Compiler {
                     self.compile_relationship_list_match(*traversal, *path)?;
                 }
                 MatchOperator::Filter(expression) => {
+                    for (slot, key, expected) in indexable_equalities(expression) {
+                        if indexed.contains(&slot) && probed.insert(slot) {
+                            let id = self.entity_field(slot, "id")?;
+                            let (expected, expected_type) = self.scalar_parts(expected)?;
+                            let prefilter = self.property_index_prefilter(
+                                &id,
+                                key,
+                                (&expected, &expected_type),
+                            );
+                            self.filters.push(prefilter);
+                        }
+                    }
                     let predicate = self.predicate_expression(expression)?;
                     self.filters.push(format!("({predicate})"));
                 }
@@ -826,6 +935,7 @@ impl Compiler {
             maximum,
             relationship_type,
             properties,
+            seed_filters,
         } = spec;
         if self.traversals.contains_key(&traversal) {
             return Err(Error::Data(format!(
@@ -880,12 +990,25 @@ impl Compiler {
             ));
         }
 
-        // Seed one identity trail per node, then append eligible edges with
-        // UNION ALL so separate relationship sequences retain bag
-        // multiplicity. `used_edges` enforces Cypher trail semantics without
-        // forbidding a path from revisiting the same node.
+        // Seed one identity trail per candidate start node, then append
+        // eligible edges with UNION ALL so separate relationship sequences
+        // retain bag multiplicity. `used_edges` enforces Cypher trail
+        // semantics without forbidding a path from revisiting the same node.
+        //
+        // The seed repeats the start endpoint's label and inline-property
+        // constraints from this MATCH. The outer join still applies them to
+        // the start node, so the seed is a superset of the final matches and
+        // only limits how many trails the materialized walk enumerates. An
+        // unconstrained start, such as a node bound by an earlier clause,
+        // still seeds every stored node.
+        let seed = if seed_filters.is_empty() {
+            format!("nodes AS {WALK_SEED}")
+        } else {
+            format!("nodes AS {WALK_SEED} WHERE {}", seed_filters.join(" AND "))
+        };
         let body = format!(
-            "SELECT seed.id, seed.id, 0, json_array(), json_array(seed.id) FROM nodes AS seed \
+            "SELECT {WALK_SEED}.id, {WALK_SEED}.id, 0, json_array(), json_array({WALK_SEED}.id) \
+             FROM {seed} \
              UNION ALL \
              SELECT {recursive_row}.start_id, {next_node}, {recursive_row}.depth + 1, \
                     json_insert({recursive_row}.used_edges, '$[#]', {edge}.id), \
@@ -1035,28 +1158,7 @@ impl Compiler {
     ) -> Option<NodeDomainSpec> {
         let mut compiler = Self::new();
         let node = "trail_node";
-        let mut filters = Vec::new();
-        for operator in operators {
-            match operator {
-                MatchOperator::HasLabel { slot, label } if *slot == endpoint => {
-                    let expected = compiler.push_binding(SqlParameter::Text(label.clone()));
-                    filters.push(format!(
-                        "{node}.id IN (SELECT node_id FROM node_labels WHERE label = {expected})"
-                    ));
-                }
-                MatchOperator::PropertyEquals { slot, key, value } if *slot == endpoint => {
-                    let (property, property_type) =
-                        compiler.json_property_parts(format!("{node}.props"), key);
-                    filters.push(compiler.typed_value_comparison(
-                        property,
-                        property_type,
-                        value.clone(),
-                        BinaryOp::Equal,
-                    ));
-                }
-                _ => {}
-            }
-        }
+        let filters = compiler.endpoint_constraint_filters(operators, endpoint, node);
         if filters.is_empty() {
             return None;
         }
@@ -1067,6 +1169,53 @@ impl Compiler {
             ),
             bindings: compiler.into_static_bindings(),
         })
+    }
+
+    /// Render the label and inline-property constraints that `operators`
+    /// place on `endpoint` as predicates over a `nodes` row aliased `node`,
+    /// binding their values in this compiler. Constraints from earlier clauses
+    /// or a node-local `WHERE` are not included.
+    fn endpoint_constraint_filters(
+        &mut self,
+        operators: &[MatchOperator],
+        endpoint: SlotId,
+        node: &str,
+    ) -> Vec<String> {
+        let mut filters = Vec::new();
+        let indexed = operators.iter().any(|operator| {
+            matches!(operator, MatchOperator::PropertyEquals { slot, .. } if *slot == endpoint)
+        });
+        for operator in operators {
+            match operator {
+                MatchOperator::HasLabel { slot, label } if *slot == endpoint => {
+                    let expected = self.push_binding(SqlParameter::Text(label.clone()));
+                    filters.push(node_label_predicate(
+                        &format!("{node}.id"),
+                        &expected,
+                        indexed,
+                    ));
+                }
+                MatchOperator::PropertyEquals { slot, key, value } if *slot == endpoint => {
+                    let (expected, expected_type) = self.probe_value(value);
+                    let prefilter = self.property_index_prefilter(
+                        &format!("{node}.id"),
+                        key,
+                        (&expected, &expected_type),
+                    );
+                    filters.push(prefilter);
+                    let (property, property_type) =
+                        self.json_property_parts(format!("{node}.props"), key);
+                    filters.push(self.typed_value_comparison(
+                        property,
+                        property_type,
+                        value.clone(),
+                        BinaryOp::Equal,
+                    ));
+                }
+                _ => {}
+            }
+        }
+        filters
     }
 
     fn into_static_bindings(self) -> Vec<SqlParameter> {
@@ -1315,8 +1464,8 @@ impl Compiler {
             .order_by
             .iter()
             .map(|item| {
-                let expression = self.raw_expression(&item.expression)?;
-                Ok(order_expression(expression, item.direction))
+                let key = self.order_key(&item.expression)?;
+                Ok(order_expression(&key, item.direction))
             })
             .collect::<Result<Vec<_>>>()?;
         let inherited_ordering = (!aggregating).then(|| self.ordering.clone()).flatten();
@@ -1589,7 +1738,7 @@ impl Compiler {
     fn label_test(&self, slot: SlotId, value: &str) -> Result<String> {
         Ok(match self.entity_source(slot)? {
             EntitySource::Table { alias, .. } => {
-                format!("{alias}.id IN (SELECT node_id FROM node_labels WHERE label = {value})")
+                node_label_predicate(&format!("{alias}.id"), value, false)
             }
             EntitySource::Encoded { sql, .. } => {
                 format!("EXISTS (SELECT 1 FROM json_each({sql}, '$.labels') WHERE value = {value})")
@@ -1696,6 +1845,16 @@ impl Compiler {
             Ok(format!(
                 "CASE WHEN ({value_type}) IS NULL THEN ({value}) ELSE ({value}) END"
             ))
+        })
+    }
+
+    /// A sort key whose byte order is Cypher's orderability. The key
+    /// function takes the JSON type and the SQL value, so primitives skip
+    /// the JSON round trip.
+    fn order_key(&mut self, expression: &Expr) -> Result<String> {
+        self.scoped(&[expression], |_, parts| {
+            let (value, value_type) = &parts[0];
+            Ok(format!("crabnet_order_key(({value_type}), ({value}))"))
         })
     }
 
@@ -1893,6 +2052,13 @@ impl Compiler {
             }
             Expr::Property(slot, key) => self.entity_property_parts(*slot, key).map(Scalar::from),
             Expr::ElementId(slot) => Ok(Scalar::sql(self.entity_field(*slot, "id")?, "'text'")),
+            Expr::EntityIdentity(slot) => {
+                let kind = match self.entity_kind(*slot)? {
+                    EntityKind::Node => "node",
+                    EntityKind::Relationship => "relationship",
+                };
+                Ok(Scalar::nullable(self.entity_field(*slot, "id")?, kind))
+            }
             Expr::RelationshipType(slot) => {
                 Ok(Scalar::sql(self.entity_field(*slot, "type")?, "'text'"))
             }
@@ -2019,9 +2185,15 @@ impl Compiler {
                 let json_path = format!("'$.' || json_quote({path})");
                 let scalar = self.compile_scalar(base)?;
                 let inline = is_inline_operand(base);
-                // Only maps have keys; null and every other kind read as null.
+                // Only maps have keys. Null reads as null; any other kind is
+                // a type error.
                 let map = |(value, value_type): &(String, String)| {
-                    format!("(CASE WHEN ({value_type}) = 'object' THEN ({value}) END)")
+                    format!(
+                        "(CASE WHEN ({value_type}) = 'object' THEN ({value}) \
+                          WHEN {} THEN NULL ELSE {} END)",
+                        is_null_type(value_type),
+                        type_error("property access needs a map, node, or relationship")
+                    )
                 };
                 let value = self.scoped_scalars(vec![(scalar.clone(), inline)], |_, parts| {
                     Ok(format!("json_extract({}, {json_path})", map(&parts[0])))
@@ -2137,8 +2309,9 @@ impl Compiler {
             }
             Expr::Index { base, index } => {
                 // An integer indexes a list (negative counts from the end)
-                // and a string keys a map; anything else reads as null, as
-                // does an out-of-range index or a missing key.
+                // and a string keys a map. A null base or index, an
+                // out-of-range index, or a missing key reads as null; any
+                // other kind of base or index is a type error.
                 let base_scalar = self.compile_scalar(base)?;
                 let index_scalar = self.compile_scalar(index)?;
                 let operands = || {
@@ -2151,16 +2324,25 @@ impl Compiler {
                     let (base, base_type) = &parts[0];
                     let (index, index_type) = &parts[1];
                     let path = format!(
-                        "(CASE WHEN ({base_type}) = 'array' AND ({index_type}) = 'integer' THEN \
+                        "(CASE WHEN {} THEN NULL \
+                          WHEN ({base_type}) = 'array' AND ({index_type}) = 'integer' THEN \
                               CASE WHEN ({index}) >= 0 THEN '$[' || ({index}) || ']' \
                                    ELSE '$[#' || ({index}) || ']' END \
                           WHEN ({base_type}) = 'object' AND ({index_type}) = 'text' THEN \
-                              '$.' || json_quote(({index})) END)"
+                              '$.' || json_quote(({index})) \
+                          WHEN ({base_type}) = 'array' THEN {} \
+                          WHEN ({base_type}) = 'object' THEN {} END)",
+                        is_null_type(index_type),
+                        type_error("a list index must be an integer"),
+                        type_error("a map key must be a string"),
                     );
                     // Only JSON containers may reach json_extract; a string
                     // base would be rejected as malformed JSON.
                     let container = format!(
-                        "(CASE WHEN ({base_type}) IN ('array', 'object') THEN ({base}) END)"
+                        "(CASE WHEN ({base_type}) IN ('array', 'object') THEN ({base}) \
+                          WHEN {} THEN NULL ELSE {} END)",
+                        is_null_type(base_type),
+                        type_error("only a list or a map can be indexed")
                     );
                     (container, path)
                 };
@@ -2251,13 +2433,23 @@ impl Compiler {
             Expr::Range { start, end, step } => {
                 let mut operands = vec![start.as_ref(), end.as_ref()];
                 operands.extend(step.as_deref());
+                // A null argument makes the range null; any other
+                // non-integer argument is an argument error.
+                let any_null = |types: &[String]| {
+                    types
+                        .iter()
+                        .map(|t| is_null_type(t))
+                        .collect::<Vec<_>>()
+                        .join(" OR ")
+                };
                 let all_integers = |types: &[String]| {
                     types
                         .iter()
-                        .map(|t| format!("(({t}) IS NOT NULL AND ({t}) = 'integer')"))
+                        .map(|t| format!("({t}) = 'integer'"))
                         .collect::<Vec<_>>()
                         .join(" AND ")
                 };
+                let invalid = "crabnet_raise('range() arguments must be integers')";
                 let value = |this: &mut Self, parts: &[(String, String)]| {
                     let (start, _) = &parts[0];
                     let (end, _) = &parts[1];
@@ -2269,7 +2461,7 @@ impl Compiler {
                     // A step pointing away from the end yields an empty list;
                     // a zero step can never finish, so it is an error.
                     Ok(format!(
-                        "(CASE WHEN NOT ({}) THEN NULL \
+                        "(CASE WHEN {} THEN NULL WHEN NOT ({}) THEN {invalid} \
                           WHEN ({step}) = 0 THEN crabnet_raise('range() step must not be zero') \
                           ELSE (SELECT json_group_array(v) FROM \
                                 (WITH RECURSIVE {alias}(v) AS \
@@ -2280,12 +2472,14 @@ impl Compiler {
                                  SELECT v FROM {alias} \
                                  WHERE (({step}) > 0 AND v <= ({end})) \
                                     OR (({step}) < 0 AND v >= ({end})))) END)",
+                        any_null(&types),
                         all_integers(&types)
                     ))
                 };
                 self.composed(&operands, value, |types| {
                     format!(
-                        "(CASE WHEN {} THEN 'array' ELSE 'null' END)",
+                        "(CASE WHEN {} THEN 'null' WHEN {} THEN 'array' ELSE {invalid} END)",
+                        any_null(types),
                         all_integers(types)
                     )
                 })
@@ -2455,7 +2649,9 @@ impl Compiler {
                         "(CASE ({value_type}) WHEN 'integer' THEN ({value}) \
                           WHEN 'real' THEN CAST(({value}) AS INTEGER) \
                           WHEN 'true' THEN 1 WHEN 'false' THEN 0 \
-                          WHEN 'text' THEN crabnet_to_integer(({value})) END)"
+                          WHEN 'text' THEN crabnet_to_integer(({value})) \
+                          WHEN 'array' THEN {invalid} WHEN 'object' THEN {invalid} END)",
+                        invalid = type_error("toInteger() cannot convert a list or a map")
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "integer"))
@@ -2464,9 +2660,12 @@ impl Compiler {
                 let value = self.scoped(&operands, |_, parts| {
                     let (value, value_type) = &parts[0];
                     Ok(format!(
-                        "(CASE ({value_type}) WHEN 'real' THEN ({value}) \
+                        "(CASE WHEN {} THEN NULL ELSE (CASE ({value_type}) \
+                          WHEN 'real' THEN ({value}) \
                           WHEN 'integer' THEN CAST(({value}) AS REAL) \
-                          WHEN 'text' THEN crabnet_to_float(({value})) END)"
+                          WHEN 'text' THEN crabnet_to_float(({value})) ELSE {} END) END)",
+                        is_null_type(value_type),
+                        type_error("toFloat() converts only numbers and strings")
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "real"))
@@ -2478,7 +2677,9 @@ impl Compiler {
                         "(CASE ({value_type}) WHEN 'text' THEN ({value}) \
                           WHEN 'integer' THEN CAST(({value}) AS TEXT) \
                           WHEN 'real' THEN crabnet_json_real(({value})) \
-                          WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' END)"
+                          WHEN 'true' THEN 'true' WHEN 'false' THEN 'false' \
+                          WHEN 'array' THEN {invalid} WHEN 'object' THEN {invalid} END)",
+                        invalid = type_error("toString() cannot convert a list or a map")
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "text"))
@@ -2490,7 +2691,11 @@ impl Compiler {
                         "(CASE ({value_type}) WHEN 'true' THEN 1 WHEN 'false' THEN 0 \
                           WHEN 'integer' THEN (({value}) <> 0) \
                           WHEN 'text' THEN (CASE lower(({value})) \
-                              WHEN 'true' THEN 1 WHEN 'false' THEN 0 END) END)"
+                              WHEN 'true' THEN 1 WHEN 'false' THEN 0 END) \
+                          WHEN 'real' THEN {invalid} WHEN 'array' THEN {invalid} \
+                          WHEN 'object' THEN {invalid} END)",
+                        invalid =
+                            type_error("toBoolean() converts only booleans, integers, and strings")
                     ))
                 })?;
                 Ok(Scalar::boolean(value))
@@ -2628,7 +2833,10 @@ impl Compiler {
                     let alias = format!("mk{}", this.scopes);
                     Ok(format!(
                         "(CASE WHEN ({value_type}) = 'object' THEN \
-                          (SELECT json_group_array({alias}.key) FROM json_each(({value})) AS {alias}) END)"
+                          (SELECT json_group_array({alias}.key) FROM json_each(({value})) AS {alias}) \
+                          WHEN {} THEN NULL ELSE {} END)",
+                        is_null_type(value_type),
+                        type_error("keys() needs a map, node, or relationship")
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "array"))
@@ -2637,7 +2845,10 @@ impl Compiler {
                 let value = self.scoped(&operands, |_, parts| {
                     let (value, value_type) = &parts[0];
                     Ok(format!(
-                        "(CASE WHEN ({value_type}) = 'object' THEN ({value}) END)"
+                        "(CASE WHEN ({value_type}) = 'object' THEN ({value}) \
+                          WHEN {} THEN NULL ELSE {} END)",
+                        is_null_type(value_type),
+                        type_error("properties() needs a map, node, or relationship")
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "object"))
@@ -2913,7 +3124,6 @@ impl Compiler {
             )
         })?;
         let value = bind(&|value, _| value.to_owned())?;
-        let value_type = bind(&|_, value_type| value_type.to_owned())?;
         let modifier = if distinct { "DISTINCT " } else { "" };
 
         match kind {
@@ -2958,7 +3168,19 @@ impl Compiler {
                 Ok(Scalar::sql(value, "'real'"))
             }
             AggregateKind::Minimum | AggregateKind::Maximum => {
-                Ok(min_max_parts(kind, &value, &value_type, modifier).into())
+                // Cypher orders values of every type against each other, so
+                // the extremum is chosen in Rust from each value's JSON text.
+                // DISTINCT cannot change it.
+                let function = match kind {
+                    AggregateKind::Minimum => "crabnet_min",
+                    _ => "crabnet_max",
+                };
+                let encoded = bind(&|value, value_type| encoded_scalar(value, value_type))?;
+                let result = format!("{function}({encoded})");
+                Ok(Scalar::sql(
+                    format!("json_extract({result}, '$')"),
+                    format!("json_type({result}, '$')"),
+                ))
             }
             AggregateKind::Collect => {
                 if distinct {
@@ -3064,12 +3286,23 @@ impl Compiler {
                 "(CASE \
              WHEN ({left_value}) IS NULL OR ({right_value}) IS NULL THEN NULL \
              WHEN {compatible} THEN ({operation}) \
-             ELSE NULL END)"
+             ELSE {} END)",
+                type_error("arithmetic needs numbers")
             );
             Ok(value)
         };
         self.composed(&[left, right], value, |types| {
-            numeric_result_type(&types[0], &types[1])
+            let (left_type, right_type) = (&types[0], &types[1]);
+            format!(
+                "(CASE WHEN {} OR {} THEN 'null' \
+                  WHEN ({left_type}) IN ('integer', 'real') \
+                       AND ({right_type}) IN ('integer', 'real') THEN {} \
+                  ELSE {} END)",
+                is_null_type(left_type),
+                is_null_type(right_type),
+                numeric_result_type(left_type, right_type),
+                type_error("arithmetic needs numbers")
+            )
         })
     }
 
@@ -3085,14 +3318,19 @@ impl Compiler {
                 "(CASE \
              WHEN ({operand_value}) IS NULL THEN NULL \
              WHEN ({operand_type}) IN ('integer', 'real') THEN {symbol}({operand_value}) \
-             ELSE NULL END)"
+             ELSE {} END)",
+                type_error("unary arithmetic needs a number")
             );
             Ok(value)
         };
         self.composed(&[operand], value, |types| {
             format!(
-                "(CASE WHEN ({}) IN ('integer', 'real') THEN ({}) ELSE 'null' END)",
-                types[0], types[0]
+                "(CASE WHEN ({}) IN ('integer', 'real') THEN ({}) WHEN {} THEN 'null' \
+                  ELSE {} END)",
+                types[0],
+                types[0],
+                is_null_type(&types[0]),
+                type_error("unary arithmetic needs a number")
             )
         })
     }
@@ -3103,6 +3341,7 @@ impl Compiler {
             let (right_value, right_type) = &parts[1];
             let list =
                 format!("CASE WHEN ({right_type}) = 'array' THEN ({right_value}) ELSE '[]' END");
+            let type_error = type_error("IN needs a list on its right");
             let member_value = "member.value";
             let member_type = "member.type";
             let equal = typed_sql_comparison(
@@ -3116,12 +3355,12 @@ impl Compiler {
             Ok(format!(
                 "(CASE \
              WHEN ({right_type}) IS NULL OR ({right_type}) = 'null' THEN NULL \
-             WHEN ({right_type}) <> 'array' THEN NULL \
+             WHEN ({right_type}) <> 'array' THEN {type_error} \
              WHEN EXISTS (SELECT 1 FROM json_each({list}) AS member WHERE ({equal})) THEN 1 \
              WHEN NOT EXISTS (SELECT 1 FROM json_each({list})) THEN 0 \
              WHEN ({left_type}) IS NULL OR ({left_type}) = 'null' THEN NULL \
              WHEN EXISTS (SELECT 1 FROM json_each({list}) AS member \
-                          WHERE member.type = 'null') THEN NULL \
+                          WHERE ({equal}) IS NULL) THEN NULL \
              ELSE 0 END)"
             ))
         })
@@ -3236,6 +3475,39 @@ impl Compiler {
         )
     }
 
+    /// A necessary condition for `json_extract(props, key) = expected` on the
+    /// node whose ID is `id`, answered from the `node_properties` index. The
+    /// index holds each top-level non-null property as `json_extract` returns
+    /// it, so every node for which the exact comparison holds passes; the
+    /// exact, type-aware comparison must still be applied beside it.
+    ///
+    /// A list or map can equal a property whose JSON text differs (`[1]` and
+    /// `[1.0]`), so a composite expected value probes every node that has the
+    /// key instead. Its type gate is constant per row, so SQLite tests it
+    /// once rather than per index entry.
+    fn property_index_prefilter(
+        &mut self,
+        id: &str,
+        key: &str,
+        (expected, expected_type): (&str, &str),
+    ) -> String {
+        let key = self.push_binding(SqlParameter::Text(key.to_owned()));
+        format!(
+            "{id} IN (SELECT {PROPERTY_INDEX}.node_id FROM node_properties AS {PROPERTY_INDEX} \
+             WHERE {PROPERTY_INDEX}.key = {key} AND {PROPERTY_INDEX}.value = ({expected}) \
+             UNION ALL SELECT {PROPERTY_INDEX}.node_id FROM node_properties AS {PROPERTY_INDEX} \
+             WHERE {PROPERTY_INDEX}.key = {key} AND ({expected_type}) IN ('array', 'object'))"
+        )
+    }
+
+    /// The SQL value and type of a stored-value expression, for an index
+    /// probe.
+    fn probe_value(&mut self, value: &ValueExpr) -> (String, String) {
+        let expected = self.push_binding(SqlParameter::Scalar(value.clone()));
+        let json = self.push_binding(SqlParameter::Json(value.clone()));
+        (expected, format!("json_type(json({json}))"))
+    }
+
     fn push_binding(&mut self, binding: SqlParameter) -> String {
         self.bindings.push(FragmentArgument::Static(binding));
         format!("?{}", self.bindings.len())
@@ -3280,14 +3552,15 @@ fn encoded_scalar(value: &str, value_type: &str) -> String {
     )
 }
 
-fn order_expression(expression: String, direction: SortDirection) -> String {
+/// An ORDER BY term over a sort key from `order_key`. The key encodes
+/// Cypher's global sort order, in which null sorts last, so ascending order
+/// puts nulls last and descending order puts them first.
+fn order_expression(key: &str, direction: SortDirection) -> String {
     let direction = match direction {
-        // Cypher's default is NULLS LAST for ascending order.
         SortDirection::Ascending => "ASC",
-        // Cypher's default is NULLS FIRST for descending order.
         SortDirection::Descending => "DESC",
     };
-    format!("(({expression}) IS NULL) {direction}, ({expression}) {direction}")
+    format!("{key} {direction}")
 }
 
 fn aggregate_distinct_key(value: &str, value_type: &str) -> String {
@@ -3297,55 +3570,6 @@ fn aggregate_distinct_key(value: &str, value_type: &str) -> String {
          WHEN ({value}) IS NULL OR ({value_type}) IS NULL OR ({value_type}) = 'null' THEN NULL \
          ELSE crabnet_semantic_key({encoded}) END)"
     )
-}
-
-fn min_max_parts(
-    kind: AggregateKind,
-    value: &str,
-    value_type: &str,
-    modifier: &str,
-) -> (String, String) {
-    let operator = match kind {
-        AggregateKind::Minimum => "MIN",
-        AggregateKind::Maximum => "MAX",
-        _ => unreachable!("only min/max aggregates use min_max_parts"),
-    };
-    let non_null = format!(
-        "({value}) IS NOT NULL AND ({value_type}) IS NOT NULL \
-         AND ({value_type}) <> 'null'"
-    );
-    let numeric = format!("({value_type}) IN ('integer', 'real')");
-    let text = format!("({value_type}) = 'text'");
-    let boolean = format!("({value_type}) IN ('true', 'false')");
-    let invalid = format!("({non_null}) AND NOT (({numeric}) OR ({text}) OR ({boolean}))");
-    let numeric_count = format!("COUNT(*) FILTER (WHERE {numeric})");
-    let text_count = format!("COUNT(*) FILTER (WHERE {text})");
-    let boolean_count = format!("COUNT(*) FILTER (WHERE {boolean})");
-    let invalid_count = format!("COUNT(*) FILTER (WHERE {invalid})");
-    let family_count =
-        format!("(({numeric_count} > 0) + ({text_count} > 0) + ({boolean_count} > 0))");
-    let numeric_result = format!("{operator}({modifier}{value}) FILTER (WHERE {numeric})");
-    let text_result = format!("{operator}({modifier}{value}) FILTER (WHERE {text})");
-    let boolean_result = format!("{operator}({modifier}{value}) FILTER (WHERE {boolean})");
-    let result = format!(
-        "(CASE \
-         WHEN {invalid_count} > 0 OR {family_count} > 1 THEN NULL \
-         WHEN {numeric_count} > 0 THEN {numeric_result} \
-         WHEN {text_count} > 0 THEN {text_result} \
-         WHEN {boolean_count} > 0 THEN {boolean_result} \
-         ELSE NULL END)"
-    );
-    let result_type = format!(
-        "(CASE \
-         WHEN {invalid_count} > 0 OR {family_count} > 1 THEN 'null' \
-         WHEN {numeric_count} > 0 THEN \
-           CASE WHEN typeof(({numeric_result})) = 'integer' THEN 'integer' ELSE 'real' END \
-         WHEN {text_count} > 0 THEN 'text' \
-         WHEN {boolean_count} > 0 THEN \
-           CASE WHEN ({boolean_result}) THEN 'true' ELSE 'false' END \
-         ELSE 'null' END)"
-    );
-    (result, result_type)
 }
 
 // Expressions whose SQL value is already a three-valued boolean.
@@ -3388,6 +3612,7 @@ fn is_inline_operand(expression: &Expr) -> bool {
                 | Expr::Scalar(_)
                 | Expr::Property(_, _)
                 | Expr::ElementId(_)
+                | Expr::EntityIdentity(_)
                 | Expr::RelationshipType(_)
                 | Expr::ListElement(_)
                 | Expr::Function {
@@ -3405,11 +3630,27 @@ fn boolean_type(value: &str) -> String {
     )
 }
 
+/// A three-valued SQL boolean from a JSON type name. Null stays null; any
+/// kind other than a boolean is a type error.
 fn boolean_value(value_type: &str) -> String {
     format!(
         "(CASE WHEN ({value_type}) = 'true' THEN 1 \
-         WHEN ({value_type}) = 'false' THEN 0 ELSE NULL END)"
+         WHEN ({value_type}) = 'false' THEN 0 \
+         WHEN ({value_type}) IS NULL OR ({value_type}) = 'null' THEN NULL \
+         ELSE {} END)",
+        type_error("expected a boolean")
     )
+}
+
+/// SQL that fails the statement with `Error::Type`. Generated SQL places it
+/// in a `CASE` branch reached only by a value of the wrong kind.
+fn type_error(message: &str) -> String {
+    format!("crabnet_type_error('{}')", message.replace('\'', "''"))
+}
+
+/// Whether a JSON type name is null or a missing value.
+fn is_null_type(value_type: &str) -> String {
+    format!("(({value_type}) IS NULL OR ({value_type}) = 'null')")
 }
 
 // The result type of a binary numeric operator, from its operand types:
@@ -3444,12 +3685,20 @@ fn typed_sql_comparison(
          OR ({left_type}) = ({right_type}))"
     );
     let equal = format!("(({left}) = ({right}) AND {compatible_types})");
-    let comparison = match operator {
-        BinaryOp::Equal => equal,
-        BinaryOp::NotEqual => format!("NOT {equal}"),
+    // Lists and maps arrive as JSON text. Their equality looks inside them,
+    // where nulls propagate and integers equal floats, so it is decided in
+    // Rust; a composite beside any other type fails the type check below.
+    let negation = match operator {
+        BinaryOp::Equal => "",
+        BinaryOp::NotEqual => "NOT ",
         _ => unreachable!("typed comparisons are only generated for equality operators"),
     };
-    format!("(CASE WHEN ({left}) IS NULL OR ({right}) IS NULL THEN NULL ELSE {comparison} END)")
+    format!(
+        "(CASE WHEN ({left}) IS NULL OR ({right}) IS NULL THEN NULL \
+         WHEN ({left_type}) IN ('array', 'object') AND ({left_type}) = ({right_type}) \
+         THEN {negation}crabnet_equals(({left}), ({right})) \
+         ELSE {negation}{equal} END)"
+    )
 }
 
 fn typed_sql_ordering(
@@ -3475,6 +3724,8 @@ fn typed_sql_ordering(
         "(CASE \
          WHEN ({left}) IS NULL OR ({right}) IS NULL THEN NULL \
          WHEN {compatible_types} THEN (({left}) {operator} ({right})) \
+         WHEN ({left_type}) = 'array' AND ({right_type}) = 'array' \
+         THEN (crabnet_compare(({left}), ({right})) {operator} 0) \
          ELSE NULL END)"
     )
 }
@@ -3509,6 +3760,46 @@ mod tests {
                 .contains("r1.from_node = n0.id AND r1.to_node = n2.id")
         );
         assert!(!plan.sql.contains("KNOWS"));
+    }
+
+    #[test]
+    fn sqlite_walks_seed_from_the_constrained_start_endpoint() {
+        let query = lower::lower(
+            "MATCH (start:Person {name: $name})-[:NEXT*1..3]->(end) RETURN end.name AS name",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        let seed = plan
+            .sql
+            .split("FROM nodes AS seed WHERE ")
+            .nth(1)
+            .and_then(|rest| rest.split(" UNION ALL SELECT walk0.").next())
+            .expect("the recursive seed must be filtered:\n{plan.sql}");
+        assert!(seed.starts_with("EXISTS (SELECT 1 FROM node_labels WHERE label = ?"));
+        assert!(seed.contains("seed.id IN (SELECT _crabnet_property.node_id"));
+        assert!(seed.contains("json_extract(seed.props, '$.' || json_quote(?"));
+        // The outer join still applies the same constraints to the start node.
+        assert!(plan.sql.contains("walk_result0.start_id = n0.id"));
+        assert!(plan.sql.contains("AND node_id = n0.id)"));
+        assert!(!seed.contains("ORDER BY"));
+    }
+
+    #[test]
+    fn sqlite_walks_from_an_unconstrained_start_seed_every_node() {
+        let query = lower::lower(
+            "MATCH (start) WHERE start.name = 'a' \
+             MATCH (start)-[:NEXT*1..3]->(end:Person) RETURN end.name AS name",
+        )
+        .unwrap();
+        let plan = compile_read(&query.input, query.projection.as_ref().unwrap()).unwrap();
+
+        assert!(plan.sql.contains("FROM nodes AS seed UNION ALL"));
+        assert!(
+            !plan
+                .sql
+                .contains("seed.id IN (SELECT node_id FROM node_labels")
+        );
     }
 
     #[test]
@@ -3664,17 +3955,18 @@ mod tests {
                     .sql
                     .starts_with("SELECT trail_node.id FROM nodes AS trail_node WHERE ")
             );
-            assert!(
-                start.sql.contains(
-                    "trail_node.id IN (SELECT node_id FROM node_labels WHERE label = ?1)"
-                )
-            );
+            assert!(start.sql.contains(
+                "EXISTS (SELECT 1 FROM node_labels WHERE label = ?1 AND node_id = trail_node.id)"
+            ));
             assert!(start.sql.contains("json_type(trail_node.props"));
             assert!(start.sql.ends_with(" ORDER BY trail_node.id"));
             assert_eq!(
                 start.bindings.as_slice(),
                 &[
                     SqlValue::Text("Person".into()),
+                    SqlValue::Text("Ada".into()),
+                    SqlValue::Text("\"Ada\"".into()),
+                    SqlValue::Text("name".into()),
                     SqlValue::Text("name".into()),
                     SqlValue::Text("Ada".into()),
                     SqlValue::Text("\"Ada\"".into()),
@@ -3685,6 +3977,9 @@ mod tests {
             assert_eq!(
                 end.bindings.as_slice(),
                 &[
+                    SqlValue::Integer(1),
+                    SqlValue::Text("true".into()),
+                    SqlValue::Text("open".into()),
                     SqlValue::Text("open".into()),
                     SqlValue::Integer(1),
                     SqlValue::Text("true".into()),

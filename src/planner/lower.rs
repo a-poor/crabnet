@@ -27,6 +27,7 @@ use super::logical::{
     RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId, SortDirection, SortItem,
     StoredValue, TraversalId, UnaryOp, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
+use super::typecheck;
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
 
@@ -107,6 +108,14 @@ pub(super) fn split_union(source: &str) -> Result<Option<UnionSource>> {
             Ok((kind, branch_source(branch.query.span)?))
         })
         .collect::<Result<Vec<_>>>()?;
+    if let Some((first, _)) = branches.first()
+        && let Some(mixed) = branches.iter().position(|(kind, _)| kind != first)
+    {
+        return Err(semantic(
+            query.unions[mixed].operator.span,
+            "UNION and UNION ALL cannot be mixed in one query",
+        ));
+    }
     Ok(Some(UnionSource { head, branches }))
 }
 
@@ -413,6 +422,9 @@ struct Lowerer<'source> {
     // Expression lowering borrows the lowerer immutably, so list-bound
     // variable ids come from a cell rather than a `&mut` counter.
     list_variables: Cell<usize>,
+    // Kinds of scalar variables bound to expressions whose kind the query
+    // text fixes, for planning-time type checks.
+    kinds: RefCell<typecheck::Kinds>,
 }
 
 impl<'source> Lowerer<'source> {
@@ -426,6 +438,7 @@ impl<'source> Lowerer<'source> {
             symbols: HashMap::new(),
             mutations: Vec::new(),
             list_variables: Cell::new(0),
+            kinds: RefCell::default(),
         }
     }
 
@@ -1269,6 +1282,24 @@ impl<'source> Lowerer<'source> {
         let Some(properties) = properties else {
             return Ok(());
         };
+        // MERGE could never match a null property it would then create, so
+        // a literal null is rejected.
+        if let ExprKind::Map(entries) = &properties.kind
+            && let Some(entry) = entries.iter().find(|entry| {
+                matches!(
+                    input_value(&entry.value),
+                    Ok(ValueExpr::Literal(Value::Null))
+                )
+            })
+        {
+            return Err(semantic(
+                entry.value.span,
+                format!(
+                    "MERGE cannot use null for property `{}`",
+                    entry.key.kind.text
+                ),
+            ));
+        }
         match self.match_property_values(Some(properties)) {
             Ok(values) => {
                 for (key, value) in values {
@@ -1636,6 +1667,7 @@ impl<'source> Lowerer<'source> {
         scoped.traversal_slots = self.traversal_slots;
         scoped.path_slots = self.path_slots;
         scoped.symbols = self.symbols.clone();
+        scoped.kinds = RefCell::new(self.kinds.borrow().clone());
         scoped.list_variables.set(self.list_variables.get());
 
         let mut plan = MatchPlan::default();
@@ -1848,6 +1880,15 @@ impl<'source> Lowerer<'source> {
             ));
         }
         let slot = self.allocate_scalar();
+        if let Some(element) = self
+            .check_kinds(&expression, unwind_clause.expression.span)?
+            .and_then(|kind| match kind {
+                typecheck::Kind::List(element) => element.map(|element| *element),
+                _ => None,
+            })
+        {
+            self.kinds.borrow_mut().scalars.insert(slot, element);
+        }
         let name = unwind_clause.variable.kind.text.clone();
         self.symbols.insert(name.clone(), Symbol::Scalar(slot));
         Ok(UnwindStage {
@@ -1954,6 +1995,11 @@ impl<'source> Lowerer<'source> {
                 }
                 expression => {
                     let slot = self.allocate_scalar();
+                    // Already checked when lowered; this only records it.
+                    let kind = typecheck::check(&expression, &mut self.kinds.borrow_mut());
+                    if let Ok(Some(kind)) = kind {
+                        self.kinds.borrow_mut().scalars.insert(slot, kind);
+                    }
                     bindings.push(WithBinding::Scalar {
                         name: name.clone(),
                         slot,
@@ -2010,7 +2056,11 @@ impl<'source> Lowerer<'source> {
         let filter = with_clause
             .where_clause
             .as_ref()
-            .map(|expression| self.scalar_expression_with_aliases(expression, &aliases))
+            .map(|expression| {
+                let filter = self.scalar_expression_with_aliases(expression, &aliases)?;
+                self.check_predicate(&filter, expression.span)?;
+                Ok::<_, Error>(filter)
+            })
             .transpose()?;
         let order_by = self.order_by(&projection.order_by, &aliases, false, &[])?;
         if !aggregating
@@ -2201,7 +2251,9 @@ impl<'source> Lowerer<'source> {
         expression: &AstExpr,
         aliases: &HashMap<String, Expr>,
     ) -> Result<Expr> {
-        self.output_expression_with_aliases_at_depth(expression, aliases, 0)
+        let lowered = self.output_expression_with_aliases_at_depth(expression, aliases, 0)?;
+        self.check_kinds(&lowered, expression.span)?;
+        Ok(lowered)
     }
 
     fn output_expression_with_aliases_at_depth(
@@ -2251,6 +2303,18 @@ impl<'source> Lowerer<'source> {
         }
     }
 
+    /// Rejects a misuse of a value whose kind the query text fixes, such as
+    /// `NOT 1`, and returns the expression's kind when it is known.
+    fn check_kinds(&self, expression: &Expr, span: Span) -> Result<Option<typecheck::Kind>> {
+        typecheck::check(expression, &mut self.kinds.borrow_mut())
+            .map_err(|message| semantic(span, message))
+    }
+
+    fn check_predicate(&self, expression: &Expr, span: Span) -> Result<()> {
+        typecheck::check_predicate(expression, &mut self.kinds.borrow_mut())
+            .map_err(|message| semantic(span, message))
+    }
+
     fn scalar_expression(&self, expression: &AstExpr) -> Result<Expr> {
         self.scalar_expression_with_aliases(expression, &HashMap::new())
     }
@@ -2258,6 +2322,7 @@ impl<'source> Lowerer<'source> {
     fn match_predicate(&self, expression: &AstExpr) -> Result<Expr> {
         let span = expression.span;
         let expression = self.scalar_expression(expression)?;
+        self.check_predicate(&expression, span)?;
         if expression.contains_aggregate() {
             return Err(semantic(
                 span,
@@ -2272,7 +2337,9 @@ impl<'source> Lowerer<'source> {
         expression: &AstExpr,
         aliases: &HashMap<String, Expr>,
     ) -> Result<Expr> {
-        self.scalar_expression_with_aliases_at_depth(expression, aliases, 0)
+        let lowered = self.scalar_expression_with_aliases_at_depth(expression, aliases, 0)?;
+        self.check_kinds(&lowered, expression.span)?;
+        Ok(lowered)
     }
 
     fn scalar_expression_with_aliases_at_depth(
@@ -2351,7 +2418,7 @@ impl<'source> Lowerer<'source> {
                 right,
             } => {
                 // Nodes and relationships compare by identity: `a = b` and
-                // `a <> b` compare element ids, null when either side is null.
+                // `a <> b` compare typed identities, null when either side is null.
                 if matches!(
                     operator.kind,
                     BinaryOperator::Equal | BinaryOperator::NotEqual
@@ -2361,7 +2428,7 @@ impl<'source> Lowerer<'source> {
                     if left_entity.is_some() || right_entity.is_some() {
                         let side = |slot: Option<SlotId>, operand: &AstExpr| -> Result<Expr> {
                             match slot {
-                                Some(slot) => Ok(Expr::ElementId(slot)),
+                                Some(slot) => Ok(Expr::EntityIdentity(slot)),
                                 None => self.scalar_expression_with_aliases_at_depth(
                                     operand,
                                     aliases,

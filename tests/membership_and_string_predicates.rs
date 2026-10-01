@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crabnet::{CypherValue, Database, Parameters, QueryResult, Value};
+use crabnet::{CypherValue, Database, Error, Parameters, QueryResult, Value};
 use serde_json::json;
 
 fn parameters<const N: usize>(values: [(&str, Value); N]) -> Parameters {
@@ -243,7 +243,7 @@ fn predicates_can_be_projected_with_typed_boolean_and_null_results() {
         .execute(
             "RETURN 2 IN [1, 2] AS hit, 3 IN [1, 2] AS miss, \
                     3 IN [1, null] AS unknown, null IN [] AS null_in_empty, \
-                    2 IN 2 AS non_list, \
+                    2 IN null AS null_list, \
                     'alphabet' STARTS WITH 'alpha' AS starts, \
                     'alphabet' CONTAINS 'pha' AS contains, \
                     'alphabet' ENDS WITH 'bet' AS ends",
@@ -263,6 +263,20 @@ fn predicates_can_be_projected_with_typed_boolean_and_null_results() {
             CypherValue::Boolean(true),
         ]]
     );
+
+    // IN needs a list: another literal kind fails while planning, and a
+    // runtime value of another kind fails when it is met.
+    assert!(matches!(
+        database.execute("RETURN 2 IN 2 AS non_list"),
+        Err(Error::Semantic(_))
+    ));
+    assert!(matches!(
+        database.execute_with(
+            "RETURN 2 IN $value AS non_list",
+            &Parameters::from([("value".to_owned(), json!(2))])
+        ),
+        Err(Error::Type(_))
+    ));
 }
 
 #[test]

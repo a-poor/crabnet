@@ -393,7 +393,9 @@ impl Runner<'_> {
             None => Err("unsupported-step: error check before any query".into()),
             Some(Ok(_)) => Err("expected-error-not-raised".into()),
             Some(Err(Error::Parse(_) | Error::Semantic(_) | Error::MissingParameter(_))) => Ok(()),
-            Some(Err(Error::Data(_) | Error::Argument(_))) if !compile_time => Ok(()),
+            Some(Err(
+                Error::Data(_) | Error::Argument(_) | Error::Type(_) | Error::Constraint(_),
+            )) if !compile_time => Ok(()),
             Some(Err(error)) => Err(format!("wrong-error-kind: {}", describe(error))),
         }
     }
@@ -448,6 +450,8 @@ fn describe(error: &Error) -> String {
         Error::Sqlite(error) => ("sqlite-error", error.to_string()),
         Error::Data(message) => ("data-error", message.clone()),
         Error::Argument(message) => ("argument-error", message.clone()),
+        Error::Type(message) => ("type-error", message.clone()),
+        Error::Constraint(message) => ("constraint-error", message.clone()),
         other => ("other-error", other.to_string()),
     };
     // Byte spans depend on the query text, so drop them to keep reasons
@@ -509,35 +513,31 @@ impl SideEffects {
 impl Snapshot {
     // The TCK counts a deleted entity's properties as removed, a created
     // entity's as added, and a changed property value as one added and one
-    // removed. Labels are counted by distinct name: `CREATE (:L), (:L)` adds
-    // one label while `SET n:A:B` adds two.
+    // removed. Labels are counted as names the graph as a whole gains or
+    // loses: `CREATE (:L), (:L)` adds one label, `SET n:A:B` adds two, and
+    // creating an `:L` node beside an existing one adds none.
     fn diff(&self, after: &Self) -> SideEffects {
         let mut effects = SideEffects::default();
-        let mut labels_added = BTreeSet::new();
-        let mut labels_removed = BTreeSet::new();
-        for (id, (labels, properties)) in &self.nodes {
+        for (id, (_, properties)) in &self.nodes {
             match after.nodes.get(id) {
                 None => {
                     effects.nodes_removed += 1;
-                    labels_removed.extend(labels.iter().cloned());
                     effects.properties_removed += properties.len();
                 }
-                Some((after_labels, after_properties)) => {
-                    labels_added.extend(after_labels.difference(labels).cloned());
-                    labels_removed.extend(labels.difference(after_labels).cloned());
+                Some((_, after_properties)) => {
                     diff_properties(properties, after_properties, &mut effects);
                 }
             }
         }
-        for (id, (labels, properties)) in &after.nodes {
+        for (id, (_, properties)) in &after.nodes {
             if !self.nodes.contains_key(id) {
                 effects.nodes_added += 1;
-                labels_added.extend(labels.iter().cloned());
                 effects.properties_added += properties.len();
             }
         }
-        effects.labels_added = labels_added.len();
-        effects.labels_removed = labels_removed.len();
+        let (labels_before, labels_after) = (self.labels(), after.labels());
+        effects.labels_added = labels_after.difference(&labels_before).count();
+        effects.labels_removed = labels_before.difference(&labels_after).count();
         for (id, properties) in &self.relationships {
             match after.relationships.get(id) {
                 None => {
@@ -556,6 +556,13 @@ impl Snapshot {
             }
         }
         effects
+    }
+
+    fn labels(&self) -> BTreeSet<&str> {
+        self.nodes
+            .values()
+            .flat_map(|(labels, _)| labels.iter().map(String::as_str))
+            .collect()
     }
 }
 

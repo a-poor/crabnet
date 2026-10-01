@@ -8,9 +8,9 @@ Update it when implementation work teaches us something better.
 
 - Crabnet is used only in this repository today. We may freely reshape its
   modules, public API, logical plan, SQLite schema, and on-disk representation.
-- There is no schema-migration machinery while that remains true. When the
-  schema changes, recreate experimental databases instead of carrying migration
-  code for formats nobody relies on.
+- Schema compatibility remains experimental. Version 3 preserves the upgrades
+  from main's versions 1 and 2; migrations and index backfills run atomically.
+  Unreleased branch-only formats may require recreating the database.
 - Git provides recovery. Code should be clear enough to support the next
   experiment, not preserved merely because it already exists.
 - Correct results or a structured plan-time rejection are both acceptable.
@@ -330,10 +330,13 @@ composition, the SQLite-depth threshold, and rejection boundaries.
   paths or relationship lists, modern selectors, deferred shortest forms, and
   path-fed writes remain explicit rejections.
 - `MERGE` is transactional whole-pattern match/create behavior, not a
-  single-row SQLite upsert: the executor matches the pattern from every
-  pending row with one read over the materialized rows, creates the pattern
-  for the first unmatched row, and repeats until every row is matched or
-  created, so rows observe each other's creations in order.
+  single-row SQLite upsert: the executor matches the pattern from every row
+  with one read over the materialized rows, then settles the unmatched rows
+  one at a time, re-matching each alone before creating, so rows observe each
+  other's creations in order. The first version re-read every pending row
+  after each create, which the benchmarks showed to be cubic in the row
+  count: a merge creating one node per row took 3.6 s for 250 rows and now
+  takes 71 ms.
 
 Gate complete: supported queries mix pushable and Rust-executed operators
 without changing scope, ordering, null, bag, snapshot, or parameter-preflight
@@ -368,7 +371,69 @@ Concurrent external-writer semantics remain a non-goal.
   that begin an eligible edge, and end-endpoint constraints filter emitted rows
   before serialization. Both domains are supersets of the SQLite join, so the
   physical-plan tests, generated-SQL corpus, and traversal suites lock in
-  unchanged results with fewer explored states and bytes.
+  unchanged results with fewer explored states and bytes. The first benchmark
+  run showed the SQLite recursive-CTE route still seeded every stored node, so
+  a `*1..3` count from one person cost as much as enumerating every depth-3
+  trail in the graph; the CTE seed now repeats the same start constraints,
+  which cut that case from 1.75 s to 12 ms on 10,000 nodes.
+- The node property index slice is green. Benchmarks showed every property
+  lookup scanning its whole label, so a point lookup cost 5.7 ms on 10,000
+  nodes and every `MERGE` row paid it again. A `node_properties` table now
+  holds each top-level non-null node property as `json_extract` returns it,
+  kept in step by triggers on `nodes`. When a scanned node has an inline
+  property equality or a top-level `WHERE` conjunct `n.key = expr`, where
+  `expr` is a literal, parameter, carried scalar, or another entity's
+  property, the compiler adds an `id IN (...)` probe of the index beside the
+  exact comparison. With multiple labels, each candidate checks label
+  membership through an `EXISTS` probe of `(label, node_id)` in `node_labels`. Variable-length seeds and hybrid node domains
+  get the same probe. Because SQL equality on the stored value is necessary
+  for Cypher equality, the probe can only drop rows the exact comparison
+  would reject. Measurements on the original single-label branch with
+  10,000 nodes: the point lookup went from 5.7 ms to
+  35 µs, a filtered three-hop count from 5.8 ms to 0.11 ms, a `*1..3` count
+  from one person from 11.9 ms to 0.4 ms, a matched `MERGE` from 0.69 ms to
+  0.13 ms, and a 1,000-row distinct `MERGE` fan-out from 786 ms to 140 ms.
+  The cost is on writes: creating one node went from 26 µs to 34 µs and a
+  100-node batch got about 9% slower. Relationship properties, range
+  predicates, and equalities inside `OR` are not indexed yet.
+- The wrong-answer TCK slice is green apart from NaN. Of the 43
+  `result-mismatch` and `side-effects-mismatch` rows, 36 now pass. List and
+  map equality is decided in Rust (`crabnet_equals`) so nested nulls make it
+  null and `[1] = [1.0]` holds; lists order lexicographically under `<`
+  (`crabnet_compare`); `ORDER BY`, `min`, and `max` use a byte sort key
+  (`crabnet_order_key`) that encodes Cypher's global orderability across
+  kinds; `IN` is null when a member's comparison is null; and `CREATE` and
+  `SET n = {...}` no longer store null-valued properties. The index probe
+  falls back to every node with the key when the expected value is a list or
+  map, whose JSON text can differ from an equal stored value. The TCK
+  harness now counts `+labels` as label names new to the graph. The seven
+  remaining rows compare NaN, which SQLite turns into NULL, so they need a
+  NaN representation of their own. Main read, row-source, and traversal
+  statements now go through rusqlite's prepared-statement cache, which took a
+  point lookup on 10,000 nodes from 35 µs to 14 µs. The temporary rows table
+  that `MERGE` and matched writes read through is now emptied rather than
+  dropped and recreated, since every schema change expired the whole cache;
+  a 1,000-row distinct `MERGE` fan-out went from 149 ms to 50 ms and a
+  matched relationship `MERGE` from 0.40 ms to 0.10 ms.
+- The type-error slice is green. Of the 188 `expected-error-not-raised` rows,
+  184 now pass, and 185 scenarios moved to the allowlist in all. A planning
+  pass (`planner/typecheck.rs`) infers the kind of literals and of `WITH` and
+  `UNWIND` variables bound to them, and rejects `NOT 1`, `1 AND 'a'`,
+  `1 IN 'a'`, `5.key`, `properties(1)`, and arithmetic or quantifier
+  predicates over literal non-numbers with `Error::Semantic`. Generated SQL
+  raises the new `Error::Type` (through `crabnet_type_error`) when the kind is
+  only known at runtime: boolean contexts, `-`, `*`, `/`, `%` and unary signs,
+  indexing, map key access, `IN`, `keys()`, `properties()`, and the
+  conversion functions. A non-integer `range()` argument raises
+  `Error::Argument`. Mixing `UNION` and `UNION ALL` and a literal null
+  `MERGE` property are now semantic errors, and deleting a connected node
+  fails with the new `Error::Constraint` instead of a raw SQLite error. Every
+  raise sits in a `CASE` branch that only a value of the wrong kind reaches,
+  in both a value's SQL and its type SQL, since result encoding can read
+  the type without the value. Still open: the remaining scalar functions,
+  `size`, slices, string predicates, and quantifiers over a non-list return
+  null for a wrong kind; reading a deleted entity does not fail; and storing
+  a list of maps stays allowed as a Crabnet extension.
 - The pre-bound relationship-list slice is green. A bound list reused on a
   later variable-length relationship, in the same `MATCH` or after `WITH`,
   matches only the traversal whose relationship sequence equals it position by
@@ -386,7 +451,7 @@ Concurrent external-writer semantics remain a non-goal.
 - The openCypher TCK slice is green. The complete openCypher 2024.3 suite is
   vendored and runs in normal CI against pinned `allowlist.txt` and
   `exclusions.txt` files that must agree with observed behavior in both
-  directions. Roughly a quarter of the expanded scenarios pass; every other
+  directions. More than half of the expanded scenarios pass; every other
   scenario carries a generated reason, dominated by unsupported functions,
   temporal types, expression forms, and multi-label setup clauses. The first
   run surfaced and fixed exponential SQL growth in boolean connective chains.
@@ -410,11 +475,11 @@ when released; it no longer blocks local hardening.
 Public default state-budget exhaustion, exact query-wide serialized-payload
 accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
-the pinned openCypher TCK run is in place, and its first two wrong-answer rows
-(float transport precision) are fixed. The working order from here is
-to burn down `tests/tck/exclusions.txt` by category, starting with the
-`result-mismatch` and `side-effects-mismatch` rows because they are wrong
-answers rather than rejections, then the largest `unsupported` buckets, before
+the pinned openCypher TCK run is in place, its wrong-answer rows are fixed
+except the seven that need NaN, and all but four of its missing-error rows
+raise the expected error. The working order from here is to burn down
+`tests/tck/exclusions.txt` by category: the largest `unsupported` buckets
+(temporal functions and unsupported expression forms), before
 adding deterministic differential cases. Every unsupported expression kind and
 operator is now named in its rejection, so the exclusions file ranks the gaps
 directly. List quantifiers, map key access, list comprehensions, `size`,

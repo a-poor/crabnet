@@ -167,7 +167,7 @@ fn conversions_parse_text_and_pass_through_matching_kinds() {
             &mut database,
             "RETURN toInteger(42) AS a, toInteger(4.9) AS b, toInteger(-4.9) AS c, \
                     toInteger('12') AS d, toInteger(' 7.8 ') AS e, toInteger('abc') AS f, \
-                    toInteger(true) AS g, toInteger([1]) AS h, toInteger(null) AS i"
+                    toInteger(true) AS g, toInteger(false) AS h, toInteger(null) AS i"
         ),
         [
             int(42),
@@ -177,7 +177,7 @@ fn conversions_parse_text_and_pass_through_matching_kinds() {
             int(7),
             NULL,
             int(1),
-            NULL,
+            int(0),
             NULL
         ]
     );
@@ -185,7 +185,7 @@ fn conversions_parse_text_and_pass_through_matching_kinds() {
         single(
             &mut database,
             "RETURN toFloat(1) AS a, toFloat(1.5) AS b, toFloat('2.5') AS c, toFloat('x') AS d, \
-                    toFloat(true) AS e, toFloat('1e2') AS f"
+                    toFloat(null) AS e, toFloat('1e2') AS f"
         ),
         [float(1.0), float(1.5), float(2.5), NULL, NULL, float(100.0)]
     );
@@ -193,14 +193,14 @@ fn conversions_parse_text_and_pass_through_matching_kinds() {
         single(
             &mut database,
             "RETURN toString(1) AS a, toString(1.5) AS b, toString(true) AS c, \
-                    toString('s') AS d, toString([1]) AS e, toString(null) AS f, toString(1.0) AS g"
+                    toString('s') AS d, toString(-2) AS e, toString(null) AS f, toString(1.0) AS g"
         ),
         [
             text("1"),
             text("1.5"),
             text("true"),
             text("s"),
-            NULL,
+            text("-2"),
             NULL,
             text("1.0")
         ]
@@ -209,10 +209,26 @@ fn conversions_parse_text_and_pass_through_matching_kinds() {
         single(
             &mut database,
             "RETURN toBoolean(true) AS a, toBoolean('FALSE') AS b, toBoolean('yes') AS c, \
-                    toBoolean(0) AS d, toBoolean(3) AS e, toBoolean(1.0) AS f, toBoolean(null) AS g"
+                    toBoolean(0) AS d, toBoolean(3) AS e, toBoolean('') AS f, toBoolean(null) AS g"
         ),
         [TRUE, FALSE, NULL, FALSE, TRUE, NULL, NULL]
     );
+    // A kind a conversion does not accept is a runtime type error.
+    for query in [
+        "RETURN toInteger([1]) AS r",
+        "RETURN toInteger({}) AS r",
+        "RETURN toFloat(true) AS r",
+        "RETURN toFloat([1.5]) AS r",
+        "RETURN toString([1]) AS r",
+        "RETURN toString({}) AS r",
+        "RETURN toBoolean(1.0) AS r",
+        "RETURN toBoolean([true]) AS r",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Type(_))),
+            "{query}"
+        );
+    }
     // toBoolean() is a predicate, and toInteger() feeds arithmetic as an integer.
     let result = database
         .execute("UNWIND ['true', 'false', 'x'] AS s WITH s WHERE toBoolean(s) RETURN s")
@@ -289,8 +305,8 @@ fn list_and_map_functions() {
             &mut database,
             "RETURN head([1, 2]) AS a, last([1, 2]) AS b, tail([1, 2, 3]) AS c, head([]) AS d, \
                     tail([]) AS e, head(null) AS f, tail('x') AS g, \
-                    keys({b: 1, a: 2}) AS h, keys({}) AS i, keys(1) AS j, \
-                    properties({a: 1}) AS k, properties(1) AS l, \
+                    keys({b: 1, a: 2}) AS h, keys({}) AS i, keys(null) AS j, \
+                    properties({a: 1}) AS k, properties(null) AS l, \
                     coalesce(null, 1, 2) AS m, coalesce(null, null) AS n, \
                     coalesce(null, 'x') AS o, coalesce([1], 2) AS p"
         ),
@@ -314,6 +330,18 @@ fn list_and_map_functions() {
             CypherValue::List(vec![int(1)]),
         ]
     );
+
+    // Another kind is an error, while planning or at runtime.
+    for function in ["keys", "properties"] {
+        assert!(matches!(
+            database.execute(&format!("RETURN {function}(1) AS r")),
+            Err(Error::Semantic(_))
+        ));
+        assert!(matches!(
+            database.execute(&format!("MATCH (n:P) RETURN {function}(n.name) AS r")),
+            Err(Error::Type(_))
+        ));
+    }
 
     // keys() and properties() of entities, including a null optional match.
     let result = database

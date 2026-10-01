@@ -36,9 +36,8 @@ fn indexing_reads_list_positions_and_map_keys() {
     let row = single(
         &mut database,
         "RETURN [1, 2, 3][0] AS a, [[1]][0][0] AS b, [1, 2, 3][-1] AS c, [1, 2, 3][3] AS d, \
-                [1, 2, 3][-4] AS e, [1, 2, 3][1.0] AS f, [1, 2, 3]['x'] AS g, \
-                {name: 'Apa'}['name'] AS h, {name: 'Apa'}['Name'] AS i, {name: 'Apa'}[0] AS j, \
-                null[0] AS k, [1][null] AS l, 5[0] AS m, 'abc'[0] AS n",
+                [1, 2, 3][-4] AS e, {name: 'Apa'}['name'] AS h, {name: 'Apa'}['Name'] AS i, \
+                null[0] AS k, [1][null] AS l, {name: 'Apa'}[null] AS m",
     );
     assert_eq!(
         row,
@@ -48,17 +47,27 @@ fn indexing_reads_list_positions_and_map_keys() {
             int(3),
             NULL,
             NULL,
-            NULL,
-            NULL,
             text("Apa"),
-            NULL,
-            NULL,
             NULL,
             NULL,
             NULL,
             NULL,
         ]
     );
+    // A list takes only an integer index, a map only a string key, and
+    // nothing else can be indexed.
+    for query in [
+        "RETURN [1, 2, 3][1.0] AS r",
+        "RETURN [1, 2, 3]['x'] AS r",
+        "RETURN {name: 'Apa'}[0] AS r",
+        "RETURN 5[0] AS r",
+        "RETURN 'abc'[0] AS r",
+    ] {
+        assert!(
+            matches!(database.execute(query), Err(Error::Type(_))),
+            "{query}"
+        );
+    }
 
     // Indexes may be computed, come from parameters, or chain with other
     // list operations.
@@ -208,7 +217,7 @@ fn range_builds_integer_lists_and_rejects_a_zero_step() {
         &mut database,
         "RETURN range(1, 5) AS a, range(5, 1) AS b, range(1, 5, 2) AS c, range(5, 1, -2) AS d, \
                 range(1, 5, -1) AS e, range(0, 0) AS f, range(-3412, 1381, 1298) AS g, \
-                range(null, 1) AS h, range(1, 2.0) AS i, range(1, 3, null) AS j, \
+                range(null, 1) AS h, range(1, null) AS i, range(1, 3, null) AS j, \
                 size(range(1, 1000)) AS k, range(1, 1) AS l",
     );
     assert_eq!(
@@ -250,6 +259,17 @@ fn range_builds_integer_lists_and_rejects_a_zero_step() {
         .unwrap();
     assert_eq!(result.rows, [vec![CypherValue::Boolean(true)]]);
 
+    for query in [
+        "RETURN range(1, 2.0)",
+        "RETURN range('1', 2)",
+        "RETURN range(0, 1, true)",
+    ] {
+        let error = database.execute(query).unwrap_err();
+        assert!(
+            matches!(&error, Error::Argument(message) if message.contains("integers")),
+            "{query}: {error:?}"
+        );
+    }
     let error = database.execute("RETURN range(2, 8, 0)").unwrap_err();
     assert!(
         matches!(&error, Error::Argument(message) if message.contains("step")),

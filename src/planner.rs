@@ -3,6 +3,7 @@ mod logical;
 mod lower;
 mod physical;
 mod sqlite;
+mod typecheck;
 
 use crate::{Error, Parameters, Result};
 

@@ -1,11 +1,14 @@
 use std::{
+    cmp::Ordering,
     collections::{BTreeSet, HashMap},
     path::Path,
 };
 
 use rusqlite::{
-    Connection, Transaction, TransactionBehavior, functions::FunctionFlags, params,
-    params_from_iter,
+    Connection, OptionalExtension, Transaction, TransactionBehavior,
+    functions::{Aggregate, Context, FunctionFlags},
+    params, params_from_iter,
+    types::ValueRef,
 };
 
 use crate::{
@@ -19,13 +22,13 @@ use crate::{
     },
 };
 
+mod comparison;
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const INITIAL_SCHEMA: &str = "
-BEGIN IMMEDIATE;
 
 CREATE TABLE nodes (
     id TEXT PRIMARY KEY NOT NULL,
@@ -69,14 +72,11 @@ CREATE INDEX edges_to_type_from
     ON edges(to_node, edge_type, from_node);
 
 PRAGMA application_id = 1129464130;
-PRAGMA user_version = 2;
-COMMIT;
 ";
 
 /// Upgrades a version 1 file: the single `label` column becomes the
 /// `labels` JSON list backed by the `node_labels` index table.
 const MIGRATE_V1_TO_V2: &str = "
-BEGIN IMMEDIATE;
 ALTER TABLE nodes ADD COLUMN labels TEXT NOT NULL DEFAULT '[]';
 UPDATE nodes SET labels = CASE WHEN label IS NULL THEN '[]' ELSE json_array(label) END;
 DROP INDEX nodes_by_label;
@@ -100,8 +100,40 @@ CREATE TRIGGER nodes_labels_delete AFTER DELETE ON nodes BEGIN
 END;
 INSERT INTO node_labels (label, node_id)
     SELECT labels.value, nodes.id FROM nodes, json_each(nodes.labels) AS labels;
-PRAGMA user_version = 2;
-COMMIT;
+";
+
+const PROPERTY_INDEX_SCHEMA: &str = "
+-- Every top-level non-null node property, as json_extract returns it, so an
+-- equality on a property can find its nodes without scanning their label.
+-- Triggers keep it in step with every write to nodes.props.
+CREATE TABLE node_properties (
+    node_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value ANY NOT NULL,
+    PRIMARY KEY (node_id, key)
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX node_properties_by_value
+    ON node_properties(key, value);
+
+CREATE TRIGGER node_properties_insert AFTER INSERT ON nodes BEGIN
+    INSERT INTO node_properties (node_id, key, value)
+        SELECT NEW.id, key, value FROM json_each(NEW.props) WHERE type <> 'null';
+END;
+
+CREATE TRIGGER node_properties_update AFTER UPDATE OF id, props ON nodes BEGIN
+    DELETE FROM node_properties WHERE node_id = OLD.id;
+    INSERT INTO node_properties (node_id, key, value)
+        SELECT NEW.id, key, value FROM json_each(NEW.props) WHERE type <> 'null';
+END;
+
+CREATE TRIGGER node_properties_delete AFTER DELETE ON nodes BEGIN
+    DELETE FROM node_properties WHERE node_id = OLD.id;
+END;
+
+INSERT INTO node_properties (node_id, key, value)
+    SELECT nodes.id, property.key, property.value
+    FROM nodes, json_each(nodes.props) AS property WHERE property.type <> 'null';
 ";
 
 /// An embedded graph database connection.
@@ -362,7 +394,7 @@ fn execute_sql_fragment(
     // Completely drain and drop the SQLite cursor before a later Rust operator
     // issues another fragment, traversal query, or hydration query.
     let encoded_rows = {
-        let mut statement = connection.prepare(&plan.sql)?;
+        let mut statement = connection.prepare_cached(&plan.sql)?;
         debug_assert!(statement.readonly());
         statement
             .query_map(params_from_iter(bindings.iter()), |row| {
@@ -452,8 +484,24 @@ fn delete_entities(
     }
 
     for id in node_ids {
-        summary.nodes_deleted +=
-            transaction.execute("DELETE FROM nodes WHERE id = ?1", params![id])?;
+        summary.nodes_deleted += transaction
+            .execute("DELETE FROM nodes WHERE id = ?1", params![id])
+            .map_err(|error| match &error {
+                // The edge foreign keys restrict deleting an endpoint. The
+                // index triggers on `nodes` make SQLite report the failure
+                // with the trigger's extended code, so the message decides.
+                rusqlite::Error::SqliteFailure(failure, Some(message))
+                    if failure.code == rusqlite::ErrorCode::ConstraintViolation
+                        && message == "FOREIGN KEY constraint failed" =>
+                {
+                    crate::Error::Constraint(
+                        "cannot delete a node that still has relationships; \
+                         delete them first or use DETACH DELETE"
+                            .into(),
+                    )
+                }
+                _ => error.into(),
+            })?;
     }
 
     Ok(())
@@ -842,7 +890,7 @@ fn apply_mutation(
             let values = row_values(transaction, layout, rows, properties, true)?;
             let encoded_labels = serde_json::Value::from(labels.clone()).to_string();
             for (index, input_row) in rows.iter_mut().enumerate() {
-                let properties = values.get(index);
+                let properties = &stored_properties(values.get(index));
                 let id = transaction.query_row(
                     "INSERT INTO nodes (id, labels, props)
                      VALUES (lower(hex(randomblob(16))), json(?1), json(?2))
@@ -872,7 +920,7 @@ fn apply_mutation(
         } => {
             let values = row_values(transaction, layout, rows, properties, true)?;
             for (index, input_row) in rows.iter_mut().enumerate() {
-                let properties = values.get(index);
+                let properties = &stored_properties(values.get(index));
                 let from = input_row.node_id(*from)?.to_owned();
                 let to = input_row.node_id(*to)?.to_owned();
                 let id = transaction.query_row(
@@ -912,11 +960,12 @@ fn apply_mutation(
             let values = row_values(transaction, layout, rows, properties, true)?;
             summary.properties_set +=
                 update_properties(transaction, rows, *slot, |index, current| {
-                    *current = values
-                        .get(index)
-                        .as_object()
-                        .expect("stored properties are validated maps")
-                        .clone();
+                    let serde_json::Value::Object(replacement) =
+                        stored_properties(values.get(index))
+                    else {
+                        unreachable!("stored properties are validated maps")
+                    };
+                    *current = replacement;
                 })?;
         }
         ResolvedMutation::MergeProperties { slot, properties } => {
@@ -972,10 +1021,33 @@ fn apply_mutation(
     Ok(())
 }
 
+/// A property map as it is stored: a property whose value is null does not
+/// exist, so `CREATE ({k: null})` and `SET n = {k: null}` leave `k` absent.
+fn stored_properties(properties: &serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(entries) = properties else {
+        unreachable!("stored properties are validated maps")
+    };
+    serde_json::Value::Object(
+        entries
+            .iter()
+            .filter(|(_, value)| !value.is_null())
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
 /// Executes `MERGE` over the rows. Rows are handled in order: each is matched
 /// against the graph as it stands, and a row without a match creates the
 /// pattern once before the next row is matched, so later rows can match what
 /// earlier rows created. Matching rows are expanded once per match.
+///
+/// Rows that match before the merge changes anything are found with one read
+/// over all of them. The rest are settled one at a time: each is matched
+/// alone, because it may match what an earlier row created, and creates the
+/// pattern when it still has no match. That keeps the matcher work linear in
+/// the row count; re-reading every pending row after each create made a
+/// merge that creates once per row cubic. A row is only re-matched when the
+/// merge has written something since it was last matched.
 #[allow(clippy::too_many_arguments)]
 fn merge_rows(
     transaction: &Transaction<'_>,
@@ -988,14 +1060,71 @@ fn merge_rows(
     on_match: &[ResolvedMutation],
     summary: &mut QuerySummary,
 ) -> Result<()> {
-    let mut pending = rows.drain(..).enumerate().collect::<Vec<_>>();
-    let mut finished: Vec<(usize, ExecutionRow)> = Vec::new();
-    while !pending.is_empty() {
+    let mut merge = MergeRun {
+        transaction,
+        layout,
+        matcher,
+        fresh,
+        on_match,
+        summary,
+        finished: Vec::new(),
+        changed: false,
+    };
+    let pending = rows.drain(..).enumerate().collect::<Vec<_>>();
+    let unmatched = merge.match_batch(pending)?;
+    for row in unmatched {
+        let (origin, row) = if merge.changed {
+            let Some(row) = merge.match_batch(vec![row])?.pop() else {
+                continue;
+            };
+            row
+        } else {
+            row
+        };
+        let mut created = vec![row];
+        for mutation in creates.iter().chain(on_create) {
+            apply_mutation(transaction, layout, &mut created, mutation, merge.summary)?;
+        }
+        merge.changed = true;
+        merge
+            .finished
+            .extend(created.into_iter().map(|row| (origin, row)));
+    }
+    let mut finished = merge.finished;
+    finished.sort_by_key(|(origin, _)| *origin);
+    rows.extend(finished.into_iter().map(|(_, row)| row));
+    Ok(())
+}
+
+/// The state one `MERGE` shares between its matcher reads.
+struct MergeRun<'a, 'b> {
+    transaction: &'a Transaction<'b>,
+    layout: &'a RowLayout,
+    matcher: &'a PreparedReadPlan,
+    fresh: &'a [(SlotId, EntityKind)],
+    on_match: &'a [ResolvedMutation],
+    summary: &'a mut QuerySummary,
+    /// Settled rows tagged with their input position.
+    finished: Vec<(usize, ExecutionRow)>,
+    /// Whether the merge has created or updated anything yet, so a row
+    /// matched before that must be matched again.
+    changed: bool,
+}
+
+impl MergeRun<'_, '_> {
+    /// Matches the pattern from each of `pending` with one read, expands the
+    /// matching rows per match, applies the `ON MATCH` actions to them, and
+    /// returns the rows that matched nothing, in their input order.
+    fn match_batch(
+        &mut self,
+        pending: Vec<(usize, ExecutionRow)>,
+    ) -> Result<Vec<(usize, ExecutionRow)>> {
         let subset = pending
             .iter()
             .map(|(_, row)| row.clone())
             .collect::<Vec<_>>();
-        let result = read_materialized_rows(transaction, layout, &subset, matcher.clone())?;
+        let result =
+            read_materialized_rows(self.transaction, self.layout, &subset, self.matcher.clone())?;
         let mut matches: Vec<Vec<Vec<CypherValue>>> = vec![Vec::new(); subset.len()];
         for mut row in result.rows {
             let index = match row.remove(0) {
@@ -1016,33 +1145,28 @@ fn merge_rows(
             }
             for values in found {
                 let mut expanded = row.clone();
-                for ((slot, kind), value) in fresh.iter().zip(values) {
-                    expanded.set(&layout.slots, *slot, entity_from_value(value, *kind)?)?;
+                for ((slot, kind), value) in self.fresh.iter().zip(values) {
+                    expanded.set(&self.layout.slots, *slot, entity_from_value(value, *kind)?)?;
                 }
                 matched.push((origin, expanded));
             }
         }
         if !matched.is_empty() {
+            self.changed |= !self.on_match.is_empty();
             let (origins, mut matched_rows): (Vec<_>, Vec<_>) = matched.into_iter().unzip();
-            for mutation in on_match {
-                apply_mutation(transaction, layout, &mut matched_rows, mutation, summary)?;
+            for mutation in self.on_match {
+                apply_mutation(
+                    self.transaction,
+                    self.layout,
+                    &mut matched_rows,
+                    mutation,
+                    self.summary,
+                )?;
             }
-            finished.extend(origins.into_iter().zip(matched_rows));
+            self.finished.extend(origins.into_iter().zip(matched_rows));
         }
-
-        pending = unmatched;
-        if !pending.is_empty() {
-            let (origin, row) = pending.remove(0);
-            let mut created = vec![row];
-            for mutation in creates.iter().chain(on_create) {
-                apply_mutation(transaction, layout, &mut created, mutation, summary)?;
-            }
-            finished.extend(created.into_iter().map(|row| (origin, row)));
-        }
+        Ok(unmatched)
     }
-    finished.sort_by_key(|(origin, _)| *origin);
-    rows.extend(finished.into_iter().map(|(_, row)| row));
-    Ok(())
 }
 
 fn entity_from_value(value: CypherValue, kind: EntityKind) -> Result<EntityValue> {
@@ -1151,7 +1275,12 @@ fn read_materialized_rows(
 
 /// Writes the rows to the temporary rows table, one encoded entity record
 /// per entity slot and one JSON text per scalar slot, runs `body` over it
-/// inside the same transaction, and drops the table again.
+/// inside the same transaction, and empties the table again.
+///
+/// The table outlives the call while its columns fit the next layout:
+/// creating or dropping it changes the schema, which invalidates every
+/// prepared statement, so a `MERGE` that reads once per row would otherwise
+/// re-prepare its matcher each time.
 fn with_rows_table<T>(
     transaction: &Transaction<'_>,
     layout: &RowLayout,
@@ -1164,16 +1293,27 @@ fn with_rows_table<T>(
         .chain((0..layout.scalar_slots).map(|index| format!("s{index} TEXT")))
         .collect::<Vec<_>>()
         .join(", ");
-    transaction.execute_batch(&format!(
-        "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
-    ))?;
+    let existing = transaction
+        .query_row(
+            "SELECT sql FROM temp.sqlite_schema WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    if existing.is_some_and(|sql| sql.ends_with(&format!("({columns})"))) {
+        transaction.execute(&format!("DELETE FROM temp.{table}"), [])?;
+    } else {
+        transaction.execute_batch(&format!(
+            "DROP TABLE IF EXISTS temp.{table}; CREATE TEMP TABLE {table} ({columns});"
+        ))?;
+    }
     {
         let placeholders = (1..=layout.slots.len() + layout.scalar_slots + 1)
             .map(|index| format!("?{index}"))
             .collect::<Vec<_>>()
             .join(", ");
         let mut insert =
-            transaction.prepare(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
+            transaction.prepare_cached(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
         for (index, row) in rows.iter().enumerate() {
             // Unbound slots hold JSON `null` text, exactly as an OPTIONAL
             // MATCH leaves them in a read pipeline's intermediate rows.
@@ -1193,7 +1333,7 @@ fn with_rows_table<T>(
         }
     }
     let result = body(transaction);
-    transaction.execute_batch(&format!("DROP TABLE IF EXISTS temp.{table};"))?;
+    transaction.execute(&format!("DELETE FROM temp.{table}"), [])?;
     result
 }
 
@@ -1261,7 +1401,7 @@ fn read_row_source(
     input: &ResolvedRowSource,
     layout: &RowLayout,
 ) -> Result<Vec<ExecutionRow>> {
-    let mut statement = transaction.prepare(&input.sql)?;
+    let mut statement = transaction.prepare_cached(&input.sql)?;
     debug_assert!(statement.readonly());
     let mut cursor = statement.query(params_from_iter(input.bindings.iter()))?;
     let mut input_rows = Vec::new();
@@ -1717,10 +1857,8 @@ fn initialize(connection: &mut Connection) -> Result<()> {
     let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if application_id == APPLICATION_ID {
-        if schema_version == 1 {
-            connection.execute_batch(MIGRATE_V1_TO_V2)?;
-            validate_schema(connection)?;
-            return Ok(());
+        if matches!(schema_version, 1 | 2) {
+            return upgrade_schema(connection, schema_version);
         }
         if schema_version != SCHEMA_VERSION {
             return Err(crate::Error::Data(format!(
@@ -1749,11 +1887,30 @@ fn initialize(connection: &mut Connection) -> Result<()> {
         ));
     }
 
-    if let Err(error) = connection.execute_batch(INITIAL_SCHEMA) {
-        let _ = connection.execute_batch("ROLLBACK;");
-        return Err(error.into());
+    upgrade_schema(connection, 0)
+}
+
+/// Install labels and the property index together, rolling back both schema
+/// changes and the version marker if any validation or backfill fails.
+fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    match from {
+        0 => transaction.execute_batch(INITIAL_SCHEMA)?,
+        1 => transaction.execute_batch(MIGRATE_V1_TO_V2)?,
+        2 => {
+            // An experimental branch also called its single-label layout v2.
+            // It is not main's v2 format and must not be silently accepted.
+            transaction.prepare("SELECT labels FROM nodes LIMIT 0").map_err(|_| {
+                crate::Error::Data("unsupported experimental version 2 schema; expected main's multi-label layout".into())
+            })?;
+        }
+        _ => unreachable!("only known schema versions can be upgraded"),
     }
-    validate_schema(connection)
+    transaction.execute_batch(PROPERTY_INDEX_SCHEMA)?;
+    transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    validate_schema(&transaction)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn register_functions(connection: &Connection) -> Result<()> {
@@ -1768,6 +1925,63 @@ fn register_functions(connection: &Connection) -> Result<()> {
             Ok(semantic_json_key(&value))
         },
     )?;
+    // Cypher equality, comparison, and sort order for values SQLite cannot
+    // compare natively. Each takes JSON text; generated SQL routes lists and
+    // maps here and keeps primitives in plain SQL.
+    connection.create_scalar_function(
+        "crabnet_equals",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let left = json_argument(context, 0)?;
+            let right = json_argument(context, 1)?;
+            Ok(comparison::equals(&left, &right))
+        },
+    )?;
+    connection.create_scalar_function(
+        "crabnet_compare",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let left = json_argument(context, 0)?;
+            let right = json_argument(context, 1)?;
+            Ok(comparison::compare(&left, &right).map(|ordering| ordering as i64))
+        },
+    )?;
+    // The sort key takes a JSON type name and the SQL value, so primitives
+    // need no JSON round trip; lists and maps arrive as JSON text.
+    connection.create_scalar_function(
+        "crabnet_order_key",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let value_type = context.get::<Option<String>>(0)?;
+            let value = match (value_type.as_deref(), context.get_raw(1)) {
+                (_, ValueRef::Null) | (None | Some("null"), _) => serde_json::Value::Null,
+                (Some("true"), _) => serde_json::Value::Bool(true),
+                (Some("false"), _) => serde_json::Value::Bool(false),
+                (Some("integer"), ValueRef::Integer(integer)) => integer.into(),
+                (Some("real"), ValueRef::Real(real)) => real.into(),
+                (Some("real"), ValueRef::Integer(integer)) => (integer as f64).into(),
+                (Some("text"), ValueRef::Text(text)) => {
+                    serde_json::Value::String(String::from_utf8_lossy(text).into_owned())
+                }
+                _ => json_argument(context, 1)?,
+            };
+            Ok(comparison::order_key(&value))
+        },
+    )?;
+    for (name, keep) in [
+        ("crabnet_min", Ordering::Less),
+        ("crabnet_max", Ordering::Greater),
+    ] {
+        connection.create_aggregate_function(
+            name,
+            1,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            Extremum(keep),
+        )?;
+    }
     // SQLite renders REAL values into JSON text with fifteen significant
     // digits, which silently perturbs any float that needs more. Every scalar
     // leaves SQL as JSON text, so the encoder routes reals through this
@@ -1867,7 +2081,68 @@ fn register_functions(connection: &Connection) -> Result<()> {
             ))
         },
     )?;
+    // Generated SQL raises a runtime type error, such as `NOT` of a number,
+    // the same way.
+    connection.create_scalar_function(
+        "crabnet_type_error",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| -> rusqlite::Result<Option<i64>> {
+            let message = context.get::<String>(0)?;
+            Err(rusqlite::Error::UserFunctionError(
+                format!("{}{message}", crate::error::TYPE_ERROR_TAG).into(),
+            ))
+        },
+    )?;
     Ok(())
+}
+
+fn json_argument(context: &Context<'_>, index: usize) -> rusqlite::Result<serde_json::Value> {
+    let encoded = context.get::<String>(index)?;
+    serde_json::from_str(&encoded)
+        .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
+}
+
+/// `min()` and `max()` under Cypher orderability: the argument is a value's
+/// JSON text, nulls are skipped, and the result is the JSON text of the
+/// least or greatest value, or NULL when there was none.
+struct Extremum(Ordering);
+
+impl Aggregate<Option<(Vec<u8>, String)>, Option<String>> for Extremum {
+    fn init(&self, _: &mut Context<'_>) -> rusqlite::Result<Option<(Vec<u8>, String)>> {
+        Ok(None)
+    }
+
+    fn step(
+        &self,
+        context: &mut Context<'_>,
+        best: &mut Option<(Vec<u8>, String)>,
+    ) -> rusqlite::Result<()> {
+        let Some(encoded) = context.get::<Option<String>>(0)? else {
+            return Ok(());
+        };
+        let value: serde_json::Value = serde_json::from_str(&encoded)
+            .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+        if value.is_null() {
+            return Ok(());
+        }
+        let key = comparison::order_key(&value);
+        if best
+            .as_ref()
+            .is_none_or(|(best, _)| key.cmp(best) == self.0)
+        {
+            *best = Some((key, encoded));
+        }
+        Ok(())
+    }
+
+    fn finalize(
+        &self,
+        _: &mut Context<'_>,
+        best: Option<Option<(Vec<u8>, String)>>,
+    ) -> rusqlite::Result<Option<String>> {
+        Ok(best.flatten().map(|(_, encoded)| encoded))
+    }
 }
 
 /// `toInteger()` of a string: an integer literal, or a finite float literal
@@ -1996,6 +2271,7 @@ fn validate_schema(connection: &Connection) -> Result<()> {
     connection.prepare("SELECT id, labels, props FROM nodes LIMIT 0")?;
     connection.prepare("SELECT label, node_id FROM node_labels LIMIT 0")?;
     connection.prepare("SELECT id, edge_type, from_node, to_node, props FROM edges LIMIT 0")?;
+    connection.prepare("SELECT node_id, key, value FROM node_properties LIMIT 0")?;
     Ok(())
 }
 
@@ -2189,7 +2465,7 @@ mod tests {
                 "three-branch-union",
                 r#"RETURN $left AS value
                    UNION RETURN $middle AS value
-                   UNION ALL RETURN $right AS value"#,
+                   UNION RETURN $right AS value"#,
                 Parameters::from([
                     ("left".to_owned(), json!(1)),
                     ("middle".to_owned(), json!(1.0)),
@@ -2844,6 +3120,138 @@ mod tests {
             )
             .unwrap();
         assert_eq!(things, 2);
+    }
+
+    #[test]
+    fn version_two_upgrade_backfills_properties_and_preserves_labels() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA user_version = 2;
+            INSERT INTO nodes (id, labels, props)
+                VALUES ('one', '["Person", "Member"]', '{"id":7,"missing":null,"tags":[1,2]}');
+        "#,
+            )
+            .unwrap();
+        let mut database = Database::from_connection(connection).unwrap();
+        let result = database
+            .execute("MATCH (n:Person:Member {id: 7}) RETURN n.id")
+            .unwrap();
+        assert_eq!(result.rows, vec![vec![CypherValue::Integer(7)]]);
+        let count: i64 = database
+            .connection
+            .query_row("SELECT count(*) FROM node_properties", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2);
+        initialize(&mut database.connection).unwrap();
+        database
+            .execute("MATCH (n:Member) SET n.id = 8 REMOVE n:Person")
+            .unwrap();
+        let result = database
+            .execute("MATCH (n:Member {id: 8}) RETURN n.id")
+            .unwrap();
+        assert_eq!(result.rows, vec![vec![CypherValue::Integer(8)]]);
+        let version: i64 = database
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn failed_property_index_upgrade_rolls_back_schema_and_version() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection
+            .execute_batch(
+                r#"
+            PRAGMA user_version = 2;
+            PRAGMA ignore_check_constraints = ON;
+            INSERT INTO nodes (id, props) VALUES ('bad', 'invalid json');
+            PRAGMA ignore_check_constraints = OFF;
+        "#,
+            )
+            .unwrap();
+        assert!(initialize(&mut connection).is_err());
+        assert!(connection.is_autocommit());
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        let objects: i64 = connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_schema WHERE name LIKE 'node_properties%'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(objects, 0);
+    }
+
+    #[test]
+    fn entities_with_the_same_id_but_different_kinds_are_not_equal() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .connection
+            .execute_batch(
+                "INSERT INTO nodes (id) VALUES ('same');
+            INSERT INTO edges (id, edge_type, from_node, to_node)
+                VALUES ('same', 'SELF', 'same', 'same');",
+            )
+            .unwrap();
+        let result = database
+            .execute("MATCH (n)-[r]->(n) RETURN n = r AS same, n <> r AS different")
+            .unwrap();
+        assert_eq!(
+            result.rows,
+            vec![vec![
+                CypherValue::Boolean(false),
+                CypherValue::Boolean(true)
+            ]]
+        );
+    }
+
+    #[test]
+    fn indexed_property_lookups_probe_each_candidates_labels() {
+        let database = Database::in_memory().unwrap();
+        let Plan::Read(plan) =
+            planner::compile("MATCH (n:Person:Member {id: 7}) RETURN n.id").unwrap()
+        else {
+            panic!("expected a read");
+        };
+        let PreparedPhysicalOperator::Sqlite(fragment) =
+            plan.prepare(&Parameters::new()).unwrap().root
+        else {
+            panic!("expected a SQLite fragment");
+        };
+        let values = fragment
+            .arguments
+            .into_iter()
+            .map(|argument| match argument {
+                PreparedFragmentArgument::Value(value) => value,
+                _ => panic!("unexpected runtime input"),
+            })
+            .collect::<Vec<_>>();
+        let details = database
+            .connection
+            .prepare(&format!("EXPLAIN QUERY PLAN {}", fragment.sql))
+            .unwrap()
+            .query_map(params_from_iter(values.iter()), |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+            .join("\n");
+        assert!(details.contains("node_properties_by_value"), "{details}");
+        assert_eq!(
+            details.matches("label=? AND node_id=?").count(),
+            2,
+            "{details}"
+        );
+        assert!(details.contains("label=? AND node_id=?"), "{details}");
     }
 
     #[test]

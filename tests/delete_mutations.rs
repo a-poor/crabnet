@@ -97,7 +97,7 @@ fn plain_delete_of_connected_nodes_fails_and_rolls_back_every_target() {
 
     assert!(matches!(
         database.execute("MATCH (victim:Victim) DELETE victim"),
-        Err(Error::Sqlite(_))
+        Err(Error::Constraint(_))
     ));
 
     let nodes = database
@@ -441,7 +441,7 @@ fn failed_delete_rolls_back_property_mutations_from_an_earlier_clause() {
              SET target.status = 'temporary' \
              DELETE target"
         ),
-        Err(Error::Sqlite(_))
+        Err(Error::Constraint(_))
     ));
 
     let stored = database

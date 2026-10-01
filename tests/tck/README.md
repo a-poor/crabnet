@@ -52,6 +52,6 @@ CRABNET_TCK_TRACE=1 cargo test --test tck -- --nocapture  # print each scenario 
   added and one removed; labels count by distinct name, as the TCK expects.
 - An expected `SyntaxError` at compile time accepts `Error::Parse`,
   `Error::Semantic`, or `Error::MissingParameter`. Runtime errors also accept
-  `Error::Data`. `Error::Unsupported` never satisfies an expected error, so a
+  `Error::Data`, `Error::Argument`, `Error::Type`, and `Error::Constraint`. `Error::Unsupported` never satisfies an expected error, so a
   construct the engine rejects for lack of support stays excluded rather than
   counting as conformance.

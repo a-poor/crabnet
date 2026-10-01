@@ -55,6 +55,11 @@ end-to-end result test for user-visible semantics.
   property transport through every mutation form and path hydration, signed
   zero normalization, fail-closed 100-container value-depth boundaries, and
   the independent 128-step expression-syntax guard.
+- `tests/property_index.rs` checks that the trigger-maintained
+  `node_properties` index equals a recomputation from `nodes` after every
+  kind of write and after a rolled-back statement, that indexed lookups keep
+  Cypher equality across numeric, boolean, text, list, map, and null values,
+  and which query shapes are planned through the index.
 - `tests/entity_values.rs` covers whole node and relationship result values,
   recursive properties, identity, and stored-direction endpoints.
 - `tests/write_semantics.rs` holds focused write result/state contracts that do
@@ -74,8 +79,8 @@ end-to-end result test for user-visible semantics.
 - `tests/bounded_traversal.rs` covers exact/ranged/zero bounds, outgoing,
   incoming, and undirected traversal, per-hop type/property filters, cycles,
   self-loops, diamonds, parallel edges, dead ends, edge-trail uniqueness,
-  composition, the depth-32 SQLite strategy threshold, and structured rejection
-  boundaries.
+  composition, the depth-32 SQLite strategy threshold, seeded versus unseeded
+  start constraints, and structured rejection boundaries.
 - `tests/unbounded_traversal.rs` covers explicit bounds above that threshold,
   open-ended lower-bound forms, Rust trail enumeration, paths and relationship
   lists, mixed SQL/Rust composition, clause-wide relationship uniqueness,
@@ -205,6 +210,41 @@ git diff --check
 The full suite need not run after every edit; focused commands keep the inner
 loop fast, while the final checks prevent changes in one planner layer from
 breaking another.
+
+## Benchmarks
+
+`benches/queries.rs` is a Criterion suite that measures planning, reads,
+traversal, writes, and `MERGE` through the public `Database` API. It is a measuring
+instrument, not a correctness oracle: every query is executed once before it
+is timed, and the chain traversal cases assert their expected counts, so an
+unsupported or wrongly shaped query fails the run rather than producing a
+meaningless number.
+
+```console
+cargo bench --bench queries
+cargo bench --bench queries -- 'read/.*/1000'
+CRABNET_BENCH_SIZES=1000 cargo bench --bench queries -- traversal
+```
+
+The fixtures are deterministic and built in memory at the start of each group:
+
+- The social graph has `CRABNET_BENCH_SIZES` people (default `1000,10000`)
+  in communities of 250, four intra-community `KNOWS` edges per person, and
+  two bridge edges per community. Communities are created one statement at a
+  time because planning a multi-pattern `CREATE` is quadratic in its pattern
+  count.
+- The chain graph is 1,000 `Step` nodes joined by `NEXT`, so deep,
+  open-ended, and above-threshold traversals have exactly one trail per depth.
+- The fan-out `MERGE` cases rebuild a relationship-free people graph for every
+  iteration, because the merge itself changes the graph; `fanout_shared`
+  collapses the rows onto fifty keys while `fanout_distinct` creates once per
+  row.
+
+Group ids are `plan/*`, `read/<query>/<nodes>`, `traversal/*`, `write/*`,
+and `merge/*`, and Criterion writes HTML reports under `target/criterion/`.
+Compare a change against `main` by running the suite before and after; the
+roadmap's rule still holds that optimizations follow a measured bottleneck
+rather than precede one.
 
 ## Adding broader test techniques
 

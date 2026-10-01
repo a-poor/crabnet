@@ -109,7 +109,7 @@ fn modifiers_after_a_write_shape_the_result_but_not_the_side_effects() {
             "MATCH (p:Page) WHERE p.i IS NOT NULL DELETE p WITH count(*) AS deleted RETURN deleted",
         )
         .unwrap_err();
-    assert!(matches!(result, Error::Sqlite(_)), "{result:?}");
+    assert!(matches!(result, Error::Constraint(_)), "{result:?}");
 
     let result = database
         .execute(

@@ -101,49 +101,82 @@ fn dynamic_arithmetic_is_numeric_only_and_null_propagating() {
         )
         .unwrap();
 
-    for operator in ["+", "-", "*", "/", "%"] {
-        let result = database
-            .execute(&format!(
-                "MATCH (operand:Operand) \
-                 WHERE (operand.left {operator} operand.right) IS NULL \
-                 RETURN operand.name AS name ORDER BY name"
-            ))
-            .unwrap();
-        // `+` is also list concatenation, so a list operand appends rather
-        // than producing null; every other operator is numeric only.
-        let mut expected = vec![
-            "boolean",
-            "list",
-            "map",
-            "missing-left",
-            "missing-right",
-            "null",
-            "text",
-        ];
-        if operator == "+" {
-            expected.retain(|name| *name != "list");
-        }
-        assert_eq!(
-            named_rows(result),
-            expected
-                .iter()
-                .map(|name| vec![CypherValue::String((*name).to_owned())])
-                .collect::<Vec<_>>(),
-            "operator {operator}"
-        );
-    }
-
-    let unary_nulls = database
+    let nullish = "['missing-left', 'missing-right', 'null']";
+    let wrong_kinds = ["boolean", "list", "map", "text"];
+    // `+` also concatenates strings and lists: a list operand appends, and
+    // other mismatched kinds produce null rather than an error.
+    let result = database
         .execute(
             "MATCH (operand:Operand) \
-             WHERE (+operand.left) IS NULL AND (-operand.left) IS NULL \
+             WHERE (operand.left + operand.right) IS NULL \
              RETURN operand.name AS name ORDER BY name",
         )
         .unwrap();
     assert_eq!(
-        named_rows(unary_nulls),
-        string_rows(["boolean", "list", "map", "missing-left", "null", "text"])
+        named_rows(result),
+        string_rows([
+            "boolean",
+            "map",
+            "missing-left",
+            "missing-right",
+            "null",
+            "text"
+        ])
     );
+    for operator in ["-", "*", "/", "%"] {
+        let result = database
+            .execute(&format!(
+                "MATCH (operand:Operand) WHERE operand.name IN {nullish} \
+                 AND (operand.left {operator} operand.right) IS NULL \
+                 RETURN operand.name AS name ORDER BY name"
+            ))
+            .unwrap();
+        assert_eq!(
+            named_rows(result),
+            string_rows(["missing-left", "missing-right", "null"]),
+            "operator {operator}"
+        );
+        // Every other operator is numeric only, and another kind is a type
+        // error rather than a silent null.
+        for name in wrong_kinds {
+            let error = database
+                .execute(&format!(
+                    "MATCH (operand:Operand {{name: '{name}'}}) \
+                     RETURN operand.left {operator} operand.right AS value"
+                ))
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::Type(_)),
+                "{name} {operator}: {error:?}"
+            );
+        }
+    }
+
+    let unary_nulls = database
+        .execute(&format!(
+            "MATCH (operand:Operand) WHERE operand.name IN {nullish} \
+             AND (+operand.left) IS NULL AND (-operand.left) IS NULL \
+             RETURN operand.name AS name ORDER BY name"
+        ))
+        .unwrap();
+    assert_eq!(
+        named_rows(unary_nulls),
+        string_rows(["missing-left", "null"])
+    );
+    for name in wrong_kinds {
+        for operator in ["+", "-"] {
+            let error = database
+                .execute(&format!(
+                    "MATCH (operand:Operand {{name: '{name}'}}) \
+                     RETURN {operator}operand.left AS value"
+                ))
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::Type(_)),
+                "{operator}{name}: {error:?}"
+            );
+        }
+    }
 
     let unary_values = database
         .execute(
@@ -180,19 +213,33 @@ fn dynamic_arithmetic_is_numeric_only_and_null_propagating() {
 }
 
 #[test]
-fn unary_arithmetic_does_not_treat_strings_or_booleans_as_numbers() {
+fn unary_arithmetic_rejects_strings_and_booleans() {
     let mut database = Database::in_memory().unwrap();
-    let values = parameters([("operand", json!("8"))]);
+    let values = parameters([("operand", json!("8")), ("missing", json!(null))]);
 
+    // A literal operand's kind is known while planning.
+    for query in [
+        "RETURN +'8' AS positive_text",
+        "RETURN -true AS negative_boolean",
+    ] {
+        let error = database.execute(query).unwrap_err();
+        assert!(matches!(error, Error::Semantic(_)), "{query}: {error:?}");
+    }
+    // A parameter's kind is only known at runtime. Text is never coerced.
+    for query in [
+        "RETURN +$operand AS positive_parameter",
+        "RETURN -$operand AS negative_parameter",
+        "RETURN $operand - 1 AS difference",
+        "RETURN 2 * $operand AS product",
+    ] {
+        let error = database.execute_with(query, &values).unwrap_err();
+        assert!(matches!(error, Error::Type(_)), "{query}: {error:?}");
+    }
+    // Null stays null.
     let result = database
-        .execute_with(
-            "RETURN +'8' AS positive_text, -true AS negative_boolean, \
-                    +$operand AS positive_parameter, -$operand AS negative_parameter",
-            &values,
-        )
+        .execute_with("RETURN -$missing AS negated, $missing % 2 AS rest", &values)
         .unwrap();
-
-    assert_eq!(result.rows, [vec![CypherValue::Null; 4]]);
+    assert_eq!(result.rows, [vec![CypherValue::Null; 2]]);
 }
 
 #[test]

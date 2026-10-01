@@ -22,6 +22,13 @@ pub enum Error {
     Data(String),
     /// A function received an argument value it cannot accept at runtime.
     Argument(String),
+    /// A write would leave the graph inconsistent, such as deleting a node
+    /// that still has relationships without `DETACH`.
+    Constraint(String),
+    /// An operator or function met a value of a kind it cannot accept, such
+    /// as `NOT 1` or indexing a string, where the kind was only known at
+    /// runtime. Kinds known while planning fail with `Semantic` instead.
+    Type(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -38,6 +45,8 @@ impl fmt::Display for Error {
             Self::Sqlite(error) => write!(formatter, "SQLite error: {error}"),
             Self::Data(message) => write!(formatter, "invalid graph data: {message}"),
             Self::Argument(message) => write!(formatter, "invalid argument: {message}"),
+            Self::Type(message) => write!(formatter, "type error: {message}"),
+            Self::Constraint(message) => write!(formatter, "constraint violated: {message}"),
         }
     }
 }
@@ -54,15 +63,21 @@ impl std::error::Error for Error {
 /// Prefix the `crabnet_raise` SQL function puts on argument error messages.
 pub(crate) const ARGUMENT_ERROR_TAG: &str = "crabnet-argument-error: ";
 
+/// Prefix the `crabnet_type_error` SQL function puts on type error messages.
+pub(crate) const TYPE_ERROR_TAG: &str = "crabnet-type-error: ";
+
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
         // Generated SQL raises runtime argument errors through a registered
         // function. SQLite only carries the message text back out of the
         // statement, so the function tags it and the tag is recovered here.
-        if let rusqlite::Error::SqliteFailure(_, Some(message)) = &error
-            && let Some(message) = message.strip_prefix(ARGUMENT_ERROR_TAG)
-        {
-            return Self::Argument(message.to_owned());
+        if let rusqlite::Error::SqliteFailure(_, Some(message)) = &error {
+            if let Some(message) = message.strip_prefix(ARGUMENT_ERROR_TAG) {
+                return Self::Argument(message.to_owned());
+            }
+            if let Some(message) = message.strip_prefix(TYPE_ERROR_TAG) {
+                return Self::Type(message.to_owned());
+            }
         }
         Self::Sqlite(error)
     }

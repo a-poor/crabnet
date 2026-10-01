@@ -228,3 +228,64 @@ fn nodes_and_relationships_compare_by_identity() {
         .unwrap();
     assert_eq!(integers(&mismatch.rows), vec![0]);
 }
+
+#[test]
+fn entity_identity_is_distinct_from_scalar_ids_and_preserves_nulls() {
+    let mut database = seed();
+    let result = database
+        .execute(
+            "MATCH (n:A)-[r]->() RETURN n = elementId(n) AS node_string, \
+         elementId(n) = n AS string_node, n <> elementId(n) AS different, \
+         r = elementId(r) AS rel_string, r = r AS same_rel, n = r AS different_kinds, \
+         n = null AS unknown",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        vec![vec![
+            CypherValue::Boolean(false),
+            CypherValue::Boolean(false),
+            CypherValue::Boolean(true),
+            CypherValue::Boolean(false),
+            CypherValue::Boolean(true),
+            CypherValue::Boolean(false),
+            CypherValue::Null,
+        ]]
+    );
+    let result = database
+        .execute(
+            "MATCH (n:A) WITH n AS alias, elementId(n) AS id \
+         RETURN alias = id AS same, id <> alias AS different",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        vec![vec![
+            CypherValue::Boolean(false),
+            CypherValue::Boolean(true)
+        ]]
+    );
+    let result = database
+        .execute(
+            "OPTIONAL MATCH (n:Missing) RETURN n = elementId(n) AS same, n <> 'id' AS different",
+        )
+        .unwrap();
+    assert_eq!(
+        result.rows,
+        vec![vec![CypherValue::Null, CypherValue::Null]]
+    );
+}
+
+#[test]
+fn pattern_predicates_inherit_outer_scalar_kinds() {
+    let mut database = seed();
+    assert!(matches!(
+        database.execute("WITH 1 AS bad MATCH (a), (b) RETURN (a)-->(b WHERE bad) AS found"),
+        Err(Error::Semantic(_))
+    ));
+    assert!(
+        database
+            .execute("WITH true AS good MATCH (a), (b) RETURN (a)-->(b WHERE good) AS found")
+            .is_ok()
+    );
+}

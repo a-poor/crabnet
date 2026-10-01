@@ -1,4 +1,4 @@
-use crabnet::{CypherValue, Database, Error, Parameters, QueryResult};
+use crabnet::{CypherValue, Database, Error, Parameters, QueryResult, Value};
 use serde_json::json;
 
 fn assert_names(result: QueryResult, expected: &[&str]) {
@@ -505,6 +505,74 @@ fn relationship_property_parameters_keep_bind_positions_across_with() {
             ],
         ]
     );
+}
+
+#[test]
+fn seeded_and_unseeded_start_constraints_return_the_same_bag() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (a:SeedNode {name: 'a', pick: 1}), (b:SeedNode {name: 'b', pick: 1}), \
+                    (c:SeedNode {name: 'c', pick: 0}), (d:Other {name: 'd', pick: 1}), \
+                    (a)-[:NEXT]->(b), (a)-[:NEXT]->(c), (b)-[:NEXT]->(c), (c)-[:NEXT]->(d), \
+                    (d)-[:NEXT]->(a), (b)-[:NEXT]->(a)",
+        )
+        .unwrap();
+    let parameters = [
+        ("pick".to_owned(), json!(1)),
+        ("name".to_owned(), json!("a")),
+    ]
+    .into_iter()
+    .collect::<Parameters>();
+    let expected = |mut result: QueryResult| {
+        result
+            .rows
+            .sort_by(|left, right| format!("{left:?}").cmp(&format!("{right:?}")));
+        result.rows
+    };
+
+    // The inline form seeds the walk from the constrained node; the other
+    // forms leave the walk unrestricted and must produce the identical bag.
+    let inline = database
+        .execute_with(
+            "MATCH (start:SeedNode {name: $name, pick: $pick})-[:NEXT*1..3]->(end) \
+             RETURN start.name, end.name",
+            &parameters,
+        )
+        .unwrap();
+    let separate_pattern = database
+        .execute_with(
+            "MATCH (start:SeedNode {name: $name, pick: $pick}), (start)-[:NEXT*1..3]->(end) \
+             RETURN start.name, end.name",
+            &parameters,
+        )
+        .unwrap();
+    let after_with = database
+        .execute_with(
+            "MATCH (start:SeedNode) WHERE start.name = $name AND start.pick = $pick \
+             WITH start MATCH (start)-[:NEXT*1..3]->(end) RETURN start.name, end.name",
+            &parameters,
+        )
+        .unwrap();
+
+    assert_eq!(inline.rows.len(), 8, "{:?}", inline.rows);
+    assert_eq!(expected(separate_pattern), expected(inline.clone()));
+    assert_eq!(expected(after_with), expected(inline));
+
+    // A label-only seed on a zero-hop lower bound keeps the identity trail.
+    let zero_hop = database
+        .execute("MATCH (start:Other)-[:NEXT*0..1]->(end) RETURN end.name AS name ORDER BY name")
+        .unwrap();
+    assert_names(zero_hop, &["a", "d"]);
+
+    // A null seed value matches nothing on either side of the join.
+    let null_seed = database
+        .execute_with(
+            "MATCH (start:SeedNode {name: $missing})-[:NEXT*1..3]->(end) RETURN end.name",
+            &[("missing".to_owned(), Value::Null)].into_iter().collect(),
+        )
+        .unwrap();
+    assert!(null_seed.rows.is_empty());
 }
 
 #[test]

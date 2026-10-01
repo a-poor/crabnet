@@ -132,7 +132,8 @@ fn whole_nodes_preserve_unlabeled_and_recursive_property_values() {
         panic!("expected a node")
     };
     assert!(created_item.labels.is_empty());
-    assert_eq!(created_item.properties["nothing"], CypherValue::Null);
+    // A null property value means the property does not exist.
+    assert!(!created_item.properties.contains_key("nothing"));
     assert_eq!(
         created_item.properties["active"],
         CypherValue::Boolean(true)

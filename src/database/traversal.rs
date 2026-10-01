@@ -441,7 +441,7 @@ fn load_domain(
     traversal: usize,
     budget: &mut TrailBudget,
 ) -> Result<Vec<String>> {
-    let mut statement = connection.prepare(&domain.sql)?;
+    let mut statement = connection.prepare_cached(&domain.sql)?;
     debug_assert!(statement.readonly());
     let rows = statement.query_map(params_from_iter(domain.bindings.iter()), |row| {
         row.get::<_, String>(0)
@@ -505,7 +505,7 @@ fn load_edges(
     spec: &ResolvedTrailExpansion,
     budget: &mut TrailBudget,
 ) -> Result<Vec<StoredEdge>> {
-    let mut statement = connection.prepare(&spec.edge_sql)?;
+    let mut statement = connection.prepare_cached(&spec.edge_sql)?;
     debug_assert!(statement.readonly());
     let rows = statement.query_map(params_from_iter(spec.edge_bindings.iter()), |row| {
         Ok(StoredEdge {

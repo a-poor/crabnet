@@ -31,10 +31,13 @@ fn escaped_identifier(value: &str) -> String {
     escaped
 }
 
+/// The property map an entity stores for `value`: top-level null entries do
+/// not exist as properties.
 fn cypher_map(value: &Value) -> BTreeMap<String, CypherValue> {
-    let CypherValue::Map(value) = CypherValue::try_from(value).unwrap() else {
+    let CypherValue::Map(mut value) = CypherValue::try_from(value).unwrap() else {
         panic!("expected a JSON object")
     };
+    value.retain(|_, value| *value != CypherValue::Null);
     value
 }
 
@@ -63,6 +66,28 @@ fn recursive_payload(marker: &str) -> Value {
         },
         [[], [{}]]
     ])
+}
+
+/// The payload with every null removed, for property-map lookups: Cypher
+/// equality is null, never true, when a nested null takes part.
+fn without_nulls(value: &Value) -> Value {
+    match value {
+        Value::Array(values) => Value::Array(
+            values
+                .iter()
+                .filter(|value| !value.is_null())
+                .map(without_nulls)
+                .collect(),
+        ),
+        Value::Object(entries) => Value::Object(
+            entries
+                .iter()
+                .filter(|(_, value)| !value.is_null())
+                .map(|(key, value)| (key.clone(), without_nulls(value)))
+                .collect(),
+        ),
+        value => value.clone(),
+    }
 }
 
 fn assert_canonical_zero(value: &CypherValue) {
@@ -431,7 +456,8 @@ fn unusual_property_keys_survive_match_set_read_and_remove() {
         let updated = json!({
             "key": key,
             "index": index,
-            "values": [null, false, {"nested": []}]
+            // Null-free, so the hybrid traversal below can match on it.
+            "values": [false, {"nested": []}]
         });
         let set = format!(
             "MATCH (node:PropertyKeyNode)-[edge:PROPERTY_KEY_EDGE]->(:PropertyKeyTarget) \
@@ -522,6 +548,7 @@ fn recursive_parameter_properties_round_trip_through_mutation_and_path_hydration
     let source_properties = json!({
         "role": "source",
         "payload": recursive_payload("source-created"),
+        "lookup": without_nulls(&recursive_payload("source-created")),
         "explicit_null": null,
         "empty_list": [],
         "empty_map": {},
@@ -529,6 +556,7 @@ fn recursive_parameter_properties_round_trip_through_mutation_and_path_hydration
     });
     let edge_properties = json!({
         "payload": recursive_payload("edge-created"),
+        "lookup": without_nulls(&recursive_payload("edge-created")),
         "explicit_null": null,
         "empty_list": [],
         "empty_map": {},
@@ -536,7 +564,8 @@ fn recursive_parameter_properties_round_trip_through_mutation_and_path_hydration
     });
     let target_properties = json!({
         "role": "target",
-        "payload": recursive_payload("target-created")
+        "payload": recursive_payload("target-created"),
+        "lookup": without_nulls(&recursive_payload("target-created"))
     });
     let mut database = Database::in_memory().unwrap();
     let created = database
@@ -571,18 +600,30 @@ fn recursive_parameter_properties_round_trip_through_mutation_and_path_hydration
 
     let direct = database
         .execute_with(
-            "MATCH (source:RecursiveNode {payload: $source_payload})-\
-                   [edge:RECURSIVE_EDGE {payload: $edge_payload}]->\
-                   (target:RecursiveTarget {payload: $target_payload}) \
+            "MATCH (source:RecursiveNode {lookup: $source_lookup})-\
+                   [edge:RECURSIVE_EDGE {lookup: $edge_lookup}]->\
+                   (target:RecursiveTarget {lookup: $target_lookup}) \
              RETURN source, edge, target, source.payload, edge.payload, target.payload, \
                     source.negative_zero, edge.negative_zero",
             &parameters([
-                ("source_payload", source_properties["payload"].clone()),
-                ("edge_payload", edge_properties["payload"].clone()),
-                ("target_payload", target_properties["payload"].clone()),
+                ("source_lookup", source_properties["lookup"].clone()),
+                ("edge_lookup", edge_properties["lookup"].clone()),
+                ("target_lookup", target_properties["lookup"].clone()),
             ]),
         )
         .unwrap();
+    // The payloads hold nested nulls, so comparing them is null and matches
+    // nothing, even against themselves.
+    assert!(
+        database
+            .execute_with(
+                "MATCH (source:RecursiveNode {payload: $source_payload}) RETURN source",
+                &parameters([("source_payload", source_properties["payload"].clone())]),
+            )
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     assert_eq!(direct.rows[0][..3], created.rows[0][..3]);
     assert_eq!(direct.rows[0][3], source_properties["payload"]);
     assert_eq!(direct.rows[0][4], edge_properties["payload"]);
@@ -670,7 +711,9 @@ fn recursive_parameter_properties_round_trip_through_mutation_and_path_hydration
         merged.rows[0][1].as_relationship().unwrap().properties,
         cypher_map(&expected_edge)
     );
-    assert_eq!(merged.summary.properties_set, 6);
+    // `payload` and `added` on each entity. `explicit_null` was never stored,
+    // so removing it changes nothing.
+    assert_eq!(merged.summary.properties_set, 4);
 
     let path_result = database
         .execute(

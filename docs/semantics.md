@@ -40,8 +40,13 @@ ordering key yet; `length(path)` is an ordinary integer ordering expression.
 
 Without `ORDER BY`, result row order is unspecified. With `ORDER BY`, rows are
 ordered by the supported expressions and directions in that clause, but the
-relative order of equal sort keys is unspecified. Ascending order places nulls
-last; descending order places nulls first. `SKIP`/`OFFSET` and `LIMIT` are
+relative order of equal sort keys is unspecified. Sorting follows Cypher's
+global orderability, so values of different kinds sort against each other:
+maps, then lists, strings, booleans, numbers, and null last. Integers and
+floats interleave by numeric value, `false` sorts before `true`, and lists
+sort element by element with a shorter prefix first. Ascending order therefore
+places nulls last; descending order reverses the whole order and places nulls
+first. `SKIP`/`OFFSET` and `LIMIT` are
 applied after ordering when an order is present. The same rules apply to a
 `RETURN` after a mutation, which runs as a read over the post-mutation rows.
 
@@ -111,9 +116,9 @@ null-extended entity.
 `sum` and `avg` ignore nulls and accept numeric inputs only. `sum` of an empty
 numeric bag is integer zero; `avg` of one is null. Mixed integer/float inputs
 use SQLite's numeric promotion. If any non-null input has another kind, the
-result is null instead of being coerced. `min` and `max` support one compatible
-family at a time—numbers, strings, or booleans—and likewise return null for an
-incompatible or structured non-null value. `collect` omits nulls, preserves
+result is null instead of being coerced. `min` and `max` ignore nulls and
+choose by the same global orderability as `ORDER BY`, so `max` over numbers and
+strings is a number and `min` over a list and strings is the list. `collect` omits nulls, preserves
 duplicates, and returns an empty list for empty input. Ordering established by
 an immediately preceding `WITH ... ORDER BY` controls collection order.
 
@@ -146,7 +151,8 @@ read-only branches. Bare `UNION` and explicit `UNION DISTINCT` semantically
 deduplicate the accumulated pending rows using the same recursive typed
 equivalence as `RETURN DISTINCT`, including ordered node/relationship identity
 for paths and the relevant ordered entity identity for path-derived lists.
-Mixed duplicate policies apply from left to right. Branch-local
+One query uses one duplicate policy: mixing `UNION` and `UNION ALL` is a
+semantic error, as Cypher requires. Branch-local
 matching, `WITH`, filters, ordering, semantic distinctness, and deferred
 pagination finish before that branch enters the union. Path identities that
 survive the complete union chain are hydrated afterward. Cross-transport
@@ -220,14 +226,14 @@ writes, before opening the transaction. A deeper input fails with
 `Error::Semantic` instead of committing JSON that cannot later be decoded as a
 whole entity or hydrated path.
 
-A missing property and a property whose stored value is explicit JSON `null`
-both evaluate to Cypher `null`. Returning either property produces
-`CypherValue::Null`, and `IS NULL` is true for either. A returned whole entity
-does preserve whether its property map contains an explicit-null key.
+A property whose value is null does not exist. `CREATE ({k: null})`,
+`SET n = {k: null}`, `SET n += {k: null}`, and `SET n.k = null` all leave `k`
+absent, and a returned whole entity has no such key. Reading an absent
+property produces `CypherValue::Null`, and `IS NULL` is true for it. Nested
+nulls inside list and map values are stored as given.
 
 `NodeValue` contains an opaque `element_id`, a `labels` vector, and a recursive
-`properties` map. The current storage model produces zero or one label, while
-the vector leaves the result shape ready for multi-label nodes later.
+`properties` map. Nodes carry zero or more distinct labels in insertion order.
 
 `RelationshipValue` contains an opaque `element_id`, `relationship_type`,
 `start_node_element_id`, `end_node_element_id`, and a recursive `properties`
@@ -247,11 +253,20 @@ Supported predicates use three-valued logic: true, false, or null. A `WHERE`
 clause retains only rows for which its predicate is true. False and null both
 remove the row. Comparisons involving null, including `null = null`, evaluate
 to null. `IS NULL` and `IS NOT NULL` are the supported way to test for null.
-Boolean contexts accept only JSON booleans: null, missing, numeric, string,
-list, and map values become null rather than inheriting SQLite truthiness.
-Supported `AND`, `OR`, `XOR`, and `NOT` expressions then propagate those
-values with three-valued boolean logic; `XOR` is null when either side is
-null and otherwise true when the sides differ.
+Boolean contexts (`WHERE`, `AND`, `OR`, `XOR`, `NOT`, generic `CASE` conditions, and
+quantifier and comprehension predicates) accept only booleans and null; a
+missing property is null. Any other kind is a type error, never SQLite
+truthiness. `AND`, `OR`, and `NOT` propagate null with three-valued logic.
+`XOR` is null when either operand is null and otherwise true when they differ.
+`AND` and `OR` may stop at an operand that decides the result, so
+`false AND 1` can be false rather than an error.
+
+Kind errors are reported as early as the query text allows. When a literal,
+or a `WITH` or `UNWIND` variable bound to one, has the wrong kind (`NOT 1`,
+`1 IN 'a'`, `WITH 5 AS n RETURN n.key`, `none(x IN ['a'] WHERE x % 2 = 0)`),
+planning fails with `Error::Semantic`. When the kind is only known at runtime,
+as for parameters, properties, and computed values, execution fails with
+`Error::Type`.
 
 Comparisons chain: `1 < n.num < 3` means `1 < n.num AND n.num < 3`, and any
 run of `=`, `<>`, `<`, `<=`, `>`, `>=` compares each adjacent pair. Parentheses
@@ -267,20 +282,24 @@ Equality uses JSON type information to avoid SQLite's broad coercions:
 - lists compare only with lists, and maps compare only with maps;
 - values of different non-numeric JSON kinds are not equal.
 
-For the current implementation, same-kind list and map equality ultimately
-uses their stored JSON representation rather than recursively normalizing
-numeric members. Consequently, `[1] = [1.0]` and `{x: 1} = {x: 1.0}` are
-false, while `[null] = [null]` and `{x: null} = {x: null}` are true. `IN`
-inherits the same member-equality rule. The finite predicate oracle in
-`tests/predicate_truth_tables.rs` deliberately locks this current contract.
-Full Cypher structural equality rules, including whether map key order must be
-ignored in every storage situation, remain unresolved.
+Lists and maps compare element by element under these same rules, so
+`[1] = [1.0]` and `{x: 1} = {x: 1.0}` are true and map key order never
+matters. Lists of different lengths, and maps with different key sets, are
+not equal. Otherwise any element pair that is definitely unequal makes the
+result false, and failing that, any element pair involving null makes it null:
+`[1, null] = [2, null]` is false, while `[null] = [null]` and
+`{x: null} = {x: null}` are null. The finite predicate oracle in
+`tests/predicate_truth_tables.rs` locks this contract.
 
 Ordering comparisons are deliberately narrower than SQLite's storage-class
 ordering. Integers and floats are mutually comparable as numbers; strings are
 comparable only with strings; and booleans are comparable only with booleans.
-A null or missing operand, or any incompatible or unsupported pair of value
-kinds, produces null. Crabnet does not coerce text to numbers or booleans to
+Lists compare lexicographically: the first element pair that differs decides,
+a list that is a prefix of the other is smaller, and the result is null as
+soon as an element pair before that point is not comparable, so
+`[1, null] > [1]` is true but `[1, 2] > [1, null]` is null. Maps are not
+comparable. A null or missing operand, or any incompatible or unsupported pair
+of value kinds, produces null. Crabnet does not coerce text to numbers or booleans to
 numbers for either equality or ordering.
 
 ## Pattern predicates and entity identity
@@ -303,7 +322,9 @@ relationship, and relationship-type alternatives are rejected.
 Nodes and relationships compare by identity: `a = b` is true when both name
 the same stored entity and `a <> b` when they differ, null when either side
 is null, and `r IS NULL` tests an entity the same way. An entity compared
-with a non-entity value is not equal. Entities still cannot be ordered,
+with a non-entity value is not equal, including its own `elementId()` string.
+Node and relationship identities remain distinct even when their IDs match.
+Entities still cannot be ordered,
 collected, or placed in lists.
 
 ## Membership and string predicates
@@ -312,9 +333,10 @@ collected, or placed in lists.
 coerce element kinds or expand duplicate members into duplicate result rows.
 An empty right-hand list produces false even when the left side is null. For a
 nonempty list, a matching member produces true; otherwise a null/missing left
-operand or a null member makes the result null, and a definite miss produces
-false. A null, missing, or non-list right-hand operand produces null rather
-than being treated as an empty or singleton list.
+operand or a member whose comparison is null (a null member, or a list member
+that equals the left side except for nulls) makes the result null, and a
+definite miss produces false. A null or missing right-hand operand produces
+null, and any other non-list right-hand operand is a type error.
 
 `STARTS WITH`, `CONTAINS`, and `ENDS WITH` require two strings and return a
 boolean. They are case-sensitive, treat `%` and `_` literally, and support
@@ -345,16 +367,16 @@ outer scalars, properties, and parameters, and may appear anywhere a boolean
 expression may: `WHERE`, projections, `ORDER BY`, and aggregate arguments.
 Aggregates are rejected inside the predicate. A null or non-list operand
 produces null; Cypher raises a type error for a non-list. Predicates that
-apply an operator to an element of the wrong kind follow the engine's general
-rule and produce null where Cypher raises a type error.
+apply an operator to an element of the wrong kind follow the operator's type
+checks; non-boolean predicate results are type errors.
 
 ## Map key access
 
 `value.key` on a non-entity value reads a key of a map: a projected or
 parameter map, a nested property such as `n.meta.tag`, a parenthesized
 expression, or a quantified list element. A missing key, a key holding null,
-and a null map all read as null. Reading a key of a non-map, non-null value
-also produces null; Cypher raises a type error. Keys are case-sensitive and
+and a null map all read as null. Reading a key of any other kind of value is a
+type error. Keys are case-sensitive and
 may be escaped identifiers. Graph entities keep their own property semantics,
 and property access on a path variable is a semantic error.
 
@@ -381,8 +403,8 @@ paths use `length`.
 A list or map literal whose elements are all literals or parameters is bound
 as a single value. A literal with a computed element, such as `[n.a, n.b + 1]`
 or `{key: n.a}`, is built per row instead; null elements are kept, including
-null map values, which differs from stored properties where explicit nulls
-are dropped. Both forms compare, group, and order identically.
+null map values, which differs from stored properties, where null entries are
+dropped. Both forms compare, group, and order identically.
 
 ## Numeric arithmetic and computed projections
 
@@ -390,8 +412,9 @@ Read predicates and projections support binary `+`, `-`, `*`, `/`, and `%`,
 plus unary `+` and `-`, with the parser's normal precedence and left
 associativity. Integer-only operations retain integer results, including
 truncating integer division, while an operation with a float operand produces
-a float. Null, missing, boolean, string, list, or map operands produce null;
-Crabnet never dynamically coerces them to numbers.
+a float. A null or missing operand produces null. A boolean, string, list, or
+map operand of `-`, `*`, `/`, `%`, or a unary sign is a type error; Crabnet
+never coerces it to a number.
 
 `+` is also concatenation: two strings join, two lists join, and a list beside
 a non-list value appends or prepends that value as one element. A null on
@@ -402,10 +425,9 @@ null; Cypher raises a type error for the latter.
 
 `list[i]` reads the element at integer index `i`, counting from the end when
 negative, and `map[k]` reads the string key `k`. `entity[k]` reads the property
-named by a runtime string. An out-of-range index, a missing key, a null base
-or index, a non-integer list index, a non-string map key, or a base that is
-neither list nor map all read as null; Cypher raises a type error for the
-kind mismatches. Indexing a path or path collection is a semantic error.
+named by a runtime string. An out-of-range index, a missing key, or a null base
+or index reads as null. A non-integer list index, a non-string map key, or a
+base that is neither list nor map is a type error. Indexing a path or path collection is a semantic error.
 
 `list[lower..upper]` copies the elements from `lower` (inclusive, default 0)
 to `upper` (exclusive, default the length). Negative bounds count from the
@@ -414,9 +436,9 @@ shorter list rather than an error. A null bound, a non-integer bound, or a
 non-list base produces null.
 
 `range(start, end)` and `range(start, end, step)` build the inclusive integer
-sequence; a step pointing away from `end` gives an empty list, a null or
-non-integer argument gives null, and a zero step raises `Error::Argument` at
-runtime.
+sequence; a step pointing away from `end` gives an empty list and a null
+argument gives null. A non-integer argument or a zero step raises
+`Error::Argument` at runtime.
 
 Exponentiation (`^`) and concatenation (`||`) remain explicit planning-time
 rejections.
@@ -428,7 +450,8 @@ result of the first alternative whose `WHEN` value equals the operand under
 Cypher equality: integers and floats compare numerically, other kinds must
 match exactly, and a null operand or `WHEN` value never matches. The generic
 form `CASE WHEN predicate THEN x ... END` selects the first alternative whose
-predicate is true; a null or non-boolean predicate is not true. Without a
+predicate is true; a null predicate is not true, and a non-boolean one is a
+type error. Without a
 matching alternative the result is the `ELSE` value, or null when there is
 none. Alternatives may produce different types; the chosen alternative
 decides the type, and the result feeds arithmetic, comparisons, predicates,
@@ -437,18 +460,20 @@ aggregates, an aggregate used inside a `CASE` must be bound by `WITH` first.
 
 ## Scalar functions
 
-Built-in scalar functions follow the same rule as the operators: an argument
-of the wrong kind produces null where Cypher raises a type error. Function
-names are case-insensitive, and calling one with the wrong number of
+`keys()`, `properties()`, and the conversion functions reject an argument of a
+kind they cannot take with a type error: `toInteger()` and `toString()` a list
+or map, `toFloat()` a boolean, list, or map, and `toBoolean()` a float, list,
+or map. The other scalar functions still return null for an argument of the
+wrong kind, where Cypher raises a type error. Function names are
+case-insensitive, and calling one with the wrong number of
 arguments is a semantic error.
 
 - `coalesce(a, b, ...)` returns the first non-null argument.
 - `keys(x)` returns the property names of a node, relationship, or map as a
   list, and `properties(x)` returns them as a map. Stored property maps and
-  map literals keep their keys sorted, so the order is alphabetical. A
-  stored explicit-null entry (see "Values and properties") is not a Cypher
-  property, so the entity forms leave it out even though a returned whole
-  entity still shows it; map values may hold null, so the map forms keep it.
+  map literals keep their keys sorted, so the order is alphabetical. An
+  entity never stores a null property (see "Values and properties"); map
+  values may hold null, so the map forms keep such entries.
   Both functions read a null entity (from `OPTIONAL MATCH`) as null.
 - `head(list)`, `last(list)`, and `tail(list)` are `list[0]`, `list[-1]`, and
   `list[1..]`, with the same null rules.
@@ -572,8 +597,12 @@ stored node because each is its own identity trail. Constraints on the end
 endpoint filter emitted rows the same way but never prune intermediate
 states. Both domains are supersets of the endpoint's final matches, so the
 consuming SQLite join remains the semantic boundary; the seeding only reduces
-explored states and serialized payload. Constraints from earlier clauses or a
-node-local `WHERE` are not pushed into the domain.
+explored states and serialized payload. The SQLite recursive-CTE route seeds
+the same way: the start endpoint's label and inline-property constraints are
+repeated in the walk's seed `WHERE`, so a bounded traversal from one matched
+node enumerates trails from that node rather than from every stored node.
+Constraints from earlier clauses or a node-local `WHERE` are not pushed into
+either seed.
 
 An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
 one trail to at most the number of eligible stored edges, although the number of
@@ -772,11 +801,9 @@ MATCH` with no match feeds `SET`, `REMOVE`, and `DELETE`. An updating clause
 after `DELETE` in the same statement is still a planning-time rejection.
 
 Direct assignment of `null` removes the targeted key. A null-valued entry in a
-`+=` map also removes that key. Whole-map replacement is deliberately
-different: an explicit null entry in `SET entity = {key: null}` remains stored
-in the replacement map. Retaining that key is a Crabnet extension to Cypher's
-usual property-null behavior and is observable when returning the whole
-entity. Map merge is shallow; nested maps replace their existing value rather
+`+=` map also removes that key, and whole-map replacement with
+`SET entity = {key: null}` leaves `key` out of the replacement, as `CREATE`
+does for a null entry in its property map. Map merge is shallow; nested maps replace their existing value rather
 than recursively merging it.
 
 `QuerySummary::properties_set` counts top-level property keys whose observable
@@ -789,8 +816,13 @@ bound by earlier clauses fixed, and creates the pattern's new parts when the
 row has no match. Rows are processed in order against the graph as it stands,
 so a row without a match creates the pattern before the next row is matched
 and later rows match what earlier rows created; a row with several matches
-becomes one row per match. Pattern properties may be literals, parameters, or
-expressions over the row, and a computed value that is null never matches. An
+becomes one row per match. Rows that match before the merge writes anything
+are matched together in one read, and a computed action value reads each
+row's entities as they stood when that row was matched, so two such rows
+that update the same entity both see its pre-merge value. Pattern properties may be literals, parameters, or
+expressions over the row. A literal null property value is a semantic error,
+since the merge could never match what it would create; a computed value that
+is null never matches. An
 undirected relationship matches in either direction and is created left to
 right; a created relationship needs exactly one type. `ON CREATE SET` applies
 to the rows the merge created and `ON MATCH SET` to the rows it matched, with
@@ -806,7 +838,7 @@ Matched `DELETE` accepts node and relationship variables. Targets are gathered
 and deduplicated across the complete materialized match bag, then explicitly
 targeted relationships are deleted before nodes regardless of target spelling
 order. Plain deletion of a node that still has an incident relationship fails
-the storage foreign-key constraint and rolls the entire statement back.
+with `Error::Constraint` and rolls the entire statement back.
 `DETACH DELETE` first removes all incoming, outgoing, and self-loop
 relationships incident to its node targets; relationships shared by multiple
 targets or also named explicitly are deleted and counted once. `DELETE` or
@@ -834,8 +866,12 @@ metadata; for deleted entities it follows the snapshot rule above.
 Crabnet parses a statement before deciding whether its constructs are in the
 supported slice. A syntactically valid but unsupported construct fails during
 planning with `Error::Unsupported`; it is never silently approximated.
-Malformed input uses `Error::Parse`, and supported syntax with invalid names or
-entity kinds uses `Error::Semantic`. Planning completes before mutation
+Malformed input uses `Error::Parse`, and supported syntax with invalid names,
+entity kinds, or statically wrong value kinds uses `Error::Semantic`. During
+execution, a value of the wrong kind fails with `Error::Type`, a function
+argument out of its domain with `Error::Argument`, and a write that would
+break the graph, such as a plain `DELETE` of a node that still has
+relationships, with `Error::Constraint`. Planning completes before mutation
 execution, so an unsupported write statement cannot partially modify the
 graph.
 
