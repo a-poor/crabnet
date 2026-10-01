@@ -363,7 +363,7 @@ Concurrent external-writer semantics remain a non-goal.
   output columns, empty created relationship types, and values beyond the
   documented 100-container boundary now fail before execution. Remaining bare
   contextual keyword labels and labeled-node-after-local-`WHERE` cases are isolated to
-  the parser; `open-cypher 0.2.0-alpha.2` still reproduces them, so they await
+  the parser; `open-cypher 0.2.1` still reproduces them, so they await
   a later upstream release.
 - The selective-seeding slice is green. Start-endpoint label and
   inline-property constraints compile to a bound node-domain query that seeds

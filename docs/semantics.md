@@ -517,11 +517,15 @@ during semantic planning, including a bare expression repeated twice or an
 escaped alias colliding with an unescaped one. A created relationship type must
 also decode to a nonempty string.
 
-The current `open-cypher 0.2.0-alpha.2` parser still rejects a labeled node
-that follows an earlier node-local `WHERE` in the same pattern or clause, and
-can misclassify a bare contextual-keyword label in some later-pattern
-positions. Splitting the pattern across `MATCH` clauses, or escaping the label,
-is the supported spelling until an upstream parser fix is released.
+The current `open-cypher 0.2.1` parser still rejects a labeled node that
+follows an earlier node-local `WHERE` in the same pattern or clause, even
+when the label is escaped. Split the pattern across `MATCH` clauses until
+an upstream parser fix is released.
+
+Bare contextual-keyword labels such as `Where` can also cause a later node
+label to be misclassified: `MATCH (a:Where)-[:LINK]->(b:Node) RETURN b` fails
+to parse. Escape the keyword label with backticks to avoid this separate
+parser limitation.
 
 ## Labels and relationship types
 

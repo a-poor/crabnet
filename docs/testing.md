@@ -300,7 +300,7 @@ through fixed and hybrid routes, eleven unusual property keys survive the full
 mutation lifecycle, recursive maps/lists survive entity and path hydration,
 and the 100-container input boundary is preflighted atomically. Labeled nodes
 after an earlier node-local `WHERE` and some bare contextual-keyword labels
-still await an upstream `open-cypher` parser release; `0.2.0-alpha.2` was
+still await an upstream `open-cypher` parser release; `0.2.1` was
 checked and still reproduces them.
 
 Public default state-budget exhaustion and the 128 MiB serialized-payload guard

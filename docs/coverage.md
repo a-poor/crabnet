@@ -31,7 +31,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Fixed-length relationship patterns | Covered | Outgoing, incoming, undirected, self-loop, and three-hop patterns, including parallel-path multiplicity; see `creates_and_matches_a_directed_relationship`, `undirected_matches_check_both_orientations_without_duplicating_self_loops`, and `parallel_three_hop_paths_preserve_row_multiplicity` |
 | Typed and untyped relationship scans | Covered | Multiple runtime types retain their own `type(r)` values in `untyped_relationship_matches_retain_each_runtime_type` |
 | Relationship inline properties | Covered | `relationship_property_matching_preserves_scalar_and_nested_json_types` exercises fixed and Rust-backed open traversal filters across booleans, compatible integer/float values, strings, nested lists/maps, mismatches, and null. Bounded per-hop behavior remains covered by `relationship_and_endpoint_properties_apply_to_every_candidate_path` |
-| Element-local `WHERE` | Partial | Node- and relationship-local predicates execute in `element_local_where_filters_nodes_and_relationships`. `open-cypher 0.2.0-alpha.2` still rejects a labeled node after an earlier node-local `WHERE` in the same pattern or clause, even with an escaped label, and can misclassify bare contextual-keyword labels in some later-pattern positions; those parser cases await an upstream fix, while a separate `MATCH` clause works |
+| Element-local `WHERE` | Partial | Node- and relationship-local predicates execute in `element_local_where_filters_nodes_and_relationships`. `open-cypher 0.2.1` still rejects a labeled node after an earlier node-local `WHERE` in the same pattern or clause, even with an escaped label; a separate `MATCH` clause works. Bare contextual-keyword labels can also cause later node labels to be misclassified; escaping the keyword label works. Both parser limitations await an upstream fix |
 | Comma-separated patterns / bag multiplicity | Covered | Disconnected Cartesian products and repeated node bindings in `disconnected_patterns_preserve_cartesian_multiplicity` and `repeated_node_variables_reuse_the_same_binding` |
 | Relationship uniqueness within one `MATCH` | Covered | Fixed and variable-length positions track edge IDs rather than nodes. One relationship cannot be reused across any constituent path pattern in the same `MATCH`; a later `MATCH` starts a new uniqueness scope. See `one_relationship_cannot_fill_two_positions_in_a_path`, `fixed_and_quantified_segments_cannot_reuse_the_same_relationship`, and `relationship_uniqueness_spans_one_match_but_not_separate_match_clauses` |
 | Multiple labels/types and boolean label expressions | Partial | Nodes store a label list; `:A:B`/`&` conjunctions, `\|`, `!`, and parentheses in `MATCH` patterns, `n:Label` predicates in `WHERE` (null for null nodes), and `r:T\|U` relationship-type predicates are covered in `labels.rs`. Relationship-type alternatives inside patterns and the label wildcard `%` remain rejected |
@@ -129,7 +129,7 @@ smallest relevant case into a normal failing test, run it by name while iteratin
 move the row into the matrix when green.
 
 1. Pull an `open-cypher` release containing the node-local-`WHERE`
-   label-context fix (`0.2.0-alpha.2` does not), then promote the
+   label-context fix (`0.2.1` does not), then promote the
    following-label regression matrix.
 2. Burn down `tests/tck/exclusions.txt`: first the `result-mismatch` and
    `side-effects-mismatch` rows (list ordering and comparison, NaN equality,
