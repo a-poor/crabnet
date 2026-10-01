@@ -352,6 +352,41 @@ are explicitly rejected, as is an updating clause after `DELETE` in the same
 statement. Among aggregates, `DISTINCT` is supported by `count` and `collect`;
 using it on another aggregate fails during planning.
 
+## Node uniqueness constraints
+
+Applications can require a property to be unique among nodes with a label:
+
+```rust
+use crabnet::Database;
+
+fn main() -> crabnet::Result<()> {
+    let mut database = Database::in_memory()?;
+    database.create_unique_constraint("Person", "email")?;
+    database.execute("MERGE (:Person {email: 'ada@example.org'})")?;
+    assert!(database.execute("CREATE (:Person {email: 'ada@example.org'})").is_err());
+
+    let constraints = database.unique_constraints()?;
+    assert_eq!(constraints[0].property, "email");
+    database.drop_unique_constraint("Person", "email")?;
+    Ok(())
+}
+```
+
+Create/drop return whether the declaration changed; repeating either is a
+no-op. Installation checks existing data atomically. A conflict returns
+`Error::Constraint` identifying the label/property pair, and rolls back the
+entire query or application transaction. All three methods are also available
+on `Transaction`, with schema changes committed or rolled back alongside data.
+Constraints persist when the database is reopened.
+
+Missing and null properties are exempt. Other values use `DISTINCT` equality:
+`1` conflicts with `1.0`, but not `true` or `'1'`; lists and maps compare
+recursively, including null members. Checks apply to each node mutation, so a
+key must be released before another node can take it. Names are exact strings
+without Cypher quoting. This API supports one node label/property pair per
+constraint; composite keys, relationship constraints, and Cypher schema DDL
+remain outside this slice. See [semantics](docs/semantics.md#node-uniqueness-constraints).
+
 ## Planning and execution
 
 The planner is deliberately small and layered:
@@ -444,9 +479,10 @@ For now, each `edges` row represents one relationship rather than a computed
 multi-edge Cypher path. `edge_type` is relationship data, while both endpoints
 are foreign keys. Foreign-key enforcement is enabled per connection. A
 trigger-maintained `node_labels (label, node_id)` table indexes label lookups,
-and indexes cover endpoint/type lookups. Schema version 3 combines multiple labels and property indexes. Files from
-main's versions 1 and 2 are upgraded atomically on open, including property-index
-backfill. The experimental single-label version 2 from the former benchmark
+and indexes cover endpoint/type lookups. Schema version 4 adds persistent node
+uniqueness declarations and typed value keys maintained by triggers. Files from
+main's versions 1, 2, and 3 are upgraded atomically on open, including
+property-index backfill. The experimental single-label version 2 from the former benchmark
 branch is rejected; recreate those experimental databases.
 
 A fourth table indexes node properties. It holds one row per top-level

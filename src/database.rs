@@ -23,11 +23,12 @@ use crate::{
 };
 
 mod comparison;
+pub(crate) mod constraints;
 pub(crate) mod transaction;
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const INITIAL_SCHEMA: &str = "
 
@@ -1928,6 +1929,7 @@ fn take_string(
 }
 
 fn initialize(connection: &mut Connection) -> Result<()> {
+    constraints::register(connection)?;
     // Foreign-key enforcement is connection-local and cannot be changed while
     // a transaction is active, so enable it before schema initialization.
     connection.execute_batch("PRAGMA foreign_keys = ON;")?;
@@ -1937,7 +1939,7 @@ fn initialize(connection: &mut Connection) -> Result<()> {
     let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if application_id == APPLICATION_ID {
-        if matches!(schema_version, 1 | 2) {
+        if matches!(schema_version, 1..=3) {
             return upgrade_schema(connection, schema_version);
         }
         if schema_version != SCHEMA_VERSION {
@@ -1970,7 +1972,7 @@ fn initialize(connection: &mut Connection) -> Result<()> {
     upgrade_schema(connection, 0)
 }
 
-/// Install labels and the property index together, rolling back both schema
+/// Install labels, property indexes, and uniqueness support, rolling back schema
 /// changes and the version marker if any validation or backfill fails.
 fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -1984,9 +1986,13 @@ fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
                 crate::Error::Data("unsupported experimental version 2 schema; expected main's multi-label layout".into())
             })?;
         }
+        3 => {}
         _ => unreachable!("only known schema versions can be upgraded"),
     }
-    transaction.execute_batch(PROPERTY_INDEX_SCHEMA)?;
+    if from < 3 {
+        transaction.execute_batch(PROPERTY_INDEX_SCHEMA)?;
+    }
+    transaction.execute_batch(constraints::SCHEMA)?;
     transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     validate_schema(&transaction)?;
     transaction.commit()?;
@@ -2369,6 +2375,8 @@ fn json_real_text(value: f64) -> String {
 /// Cypher value domain. Equal integers and floats deliberately share a key;
 /// booleans remain distinct from numbers, and collection values recurse using
 /// the same rules. SQLite uses the resulting blob for GROUP BY and DISTINCT.
+/// Uniqueness constraints persist these keys; changing this encoding requires
+/// rebuilding their keys in a schema migration.
 fn semantic_json_key(value: &serde_json::Value) -> Vec<u8> {
     fn append_len(output: &mut Vec<u8>, len: usize) {
         output.extend_from_slice(&(len as u64).to_be_bytes());
@@ -2448,6 +2456,8 @@ fn validate_schema(connection: &Connection) -> Result<()> {
     connection.prepare("SELECT label, node_id FROM node_labels LIMIT 0")?;
     connection.prepare("SELECT id, edge_type, from_node, to_node, props FROM edges LIMIT 0")?;
     connection.prepare("SELECT node_id, key, value FROM node_properties LIMIT 0")?;
+    connection.prepare("SELECT label, property FROM node_unique_constraints LIMIT 0")?;
+    connection.prepare("SELECT label, property, value, node_id FROM node_unique_values LIMIT 0")?;
     Ok(())
 }
 
@@ -3458,6 +3468,91 @@ mod tests {
             )
             .unwrap();
         assert_eq!(objects, 0);
+    }
+
+    #[test]
+    fn version_three_upgrade_preserves_data_and_supports_unique_constraints() {
+        let connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection.execute_batch(PROPERTY_INDEX_SCHEMA).unwrap();
+        connection
+            .execute_batch(
+                r#"PRAGMA user_version = 3;
+               INSERT INTO nodes (id, labels, props) VALUES
+                   ('a', '["Person", "Member"]', '{"email":"a"}'),
+                   ('b', '["Person"]', '{"email":"a"}');
+               INSERT INTO edges (id, edge_type, from_node, to_node)
+                   VALUES ('edge', 'LINK', 'a', 'b');"#,
+            )
+            .unwrap();
+        let mut database = Database::from_connection(connection).unwrap();
+        assert!(database.unique_constraints().unwrap().is_empty());
+        assert!(matches!(
+            database.create_unique_constraint("Person", "email"),
+            Err(crate::Error::Constraint(_))
+        ));
+        assert_eq!(
+            database
+                .execute("MATCH (a:Member)-[:LINK]->(b:Person) RETURN a.email, b.email")
+                .unwrap()
+                .rows,
+            [vec![json!("a"), json!("a")]]
+        );
+        database
+            .execute("MATCH (a:Member) SET a.email = 'changed'")
+            .unwrap();
+        database
+            .create_unique_constraint("Person", "email")
+            .unwrap();
+        assert!(matches!(
+            database.execute("CREATE (:Person {email: 'changed'})"),
+            Err(crate::Error::Constraint(_))
+        ));
+        let version: i64 = database
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        initialize(&mut database.connection).unwrap();
+        assert_eq!(database.unique_constraints().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn failed_uniqueness_upgrade_rolls_back_ddl_and_version() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection.execute_batch(PROPERTY_INDEX_SCHEMA).unwrap();
+        // Make a later DDL statement fail after the new tables were created.
+        connection
+            .execute_batch(
+                "PRAGMA user_version = 3;
+             CREATE TRIGGER node_unique_insert AFTER INSERT ON nodes BEGIN SELECT 1; END;
+             INSERT INTO nodes (id) VALUES ('saved');",
+            )
+            .unwrap();
+        assert!(initialize(&mut connection).is_err());
+        assert!(connection.is_autocommit());
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 3);
+        let objects: Vec<String> = connection
+            .prepare("SELECT name FROM sqlite_schema WHERE name LIKE 'node_unique%' ORDER BY name")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(objects, ["node_unique_insert"]);
+        let nodes: i64 = connection
+            .query_row("SELECT count(*) FROM nodes", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(nodes, 1);
+        connection
+            .execute_batch("DROP TRIGGER node_unique_insert")
+            .unwrap();
+        initialize(&mut connection).unwrap();
+        assert_eq!(constraints::list(&connection).unwrap().len(), 0);
     }
 
     #[test]

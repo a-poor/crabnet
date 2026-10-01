@@ -1,8 +1,10 @@
 use rusqlite::{Connection, Transaction as SqliteTransaction, TransactionBehavior};
 
-use crate::{Error, Parameters, QueryResult, Result, planner::Plan};
+use crate::{Error, Parameters, QueryResult, Result, UniqueConstraint, planner::Plan};
 
-use super::{execute_mutation_plan, execute_read_plan, planner, traversal::TrailBudget};
+use super::{
+    constraints, execute_mutation_plan, execute_read_plan, planner, traversal::TrailBudget,
+};
 
 /// An atomic group of Cypher queries, created by [`crate::Database::transaction`].
 ///
@@ -11,11 +13,12 @@ use super::{execute_mutation_plan, execute_read_plan, planner, traversal::TrailB
 /// rolls them back, including when unwinding a panic. Results and summaries
 /// describe each query's work and are provisional until commit succeeds.
 ///
-/// Any query error, including a planning or parameter error, immediately rolls
-/// back the whole transaction. The failing call returns its original error
-/// unless rollback itself fails. Subsequent execution or commit returns
-/// [`Error::TransactionAborted`]. Consume or drop the handle before reusing its
-/// database. Nested transactions and savepoints are not exposed.
+/// Any query or constraint-management error immediately rolls back the whole
+/// transaction, including planning or parameter errors. The failing call
+/// returns its original error unless rollback itself fails. Subsequent
+/// execution or commit returns [`Error::TransactionAborted`]. Consume or drop
+/// the handle before reusing its database. Nested transactions and savepoints
+/// are not exposed.
 #[must_use = "transactions must be committed explicitly or their writes are rolled back"]
 pub struct Transaction<'database> {
     // Taking the inner transaction makes an aborted handle permanently inert.
@@ -42,13 +45,38 @@ impl<'database> Transaction<'database> {
     /// Planning and parameter validation finish before this query executes.
     /// Any error rolls back the entire transaction and prevents a later commit.
     pub fn execute_with(&mut self, cypher: &str, parameters: &Parameters) -> Result<QueryResult> {
-        let transaction = self.inner.as_ref().ok_or(Error::TransactionAborted)?;
-        let result = (|| match planner::compile(cypher)? {
+        self.run(|transaction| match planner::compile(cypher)? {
             Plan::Read(plan) => {
                 execute_read_plan(transaction, plan, parameters, &mut TrailBudget::default())
             }
             Plan::Mutate(plan) => execute_mutation_plan(transaction, (*plan).resolve(parameters)?),
-        })();
+        })
+    }
+
+    /// Installs a node uniqueness constraint in this transaction.
+    ///
+    /// Uses [`crate::Database::create_unique_constraint`] semantics and sees
+    /// earlier writes. A conflict aborts the whole transaction. A successful
+    /// installation is provisional until commit, and applies to later writes.
+    pub fn create_unique_constraint(&mut self, label: &str, property: &str) -> Result<bool> {
+        self.run(|transaction| constraints::create(transaction, label, property))
+    }
+
+    /// Removes a constraint in this transaction, returning whether it existed.
+    /// Rollback restores both the declaration and its enforced property keys.
+    pub fn drop_unique_constraint(&mut self, label: &str, property: &str) -> Result<bool> {
+        self.run(|transaction| constraints::drop(transaction, label, property))
+    }
+
+    /// Lists constraints in label/property order, including this transaction's changes.
+    /// An error aborts the transaction, as for queries and constraint changes.
+    pub fn unique_constraints(&mut self) -> Result<Vec<UniqueConstraint>> {
+        self.run(|transaction| constraints::list(transaction))
+    }
+
+    fn run<T>(&mut self, operation: impl FnOnce(&SqliteTransaction<'_>) -> Result<T>) -> Result<T> {
+        let transaction = self.inner.as_ref().ok_or(Error::TransactionAborted)?;
+        let result = operation(transaction);
         if result.is_err()
             && let Some(transaction) = self.inner.take()
         {

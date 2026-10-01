@@ -46,6 +46,12 @@ end-to-end result test for user-visible semantics.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
+- `tests/uniqueness_constraints.rs` covers the node label/property constraint
+  API: installation over existing data, idempotent create/drop, typed recursive
+  equality and numeric precision, missing/null values, exact names, independent
+  and overlapping declarations, all mutation routes, bags, immediate checks,
+  parameter/result failures, transaction abort/rollback, and reopen/connection
+  visibility. Schema unit tests cover migration and atomic DDL failure.
 - `tests/arithmetic_and_distinct.rs` locks down numeric expression typing,
   precedence, invalid-operand nulls, typed ordering, and post-decode semantic
   `DISTINCT`, including pagination and ordering-scope boundaries.
@@ -323,7 +329,8 @@ the path and traversal integration suites remain the semantic oracle.
 Application usability (milestone 10) is the next main milestone; its checklist
 and current working order live in [roadmap.md](roadmap.md). Multi-query
 transactions, `WITH DISTINCT`, entity collection/expansion, path-list `UNWIND`,
-and aggregate expressions are complete. Milestone 9 continues as
+aggregate expressions, and application node uniqueness constraints are complete.
+Configurable query resources are next. Milestone 9 continues as
 supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,

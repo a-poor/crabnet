@@ -13,8 +13,8 @@ deferred until an application needs it.
 
 - Crabnet is used only in this repository today. We may freely reshape its
   modules, public API, logical plan, SQLite schema, and on-disk representation.
-- Schema compatibility remains experimental. Version 3 preserves the upgrades
-  from main's versions 1 and 2; migrations and index backfills run atomically.
+- Schema compatibility remains experimental. Version 4 preserves the upgrades
+  from main's versions 1, 2, and 3; migrations and index backfills run atomically.
   Unreleased branch-only formats may require recreating the database.
 - Git provides recovery. Code should be clear enough to support the next
   experiment, not preserved merely because it already exists.
@@ -507,11 +507,17 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   multiplicity/rollback. Twenty-five additional TCK scenarios pass, including
   proper rejection of ambiguous compound grouping expressions. Broader
   entity-list indexing, comprehensions, and nesting remain follow-up work.
-- [ ] **Application uniqueness constraints.** Allow applications to declare
-  label/property keys such as `:Person.email`. Define missing/null and typed
-  equality semantics, reject conflicting existing data when installing a
-  constraint, and enforce it across `CREATE`, `MERGE`, property and label
-  changes, rollback, and reopening.
+- [x] **Application uniqueness constraints.** `Database` and `Transaction`
+  expose create/list/drop methods for a node label/property pair such as
+  `:Person.email`. Installation rejects conflicting existing data atomically;
+  missing/null values are exempt, and other values use recursive typed
+  `DISTINCT` equivalence. Trigger-maintained keys enforce immediate checks
+  across `CREATE`, `MERGE`, property and label changes, and deletion. Twelve
+  integration tests cover typed precision, bags, independent/overlapping keys,
+  hostile names, rollback/abort, and persistence/connection visibility.
+  Schema version 4 upgrades versions 1–3 atomically, with migration and
+  failed-upgrade tests. Composite keys, relationship constraints, and Cypher
+  schema DDL remain follow-up work.
 - [ ] **Caller-controlled query resources.** Add configurable budgets,
   deadlines, cancellation, and result-size limits. Cover SQLite execution,
   Rust operators, and materialized results; failures must leave the connection
@@ -537,8 +543,8 @@ the workload has reproducible performance and resource measurements.
 Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
 (`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete, as is `UNWIND`
 for path-function and legacy relationship lists. Aggregate expressions such
-as `count(*) + 1` are also complete. Next tackle application uniqueness
-constraints. Track broader entity-list operations
+as `count(*) + 1` and application node uniqueness constraints are also complete.
+Next tackle caller-controlled query resources. Track broader entity-list operations
 (indexing, comprehensions, and nested collections) as follow-up composition
 work. Develop the dependency-graph example alongside these APIs so application
 needs guide constraints, resource controls, and persistent operation. Track

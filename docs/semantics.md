@@ -951,6 +951,61 @@ failure rolls back every mutation performed by the statement. An optional
 project whole matched or created entities as well as supported properties and
 metadata; for deleted entities it follows the snapshot rule above.
 
+### Node uniqueness constraints
+
+`Database::create_unique_constraint(label, property)` declares uniqueness of
+one top-level property among nodes carrying that label. It returns `true` for
+a new declaration and `false` for an existing one. Installation validates all
+existing members in one immediate transaction; conflicts return
+`Error::Constraint` without installing any part of the constraint or changing
+the graph. Existing duplicates remain legal until an application installs a
+constraint. `drop_unique_constraint(label, property)` returns whether a
+declaration was removed and leaves graph data unchanged.
+`unique_constraints()` returns `Vec<UniqueConstraint>` in label/property
+order. The public record contains `label` and `property` strings.
+
+Names are exact, case-sensitive strings, without Cypher backticks or a leading
+colon. Empty names and unusual characters follow the same rules as decoded
+Cypher labels and property keys; the API binds them as data. Each declaration
+is independent, including constraints on overlapping labels or different
+properties. Relationship properties are unaffected.
+
+Missing and top-level null properties do not reserve a value. Every other
+stored property kind is supported using the same typed equivalence as
+`DISTINCT`: numerically equal integers and floats conflict, signed zero is
+normalized, booleans and strings remain distinct from numbers, and strings
+are case-sensitive without Unicode normalization. Lists compare in order;
+maps compare by keys and values, independent of key order. Both recurse with
+the same numeric rules and treat corresponding null members as equal. Thus
+`[1, null]` conflicts with `[1.0, null]`, even though comparing these values
+with the three-valued `=` predicate produces null. Floating-point keys are
+derived from the original stored JSON without SQLite JSON reformatting.
+
+Checks run immediately for each node mutation, including `CREATE`, `MERGE`,
+property replacement/merge/removal, and label changes. They are not deferred
+to the end of a query or transaction. Reassigning a node's own key is legal;
+assigning another node's key fails even if a later clause would free it.
+Release a key first by changing/removing its property, removing the label, or
+deleting the node. `MERGE` still matches the whole pattern: a conflicting
+partial match fails with `Error::Constraint` instead of silently reusing a
+node that does not match. Errors identify the label/property pair and roll
+back the whole statement, including prior mutations and index changes.
+
+`Transaction` exposes the same three methods. Installation sees prior writes
+and applies to subsequent writes; create/drop changes remain provisional
+until commit. Any query or constraint-management error aborts the entire
+transaction. Rollback, drop, and query-result failures restore both data and
+constraints. These schema methods do not produce `QuerySummary` counters.
+
+Declarations and their keys persist in schema version 4. Opening main's
+versions 1, 2, or 3 upgrades atomically, retaining existing data and installing
+no constraints by default. Failed migrations leave the previous schema and
+version marker intact. Triggers enforce uniqueness under SQLite's writer
+reservation; another Crabnet connection observes committed constraint
+changes. Direct external SQLite writes are not a supported application API.
+Composite keys, relationship constraints, named constraints, and Cypher
+schema DDL are not implemented.
+
 ### Application transactions
 
 `Database::transaction()` returns a `Transaction` that exclusively borrows the
@@ -970,9 +1025,9 @@ The parent database cannot be used until the handle is consumed or dropped.
 Empty transactions may be committed or rolled back. This initial API exposes
 neither nested transactions nor savepoints nor a read-only transaction mode.
 
-Any query error aborts the entire application transaction, including parse,
-semantic, unsupported-feature, missing-parameter, runtime type, constraint,
-and resource-limit errors. The failing call rolls back immediately and returns
+Any query or constraint-management error aborts the entire application
+transaction, including parse, semantic, unsupported-feature, missing-parameter,
+runtime type, constraint, and resource-limit errors. The failing call rolls back immediately and returns
 the query's original error unless rollback itself fails. If SQLite has
 already rolled back, cleanup does not replace the original error with a
 redundant-rollback error. Further query execution and commit return
@@ -998,10 +1053,10 @@ Malformed input uses `Error::Parse`, and supported syntax with invalid names,
 entity kinds, or statically wrong value kinds uses `Error::Semantic`. During
 execution, a value of the wrong kind fails with `Error::Type`, a function
 argument out of its domain with `Error::Argument`, and a write that would
-break the graph, such as a plain `DELETE` of a node that still has
-relationships, with `Error::Constraint`. Planning completes before mutation
-execution, so an unsupported write statement cannot partially modify the
-graph.
+break the graph, such as a uniqueness violation or a plain `DELETE` of a node
+that still has relationships, with `Error::Constraint`. Planning completes
+before mutation execution, so an unsupported write statement cannot partially
+modify the graph.
 
 Supported deep/open-ended or shortest-path traversal can instead fail during
 execution with `Error::ResourceLimit` when either shared query-wide limit is

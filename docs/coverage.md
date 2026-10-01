@@ -112,6 +112,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Writes fed by traversal or named paths | Rejected | A mutation whose matched input contains variable-length or shortest-path traversal, a relationship-list binding, or any named path fails before execution and cannot leave side effects; see the write-rejection cases in `bounded_traversal.rs`, `unbounded_traversal.rs`, `path_values.rs`, `relationship_list_values.rs`, and `shortest_paths.rs` |
 | Computed projections and projection modifiers after mutations | Covered | The post-mutation `RETURN` is compiled as a read over the `_crabnet_rows` temporary table holding the materialized rows, so computed expressions, aggregates, `DISTINCT`, ordering, skip/offset, and limit all work; `post_mutation_return_supports_computed_projections_and_modifiers` in `write_semantics.rs` and the TCK post-mutation buckets (now empty) cover it |
 | Application transactions | Covered | `Database::transaction()` exposes parameterized multi-query execution, read-your-writes, explicit commit/rollback, and rollback on drop or panic unwinding. Any query error rolls back the entire transaction immediately and prevents later execution or commit with `Error::TransactionAborted`. `transactions.rs` covers typed parameters, bags/nulls, per-query summaries, pipelines, MERGE, indexed property/label rollback, hybrid paths/unions/hydration, per-query traversal budgets, runtime and planning failures, write-lock release, and reopen. A transaction unit test covers SQLite-initiated rollback preserving the original error |
+| Application node uniqueness | Covered | `Database` and `Transaction` expose create/list/drop for a node label/property pair. Installation checks existing data, null/missing values are exempt, and non-null values use recursive typed `DISTINCT` equivalence. `uniqueness_constraints.rs` covers every mutation route, independent/overlapping declarations, immediate checks, bags, numeric precision, parameter/result failures, rollback/abort, hostile names, reopen, and visibility across connections. Schema unit tests cover version 3 migration and failed-upgrade rollback; older migration tests remain green. Composite keys, relationship constraints, and Cypher schema DDL are outside the API |
 | Query-wide graph-value hydration | Covered | After branch-local semantic distinctness/pagination and left-to-right unions, IDs surviving in paths, path-function lists, and relationship-list bindings are deduplicated query-wide. Directly projected entities seed the cache; remaining values use at most one node query and one edge query. Runtime producers, SQL fragments, unions, and hydration share one snapshot: a deferred read transaction for standalone reads or the enclosing application transaction |
 | Hybrid traversal resource guards | Covered | Deep/open-ended enumeration and shortest-path BFS share fixed query-wide limits of 100,000 explored trail states and 128 MiB of exact compact JSON runtime payload. Exhaustion returns `Error::ResourceLimit` without truncation. Tests cover public default state exhaustion with zero emitted rows, exact/one-byte-short UTF-8 payload boundaries, `[]`, shortest paths, and cross-`UNION` sharing |
 | Selective hybrid traversal seeding | Covered | Start-endpoint label and inline-property constraints compile to a bound node-domain query that seeds the Rust producer; an unconstrained positive-hop start seeds only nodes beginning an eligible edge, and end-endpoint constraints filter emitted rows before serialization. Domains are supersets of the SQLite join, so results are unchanged while explored states and payload shrink. `explain_physical` shows each domain or `unrestricted` |
@@ -132,14 +133,13 @@ move the row into the matrix when green.
 The active milestone and task status live in [roadmap.md](roadmap.md),
 milestone 10. Its next test slices are:
 
-1. Uniqueness constraints across existing data, every mutation route,
-   transactions, and reopening.
+1. Query cancellation and resource limits across SQLite, Rust, and result
+   materialization, with rollback and connection reuse. Node uniqueness is
+   complete across existing data, mutations, transactions, and reopening.
 2. Broader entity-list operations: indexing, comprehensions, and nested
    collections. Aggregate expressions and entity collection/expansion,
    including path-list `UNWIND`, are complete.
-3. Query cancellation and resource limits across SQLite, Rust, and result
-   materialization, with rollback and connection reuse.
-4. A persistent dependency-graph application's lifecycle: repeated import,
+3. A persistent dependency-graph application's lifecycle: repeated import,
    traversal, update, deletion, rollback, reopening, backup, and recovery.
 
 Continue checking the pinned TCK during these slices. Remaining NaN and other

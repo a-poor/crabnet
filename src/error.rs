@@ -26,7 +26,8 @@ pub enum Error {
     /// A function received an argument value it cannot accept at runtime.
     Argument(String),
     /// A write would leave the graph inconsistent, such as deleting a node
-    /// that still has relationships without `DETACH`.
+    /// that still has relationships without `DETACH`, or violating a node
+    /// property uniqueness constraint (including when installing one).
     Constraint(String),
     /// An operator or function met a value of a kind it cannot accept, such
     /// as `NOT 1` or indexing a string, where the kind was only known at
@@ -70,6 +71,9 @@ pub(crate) const ARGUMENT_ERROR_TAG: &str = "crabnet-argument-error: ";
 /// Prefix the `crabnet_type_error` SQL function puts on type error messages.
 pub(crate) const TYPE_ERROR_TAG: &str = "crabnet-type-error: ";
 
+/// Prefix used by the persistent uniqueness triggers.
+const CONSTRAINT_ERROR_TAG: &str = "crabnet-constraint-error: ";
+
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
         // Generated SQL raises runtime argument errors through a registered
@@ -81,6 +85,9 @@ impl From<rusqlite::Error> for Error {
             }
             if let Some(message) = message.strip_prefix(TYPE_ERROR_TAG) {
                 return Self::Type(message.to_owned());
+            }
+            if let Some(message) = message.strip_prefix(CONSTRAINT_ERROR_TAG) {
+                return Self::Constraint(message.to_owned());
             }
         }
         Self::Sqlite(error)
