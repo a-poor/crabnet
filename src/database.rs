@@ -2714,6 +2714,24 @@ mod tests {
                 2,
             ),
             (
+                "aggregate-expressions-group-before-scalar-composition",
+                r#"UNWIND $values AS value
+                   WITH value % 2 AS parity, value
+                   WITH DISTINCT parity, count(*) + $step AS tally,
+                        [x IN collect(value) WHERE x > $floor | x + $step] AS kept
+                   ORDER BY tally DESC LIMIT $limit
+                   WHERE tally > $floor
+                   RETURN parity, kept, {count: tally, first: kept[0]} AS report"#,
+                Parameters::from([
+                    ("values".to_owned(), json!([1, 2, 2, 3])),
+                    ("step".to_owned(), json!(1)),
+                    ("floor".to_owned(), json!(0)),
+                    ("limit".to_owned(), json!(2)),
+                ]),
+                1,
+                0,
+            ),
+            (
                 "three-branch-union",
                 r#"RETURN $left AS value
                    UNION RETURN $middle AS value

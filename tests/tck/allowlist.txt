@@ -598,6 +598,7 @@ clauses/return-orderby/ReturnOrderBy1.feature::[6] ORDER BY DESC should order in
 clauses/return-orderby/ReturnOrderBy1.feature::[7] ORDER BY should order floats in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[8] ORDER BY DESC should order floats in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[9] ORDER BY should order lists in the expected order
+clauses/return-orderby/ReturnOrderBy2.feature::[11] Aggregates ordered by arithmetics
 clauses/return-orderby/ReturnOrderBy2.feature::[13] Fail when sorting on variable removed by DISTINCT
 clauses/return-orderby/ReturnOrderBy2.feature::[14] Fail on aggregation in ORDER BY after RETURN
 clauses/return-orderby/ReturnOrderBy2.feature::[1] ORDER BY should return results in ascending order
@@ -611,7 +612,11 @@ clauses/return-orderby/ReturnOrderBy3.feature::[1] Sort on aggregate function an
 clauses/return-orderby/ReturnOrderBy4.feature::[1] ORDER BY of a column introduced in RETURN should return salient results in ascending order
 clauses/return-orderby/ReturnOrderBy4.feature::[2] Handle projections with ORDER BY
 clauses/return-orderby/ReturnOrderBy5.feature::[1] Renaming columns before ORDER BY should return results in ascending order
+clauses/return-orderby/ReturnOrderBy6.feature::[1] Handle constants and parameters inside an order by item which contains an aggregation expression
+clauses/return-orderby/ReturnOrderBy6.feature::[2] Handle returned aliases inside an order by item which contains an aggregation expression
+clauses/return-orderby/ReturnOrderBy6.feature::[3] Handle returned property accesses inside an order by item which contains an aggregation expression
 clauses/return-orderby/ReturnOrderBy6.feature::[4] Fail if not returned variables are used inside an order by item which contains an aggregation expression
+clauses/return-orderby/ReturnOrderBy6.feature::[5] Fail if more complex expressions, even if returned, are used inside an order by item which contains an aggregation expression
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[10] Fail when using non-constants in SKIP
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[11] Fail when using negative value in SKIP
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[1] Start the result from the second row
@@ -643,6 +648,7 @@ clauses/return-skip-limit/ReturnSkipLimit3.feature::[2] Get rows in the middle b
 clauses/return-skip-limit/ReturnSkipLimit3.feature::[3] Limiting amount of rows when there are fewer left than the LIMIT argument
 clauses/return/Return1.feature::[1] Returning a list property
 clauses/return/Return1.feature::[2] Fail when returning an undefined variable
+clauses/return/Return2.feature::[10] Return count aggregation over an empty graph
 clauses/return/Return2.feature::[11] RETURN does not lose precision on large integers
 clauses/return/Return2.feature::[14] Do not fail when returning type of deleted relationships
 clauses/return/Return2.feature::[2] Returning a node property value
@@ -657,6 +663,7 @@ clauses/return/Return3.feature::[1] Returning multiple expressions
 clauses/return/Return3.feature::[2] Returning multiple node property values
 clauses/return/Return3.feature::[3] Projecting nodes and relationships
 clauses/return/Return4.feature::[10] Fail when returning multiple columns with same name
+clauses/return/Return4.feature::[11] Reusing variable names in RETURN
 clauses/return/Return4.feature::[1] Honour the column name for RETURN items
 clauses/return/Return4.feature::[2] Support column renaming
 clauses/return/Return4.feature::[3] Aliasing expressions
@@ -664,6 +671,7 @@ clauses/return/Return4.feature::[4] Keeping used expression 1
 clauses/return/Return4.feature::[5] Keeping used expression 2
 clauses/return/Return4.feature::[7] Keeping used expression 4
 clauses/return/Return4.feature::[8] Support column renaming for aggregations
+clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map
 clauses/return/Return5.feature::[1] DISTINCT inside aggregation should work with lists in maps
 clauses/return/Return5.feature::[2] DISTINCT on nullable values
 clauses/return/Return5.feature::[3] DISTINCT inside aggregation should work with nested lists in maps
@@ -676,10 +684,20 @@ clauses/return/Return6.feature::[13] Returning the minimum length of paths
 clauses/return/Return6.feature::[14] Aggregates in aggregates
 clauses/return/Return6.feature::[15] Using `rand()` in aggregations
 clauses/return/Return6.feature::[16] Aggregation on complex expressions
+clauses/return/Return6.feature::[17] Handle constants and parameters inside an expression which contains an aggregation expression
+clauses/return/Return6.feature::[18] Handle returned variables inside an expression which contains an aggregation expression
+clauses/return/Return6.feature::[19] Handle returned property accesses inside an expression which contains an aggregation expression
 clauses/return/Return6.feature::[1] Return count aggregation over nodes
+clauses/return/Return6.feature::[20] Fail if not returned variables are used inside an expression which contains an aggregation expression
+clauses/return/Return6.feature::[21] Fail if more complex expressions, even if returned, are used inside expression which contains an aggregation expression
+clauses/return/Return6.feature::[2] Projecting an arithmetic expression with aggregation
 clauses/return/Return6.feature::[3] Aggregating by a list property has a correct definition of equality
+clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function
+clauses/return/Return6.feature::[5] Aggregates inside normal functions
+clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions
 clauses/return/Return6.feature::[7] Aggregate on property
 clauses/return/Return6.feature::[8] Handle aggregation on functions
+clauses/return/Return6.feature::[9] Aggregates with arithmetics
 clauses/return/Return7.feature::[1] Return all variables
 clauses/return/Return7.feature::[2] Fail when using RETURN * without variables in scope
 clauses/return/Return8.feature::[1] Return aggregation after With filtering
@@ -1013,12 +1031,18 @@ clauses/with/With4.feature::[1] Aliasing relationship variable
 clauses/with/With4.feature::[2] Aliasing expression to new variable name
 clauses/with/With4.feature::[3] Aliasing expression to existing variable name
 clauses/with/With4.feature::[4] Fail when forwarding multiple aliases with the same name
+clauses/with/With4.feature::[6] Reusing variable names in WITH
 clauses/with/With4.feature::[7] Multiple aliasing and backreferencing
 clauses/with/With5.feature::[1] DISTINCT on an expression
 clauses/with/With5.feature::[2] Handling DISTINCT with lists in maps
 clauses/with/With6.feature::[1] Implicit grouping with single expression as grouping key and single aggregation
 clauses/with/With6.feature::[2] Implicit grouping with single relationship variable as grouping key and single aggregation
 clauses/with/With6.feature::[3] Implicit grouping with multiple node and relationship variables as grouping key and single aggregation
+clauses/with/With6.feature::[5] Handle constants and parameters inside an expression which contains an aggregation expression
+clauses/with/With6.feature::[6] Handle projected variables inside an expression which contains an aggregation expression
+clauses/with/With6.feature::[7] Handle projected property accesses inside an expression which contains an aggregation expression
+clauses/with/With6.feature::[8] Fail if not projected variables are used inside an expression which contains an aggregation expression
+clauses/with/With6.feature::[9] Fail if more complex expression, even if projected, are used inside expression which contains an aggregation expression
 clauses/with/With7.feature::[1] A simple pattern with one bound endpoint
 clauses/with/With7.feature::[2] Multiple WITHs using a predicate and aggregation
 expressions/aggregation/Aggregation1.feature::[1] Count only non-null values
@@ -1384,6 +1408,7 @@ expressions/list/List11.feature::[2] Create list from `range()` with explicitly 
 expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 7
 expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 8
 expressions/list/List11.feature::[2] Create list from `range()` with explicitly given step::example 9
+expressions/list/List11.feature::[3] Create an empty list if range direction and step direction are inconsistent
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 1
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 2
 expressions/list/List11.feature::[4] Fail on invalid arguments for `range()`::example 3

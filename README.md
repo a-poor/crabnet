@@ -158,9 +158,10 @@ Within those shapes, the first iteration supports:
 - `WITH` and `WITH DISTINCT` stages carrying aliased entities, paths, and scalars, with scope
   loss, `WHERE`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` before later
   clauses, plus `WITH *` and `RETURN *`
-- implicit grouping with top-level `count`, `sum`, `avg`, `min`, `max`, and
-  `collect` projections in `RETURN` or `WITH`, including `collect(n)` and
-  `collect(DISTINCT n)` for nodes and relationships, and typed scalar deduplication
+- implicit grouping with `count`, `sum`, `avg`, `min`, `max`, and `collect`
+  in `RETURN` or `WITH`, including expressions such as `count(*) + 1`,
+  `coalesce(avg(n.score), 0)`, and `size(collect(DISTINCT n))`; entity
+  collections preserve identity and scalar collections use typed deduplication
 - list expansion with `UNWIND`, including collected entities that can feed
   later matches and writes, and path-function or legacy relationship lists
   that can feed later reads, plus typed semantic `UNION` deduplication and
@@ -346,10 +347,10 @@ from `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
 `DISTINCT`, `size()`, and `UNWIND`; indexing, comprehensions, nested collections,
 and other scalar operations on them remain unsupported.
-Unaliased computed `WITH` expressions and nested/embedded aggregate projections
+Unaliased computed `WITH` expressions and aggregates nested inside aggregates
 are explicitly rejected, as is an updating clause after `DELETE` in the same
 statement. Among aggregates, `DISTINCT` is supported by `count` and `collect`;
-the other aggregate forms fail during planning.
+using it on another aggregate fails during planning.
 
 ## Planning and execution
 

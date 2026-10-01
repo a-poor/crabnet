@@ -11,14 +11,6 @@ fn semantic_error(database: &mut Database, query: &str) -> String {
     }
 }
 
-fn unsupported_error(database: &mut Database, query: &str) -> String {
-    match database.execute(query) {
-        Err(Error::Unsupported(message)) => message,
-        Err(other) => panic!("expected an unsupported error for `{query}`, got {other}"),
-        Ok(result) => panic!("expected `{query}` to fail, got {result:?}"),
-    }
-}
-
 fn grouped_frequency(rows: &[Vec<CypherValue>], expected: &CypherValue) -> Option<i64> {
     rows.iter().find_map(|row| match row.as_slice() {
         [value, CypherValue::Integer(frequency)] if value == expected => Some(*frequency),
@@ -378,19 +370,13 @@ fn aggregate_bad_arity_and_wildcard_forms_are_structured_errors() {
 }
 
 #[test]
-fn nested_and_projection_mixed_aggregates_are_rejected_during_planning() {
+fn nested_aggregates_are_rejected_during_planning() {
     let mut database = Database::in_memory().unwrap();
 
     let nested = semantic_error(&mut database, "RETURN sum(count(*)) AS value");
     assert!(
         nested.contains("cannot be nested"),
         "unexpected error: {nested}"
-    );
-
-    let mixed = unsupported_error(&mut database, "RETURN count(*) + 1 AS value");
-    assert!(
-        mixed.contains("nested in projection expressions"),
-        "unexpected error: {mixed}"
     );
 }
 

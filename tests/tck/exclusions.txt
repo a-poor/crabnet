@@ -109,17 +109,11 @@ clauses/merge/Merge5.feature::[28] Fail when using variable length relationship 
 clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
 clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	semantic-error: graph variable `n` is not a scalar expression
 clauses/return-orderby/ReturnOrderBy2.feature::[10] Returned columns do not change from using ORDER BY	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
-clauses/return-orderby/ReturnOrderBy2.feature::[11] Aggregates ordered by arithmetics	unsupported: aggregate calls nested in projection expressions
 clauses/return-orderby/ReturnOrderBy2.feature::[12] Aggregation of named paths	unsupported: path values or path collections in aggregate functions
 clauses/return-orderby/ReturnOrderBy2.feature::[4] Support sort and distinct	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[5] Support ordering by a property after being distinct-ified	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
-clauses/return-orderby/ReturnOrderBy6.feature::[1] Handle constants and parameters inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT COALESCE(crabnet_json_real(((CASE WHEN COUNT(*) FILTER (WHERE ((json_extract(n0.props, '$.' |
-clauses/return-orderby/ReturnOrderBy6.feature::[2] Handle returned aliases inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT (CASE (json_type(n0.props, '$.' || json_quote(?3))) WHEN 'text' THEN json_quote((json_extract
-clauses/return-orderby/ReturnOrderBy6.feature::[3] Handle returned property accesses inside an order by item which contains an aggregation expression	sqlite-error: misuse of aggregate function COUNT() in SELECT (CASE (json_type(n0.props, '$.' || json_quote(?3))) WHEN 'text' THEN json_quote((json_extract
-clauses/return-orderby/ReturnOrderBy6.feature::[5] Fail if more complex expressions, even if returned, are used inside an order by item which contains an aggregation expression	wrong-error-kind: sqlite-error: misuse of aggregate function COUNT() in SELECT (SELECT (CASE (s1.t1_0) WHEN 'text' THEN json_quote((s1.v1_0)) WHEN 'real' THEN COALESCE(crab
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[3] SKIP with an expression that does not depend on variables	semantic-error: SKIP and LIMIT require an integer literal or named parameter
 clauses/return-skip-limit/ReturnSkipLimit2.feature::[6] LIMIT with an expression that does not depend on variables	semantic-error: SKIP and LIMIT require an integer literal or named parameter
-clauses/return/Return2.feature::[10] Return count aggregation over an empty graph	unsupported: aggregate calls nested in projection expressions
 clauses/return/Return2.feature::[12] Projecting a list of nodes and relationships	semantic-error: graph variable `n` is not a scalar expression
 clauses/return/Return2.feature::[13] Projecting a map of nodes and relationships	semantic-error: graph variable `n` is not a scalar expression
 clauses/return/Return2.feature::[15] Fail when returning properties of deleted nodes	expected-error-not-raised
@@ -127,19 +121,7 @@ clauses/return/Return2.feature::[16] Fail when returning labels of deleted nodes
 clauses/return/Return2.feature::[17] Fail when returning properties of deleted relationships	expected-error-not-raised
 clauses/return/Return2.feature::[18] Fail on projecting a non-existent function	wrong-error-kind: unsupported: function `foo`
 clauses/return/Return2.feature::[1] Arithmetic expressions should propagate null values	unsupported: `^`
-clauses/return/Return4.feature::[11] Reusing variable names in RETURN	unsupported: aggregate calls nested in WITH expressions
 clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
-clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[17] Handle constants and parameters inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[18] Handle returned variables inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[19] Handle returned property accesses inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[20] Fail if not returned variables are used inside an expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[21] Fail if more complex expressions, even if returned, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[2] Projecting an arithmetic expression with aggregation	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[4] Support multiple divisions in aggregate function	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[5] Aggregates inside normal functions	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[6] Handle aggregates inside non-aggregate expressions	unsupported: aggregate calls nested in projection expressions
-clauses/return/Return6.feature::[9] Aggregates with arithmetics	unsupported: aggregate calls nested in projection expressions
 clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
@@ -223,13 +205,7 @@ clauses/with-orderBy/WithOrderBy4.feature::[20] Fail if more complex expressions
 clauses/with-where/WithWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/with-where/WithWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
-clauses/with/With4.feature::[6] Reusing variable names in WITH	unsupported: aggregate calls nested in WITH expressions
 clauses/with/With6.feature::[4] Implicit grouping with single path variable as grouping key and single aggregation	unsupported: path values or path collections in aggregating WITH projections
-clauses/with/With6.feature::[5] Handle constants and parameters inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in WITH expressions
-clauses/with/With6.feature::[6] Handle projected variables inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in WITH expressions
-clauses/with/With6.feature::[7] Handle projected property accesses inside an expression which contains an aggregation expression	unsupported: aggregate calls nested in WITH expressions
-clauses/with/With6.feature::[8] Fail if not projected variables are used inside an expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in WITH expressions
-clauses/with/With6.feature::[9] Fail if more complex expression, even if projected, are used inside expression which contains an aggregation expression	wrong-error-kind: unsupported: aggregate calls nested in WITH expressions
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 1	unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 2	unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 3	unsupported: function `percentiledisc`
@@ -271,7 +247,6 @@ expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-err
 expressions/graph/Graph4.feature::[5] `type()` handling Any type	semantic-error: graph variable `r` is not a scalar expression
 expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	semantic-error: graph variable `n` is not a scalar expression
 expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	semantic-error: graph variable `r` is not a scalar expression
-expressions/list/List11.feature::[3] Create an empty list if range direction and step direction are inconsistent	unsupported: aggregate calls nested in projection expressions
 expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: collected entity lists in scalar expressions
 expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: collected entity lists in scalar expressions
 expressions/list/List12.feature::[3] Size of list comprehension	unsupported: collected entity lists in scalar expressions

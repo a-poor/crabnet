@@ -1099,7 +1099,8 @@ mod tests {
         let physical = explain_physical(query).unwrap();
         assert!(physical.contains("COUNT(*)"));
         assert!(physical.contains(" GROUP BY "));
-        assert!(physical.contains(" HAVING "));
+        assert!(physical.contains("_crabnet_aggregate_0 AS MATERIALIZED"));
+        assert!(physical.contains(" FROM _crabnet_aggregate_0 AS ag0 WHERE "));
     }
 
     #[test]

@@ -54,6 +54,10 @@ end-to-end result test for user-visible semantics.
   wildcards, entity/path/graph-list identity, filtering and ordering scope,
   pagination, aggregation, stable projected random values, hybrid traversal,
   later bag expansion, write multiplicity, and rollback.
+- `tests/aggregate_expressions.rs` covers aggregate calls inside arithmetic,
+  functions, `CASE`, maps, and scalar list operations; empty/null inputs,
+  typed parameters, grouping scope, modifiers, entity identity, runtime paths,
+  random values, write multiplicity and rollback, and bounded SQL growth.
 - `tests/membership_and_string_predicates.rs` covers typed `IN` membership and
   the three string predicates across parameters, structured values, empty
   collections/strings, Unicode, null, and wrong-kind operands.
@@ -318,8 +322,8 @@ the path and traversal integration suites remain the semantic oracle.
 
 Application usability (milestone 10) is the next main milestone; its checklist
 and current working order live in [roadmap.md](roadmap.md). Multi-query
-transactions, `WITH DISTINCT`, entity collection/expansion, and path-list
-`UNWIND` are complete. Milestone 9 continues as
+transactions, `WITH DISTINCT`, entity collection/expansion, path-list `UNWIND`,
+and aggregate expressions are complete. Milestone 9 continues as
 supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,

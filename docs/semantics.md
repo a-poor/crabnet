@@ -116,12 +116,29 @@ follow the rules below. The implemented pipeline cases live in
 
 ## Aggregation and grouping
 
-`RETURN` and `WITH` support top-level `count`, `sum`, `avg`, `min`,
-`max`, and `collect` calls. A projection containing an aggregate is an
+`RETURN` and `WITH` support `count`, `sum`, `avg`, `min`, `max`, and `collect`
+both directly and inside scalar expressions. Examples include `count(*) + 1`,
+`coalesce(avg(n.score), 0)`, `CASE WHEN count(*) > 0 THEN max(n.score) END`,
+`{total: sum(n.score)}`, and `size(collect(DISTINCT n))`.
+A projection containing an aggregate is an
 aggregating projection. Every non-aggregate, row-dependent projection item is
 then an implicit grouping key; constants do not create grouping keys. A global
 aggregate over empty input emits one row, while an aggregate with grouping keys
 emits no rows for empty input.
+
+Aggregate calls are evaluated over each input group before their surrounding
+expressions. Scalar collection results support indexing, slicing, functions,
+and use as the input list of comprehensions and quantifiers in the same
+projection, for example `[x IN collect(n.score) WHERE x > 0 | x * 2]`.
+An aggregate-containing expression may refer outside its aggregate arguments
+to constants, parameters, and grouped variables or property accesses. It may
+not introduce an ungrouped value or reuse a compound grouping expression:
+bind that expression with an earlier `WITH` first. For example,
+`WITH n.score % 2 AS parity RETURN parity, parity + count(*)` is valid.
+Aggregate expressions and aliases also work in an aggregating projection's
+`ORDER BY` and in `WITH ... WHERE`, subject to the usual scope and distinctness
+rules. Filtering, ordering, distinctness, and pagination shape the resulting
+group rows before later clauses consume them.
 
 Grouping, `count(DISTINCT expression)`, and `collect(DISTINCT expression)`
 use typed Cypher equivalence rather
@@ -148,8 +165,8 @@ of each typed value in collection order. Without an upstream `ORDER BY`, that
 order is unspecified. Scalar values use recursive typed equality; entities
 use identity. These lists survive aliases, wildcard projections, grouping,
 `WITH DISTINCT`, `RETURN DISTINCT`, and unions. `size(list)` returns their
-length after a `WITH` boundary. Their ordered entity identities determine
-list equality, independently of properties.
+length, including directly as `size(collect(n))`. Their ordered entity
+identities determine list equality, independently of properties.
 
 Collected entities can feed `UNWIND`, property reads, later matches, and
 writes. Property and label changes refresh all retained copies in collected
@@ -163,9 +180,11 @@ Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
 behavior as an omitted aggregate quantifier. The parser currently rejects
 `collect(ALL ...)`; use `collect(...)` for bag collection.
 `DISTINCT` on aggregates other than `count` and `collect`, nested aggregate
-calls, aggregate calls embedded in a larger projection expression, and aggregate-only ordering/filtering without
-an aggregating projection are structured planning-time rejections; a `RETURN`
-after a mutation may aggregate over the post-mutation rows. Aggregates are not allowed in `MATCH` predicates or
+calls such as `sum(count(*))`, and aggregate-only ordering/filtering without
+an aggregating projection are structured planning-time rejections. Aggregate
+calls inside comprehension bodies or quantifier predicates are also rejected.
+A `RETURN` after a mutation may aggregate over the post-mutation rows.
+Aggregates are not allowed in `MATCH` predicates or
 directly in `UNWIND`; a `WITH` boundary must materialize them first.
 Whole path values and path-derived typed lists are not accepted as aggregate
 inputs or grouping keys. `length(path)` is an ordinary integer and may be a
@@ -519,8 +538,9 @@ type error. Without a
 matching alternative the result is the `ELSE` value, or null when there is
 none. Alternatives may produce different types; the chosen alternative
 decides the type, and the result feeds arithmetic, comparisons, predicates,
-`size()`, and aggregates like any other value. As with other nested
-aggregates, an aggregate used inside a `CASE` must be bound by `WITH` first.
+`size()`, and aggregates like any other value. In an aggregating `RETURN` or
+`WITH`, `CASE` may contain aggregate calls in its operand, conditions, and
+results. Those aggregates run over the group before branch selection.
 
 ## Scalar functions
 

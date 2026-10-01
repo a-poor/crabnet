@@ -1995,12 +1995,6 @@ impl<'source> Lowerer<'source> {
                         }
                     };
                     let expression = self.output_expression(expression)?;
-                    if expression.contains_aggregate() && !is_aggregate_projection(&expression) {
-                        return Err(unsupported(
-                            item.span,
-                            "aggregate calls nested in WITH expressions",
-                        ));
-                    }
                     items.push((item.span, name, expression));
                 }
                 _ => return Err(unsupported(item.span, "this WITH item")),
@@ -2226,12 +2220,6 @@ impl<'source> Lowerer<'source> {
                 }
                 ProjectionItemKind::Expression { expression, alias } => {
                     let lowered = self.output_expression(expression)?;
-                    if lowered.contains_aggregate() && !is_aggregate_projection(&lowered) {
-                        return Err(unsupported(
-                            expression.span,
-                            "aggregate calls nested in projection expressions",
-                        ));
-                    }
                     let column = column_name(self.source, expression, alias.as_ref());
                     let alias = alias.as_ref().map(|alias| alias.kind.text.clone());
                     items.push((item.span, column, lowered, alias));
@@ -3803,16 +3791,6 @@ fn require_scalar_context(expression: Expr, span: Span) -> Result<Expr> {
     }
 }
 
-fn is_aggregate_projection(expression: &Expr) -> bool {
-    match expression {
-        Expr::Aggregate { .. } => true,
-        Expr::EntityList { expression, .. } => {
-            matches!(expression.as_ref(), Expr::Aggregate { .. })
-        }
-        _ => false,
-    }
-}
-
 fn implicit_grouping(expressions: &[Expr]) -> Vec<Expr> {
     if !expressions.iter().any(Expr::contains_aggregate) {
         return Vec::new();
@@ -3830,10 +3808,27 @@ fn implicit_grouping(expressions: &[Expr]) -> Vec<Expr> {
 }
 
 fn validate_aggregate_scope(expressions: &[Expr], grouping: &[Expr], span: Span) -> Result<()> {
-    if expressions
+    // Inside an aggregate expression, openCypher permits grouped variables
+    // and property accesses, not a repeated compound grouping expression.
+    // Bind such a key with an earlier WITH to give it an unambiguous name.
+    let aggregate_grouping = grouping
         .iter()
-        .all(|expression| expression.uses_only_grouped_values(grouping))
-    {
+        .filter(|expression| match expression {
+            Expr::Entity(_) | Expr::Scalar(_) | Expr::Property(_, _) | Expr::MapProperty { .. } => {
+                true
+            }
+            Expr::EntityList { expression, .. } => matches!(expression.as_ref(), Expr::Scalar(_)),
+            _ => false,
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if expressions.iter().all(|expression| {
+        expression.uses_only_grouped_values(if expression.contains_aggregate() {
+            &aggregate_grouping
+        } else {
+            grouping
+        })
+    }) {
         Ok(())
     } else {
         Err(semantic(

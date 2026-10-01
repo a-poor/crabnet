@@ -483,7 +483,7 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   connection reuse. Unit tests cover SQLite-initiated rollback and failed
   commits. Full tests, pinned TCK, benchmark smoke checks, doctests, formatting,
   and Clippy pass.
-- [ ] **Everyday query composition.** `WITH DISTINCT` is complete, including
+- [x] **Everyday query composition — complete.** `WITH DISTINCT` is complete, including
   typed recursive equality, entity/path/list identity, scope and modifier
   rules, hybrid reads, and deduplication before later writes with rollback.
   Ten focused integration tests and eight newly passing TCK scenarios cover
@@ -498,9 +498,15 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   tests cover segment junctions, repeated identities, zero hops, all supported
   path producers, entity reads and matches, collection, distinctness, unions,
   and hydration. Path-fed writes remain unsupported.
-  Next support aggregate expressions such as `count(*) + 1`.
-  Preserve entity identity, bag multiplicity, null behavior, ordering, and
-  deduplication before pagination or later writes.
+  Aggregate expressions are complete in `RETURN` and `WITH`: arithmetic,
+  scalar functions, `CASE`, maps, scalar collection operations, and
+  `size(collect(n))`. Aggregates are materialized once per group before scalar
+  evaluation, keeping empty-input cardinality and SQL growth bounded. Twelve
+  integration tests cover grouping scope, types/nulls/parameters, modifiers,
+  distinctness and pagination, entity identity, runtime traversal, and write
+  multiplicity/rollback. Twenty-five additional TCK scenarios pass, including
+  proper rejection of ambiguous compound grouping expressions. Broader
+  entity-list indexing, comprehensions, and nesting remain follow-up work.
 - [ ] **Application uniqueness constraints.** Allow applications to declare
   label/property keys such as `:Person.email`. Define missing/null and typed
   equality semantics, reject conflicting existing data when installing a
@@ -530,8 +536,9 @@ the workload has reproducible performance and resource measurements.
 
 Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
 (`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete, as is `UNWIND`
-for path-function and legacy relationship lists. Next support aggregate
-expressions such as `count(*) + 1`. Track broader entity-list operations
+for path-function and legacy relationship lists. Aggregate expressions such
+as `count(*) + 1` are also complete. Next tackle application uniqueness
+constraints. Track broader entity-list operations
 (indexing, comprehensions, and nested collections) as follow-up composition
 work. Develop the dependency-graph example alongside these APIs so application
 needs guide constraints, resource controls, and persistent operation. Track
@@ -555,7 +562,7 @@ accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
 the pinned openCypher TCK run is in place, and its seven remaining
 `result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,546 passing and 1,336 excluded scenarios, including 13
+record 2,571 passing and 1,311 excluded scenarios, including 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.

@@ -164,6 +164,16 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Com
     compiler.compile_input(input)?;
 
     let aggregating = projection.expressions.iter().any(Expr::contains_aggregate);
+    if aggregating {
+        compiler.compile_aggregation(
+            &projection.expressions,
+            &projection
+                .order_by
+                .iter()
+                .map(|item| &item.expression)
+                .collect::<Vec<_>>(),
+        )?;
+    }
     let outputs = projection
         .expressions
         .iter()
@@ -175,25 +185,7 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Com
         })
         .collect::<Result<Vec<_>>>()?;
     let (select, output_shapes): (Vec<_>, Vec<_>) = outputs.into_iter().unzip();
-    let mut sql = compiler.select_sql(&select);
-
-    if aggregating {
-        let group_by = projection
-            .expressions
-            .iter()
-            .filter(|expression| !expression.contains_aggregate() && expression.is_row_dependent())
-            .map(|expression| compiler.grouping_terms(expression))
-            .collect::<Result<Vec<_>>>()?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
-        if !group_by.is_empty() {
-            sql.push_str(" GROUP BY ");
-            sql.push_str(&group_by.join(", "));
-        }
-    }
-
-    if !projection.order_by.is_empty() {
+    let order_items = if !projection.order_by.is_empty() {
         let items = projection
             .order_by
             .iter()
@@ -202,11 +194,17 @@ pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<Com
                 Ok(order_expression(&key, item.direction))
             })
             .collect::<Result<Vec<_>>>()?;
-        sql.push_str(" ORDER BY ");
-        sql.push_str(&items.join(", "));
+        Some(items.join(", "))
     } else if !aggregating && let Some(ordering) = &compiler.ordering {
+        Some(ordering.clone())
+    } else {
+        None
+    };
+    // ORDER BY can introduce per-row sources such as rand(), too.
+    let mut sql = compiler.select_sql(&select);
+    if let Some(ordering) = order_items {
         sql.push_str(" ORDER BY ");
-        sql.push_str(ordering);
+        sql.push_str(&ordering);
     }
 
     if !projection.distinct && (projection.limit.is_some() || projection.offset.is_some()) {
@@ -527,7 +525,8 @@ impl From<(String, String)> for Scalar {
 struct Compiler {
     entities: HashMap<SlotId, EntitySource>,
     scalars: HashMap<ScalarSlotId, String>,
-    // Materialized projection expressions visible to DISTINCT modifiers.
+    // Materialized grouping keys/aggregates or projections visible to
+    // DISTINCT modifiers. These substitutions last for one projection.
     projected_scalars: Vec<(Expr, String)>,
     // Value and type SQL for each list-bound variable currently in scope.
     list_elements: HashMap<ListVariableId, (String, String)>,
@@ -1495,7 +1494,24 @@ impl Compiler {
                 "path values in aggregating WITH projections".into(),
             ));
         }
-        if !aggregating && let Some(filter) = &stage.filter {
+        if aggregating {
+            let expressions = stage
+                .bindings
+                .iter()
+                .map(|binding| match binding {
+                    WithBinding::Entity { slot, .. } => Expr::Entity(*slot),
+                    WithBinding::Scalar { expression, .. } => expression.clone(),
+                    WithBinding::Path { .. } | WithBinding::PathCollection { .. } => unreachable!(),
+                })
+                .collect::<Vec<_>>();
+            let modifiers = stage
+                .filter
+                .iter()
+                .chain(stage.order_by.iter().map(|item| &item.expression))
+                .collect::<Vec<_>>();
+            self.compile_aggregation(&expressions, &modifiers)?;
+        }
+        if let Some(filter) = &stage.filter {
             let predicate = self.predicate_expression(filter)?;
             self.filters.push(format!("({predicate})"));
         }
@@ -1504,7 +1520,6 @@ impl Compiler {
         let mut entity_bindings = Vec::new();
         let mut path_bindings = Vec::new();
         let mut scalar_bindings = Vec::new();
-        let mut group_by = Vec::new();
         for binding in &stage.bindings {
             match binding {
                 WithBinding::Entity { slot, kind, .. } => {
@@ -1519,9 +1534,6 @@ impl Compiler {
                         ));
                         entity_bindings.push((*slot, *kind));
                     }
-                    if aggregating {
-                        group_by.extend(self.grouping_terms(&Expr::Entity(*slot))?);
-                    }
                 }
                 WithBinding::Path { path, .. } | WithBinding::PathCollection { path, .. } => {
                     if !path_bindings.contains(path) {
@@ -1535,12 +1547,6 @@ impl Compiler {
                     let encoded = self.encoded_expression(expression)?;
                     select.push(format!("{encoded} AS s{}", slot.0));
                     scalar_bindings.push(*slot);
-                    if aggregating
-                        && !expression.contains_aggregate()
-                        && expression.is_row_dependent()
-                    {
-                        group_by.extend(self.grouping_terms(expression)?);
-                    }
                 }
             }
         }
@@ -1568,16 +1574,6 @@ impl Compiler {
             select.push("1 AS _crabnet_unit".to_owned());
         }
         let mut sql = self.select_sql(&select);
-        if aggregating && !group_by.is_empty() {
-            sql.push_str(" GROUP BY ");
-            sql.push_str(&group_by.join(", "));
-        }
-        if aggregating && let Some(filter) = &stage.filter {
-            let predicate = self.predicate_expression(filter)?;
-            sql.push_str(" HAVING (");
-            sql.push_str(&predicate);
-            sql.push(')');
-        }
         let ordered = !order_items.is_empty() || inherited_ordering.is_some();
         if stage.distinct {
             sql = self.distinct_with_rows(sql, &stage.bindings, ordered);
@@ -1632,6 +1628,74 @@ impl Compiler {
         self.ordering = (!order_items.is_empty() || inherited_ordering.is_some())
             .then(|| format!("{relation}._crabnet_order"));
         self.filters.clear();
+        self.projected_scalars.clear();
+        Ok(())
+    }
+
+    /// Compute grouping keys and aggregate leaves before evaluating the
+    /// surrounding scalar expressions. This keeps each aggregate in the
+    /// input query's scope, including when used inside a list subquery or a
+    /// CASE branch, and lets scalar operators bind their operands once.
+    fn compile_aggregation(&mut self, expressions: &[Expr], modifiers: &[&Expr]) -> Result<()> {
+        fn collect(expression: &Expr, aggregates: &mut Vec<Expr>) {
+            if matches!(expression, Expr::Aggregate { .. }) {
+                if !aggregates.contains(expression) {
+                    aggregates.push(expression.clone());
+                }
+            } else {
+                for child in expression.children() {
+                    collect(child, aggregates);
+                }
+            }
+        }
+
+        let mut aggregates = Vec::new();
+        for expression in expressions.iter().chain(modifiers.iter().copied()) {
+            collect(expression, &mut aggregates);
+        }
+        let grouping = expressions
+            .iter()
+            .filter(|expression| !expression.contains_aggregate() && expression.is_row_dependent());
+        let stage_index = self.ctes.len();
+        let cte = format!("_crabnet_aggregate_{stage_index}");
+        let relation = format!("ag{stage_index}");
+        let mut select = Vec::new();
+        let mut group_by = Vec::new();
+        let mut entities = HashMap::new();
+        let mut projected = Vec::new();
+        for expression in grouping.chain(aggregates.iter()) {
+            if !expression.contains_aggregate() {
+                group_by.extend(self.grouping_terms(expression)?);
+            }
+            let column = format!("v{}", select.len());
+            let (encoded, _) = self.output_expression(expression)?;
+            select.push(format!("{encoded} AS {column}"));
+            let source = format!("{relation}.{column}");
+            if let Expr::Entity(slot) = expression {
+                entities.insert(
+                    *slot,
+                    EntitySource::Encoded {
+                        sql: source,
+                        kind: self.entity_kind(*slot)?,
+                    },
+                );
+            } else {
+                projected.push((expression.clone(), source));
+            }
+        }
+        let mut sql = self.select_sql(&select);
+        if !group_by.is_empty() {
+            sql.push_str(" GROUP BY ");
+            sql.push_str(&group_by.join(", "));
+        }
+        self.ctes.push((cte.clone(), sql));
+        self.entities = entities;
+        self.scalars.clear();
+        self.paths.clear();
+        self.projected_scalars = projected;
+        self.from = vec![format!("{cte} AS {relation}")];
+        self.filters.clear();
+        self.ordering = None;
         Ok(())
     }
 
@@ -2129,6 +2193,9 @@ impl Compiler {
         scalars.sort();
         if let Some((_, sql)) = scalars.into_iter().next() {
             return Some(sql);
+        }
+        if let Some((_, sql)) = self.projected_scalars.first() {
+            return Some(sql.clone());
         }
         let mut elements = self
             .list_elements
@@ -2796,11 +2863,15 @@ impl Compiler {
                 } else {
                     // A body source mentions the enclosing row so the body
                     // subquery is correlated and re-run per row.
-                    let anchor = self
+                    let draw = self
                         .row_anchor()
-                        .map(|anchor| format!(", {anchor}"))
-                        .unwrap_or_default();
-                    let source = format!("json_each(json_array(random(){anchor})) AS {alias}");
+                        .map(|anchor| {
+                            format!("CASE WHEN ({anchor}) IS NULL THEN random() ELSE random() END")
+                        })
+                        .unwrap_or_else(|| "random()".to_owned());
+                    // Keep one array member. Adding the anchor as a second
+                    // member would multiply each comprehension input row.
+                    let source = format!("json_each(json_array({draw})) AS {alias}");
                     if let Some(local) = self.local_sources.last_mut() {
                         local.push(source);
                     }
@@ -3088,8 +3159,8 @@ impl Compiler {
     /// branch number that is bound in a scope; the value and the type then
     /// each pick the matching result from it. Results therefore appear once
     /// in the value and once, as their standalone types, in the type, which
-    /// keeps `CASE` nested in results linear. When any part aggregates, the
-    /// branch cannot move into a subquery, so the plain inline form is used.
+    /// keeps `CASE` nested in results linear. Aggregate leaves have already
+    /// been materialized by the enclosing projection.
     fn case_expression(
         &mut self,
         operand: Option<&Expr>,
@@ -3109,12 +3180,6 @@ impl Compiler {
                 scalar,
             })
         };
-        let aggregating = operand.is_some_and(Expr::contains_aggregate)
-            || otherwise.is_some_and(Expr::contains_aggregate)
-            || alternatives.iter().any(|alternative| {
-                alternative.result.contains_aggregate()
-                    || alternative.conditions.iter().any(Expr::contains_aggregate)
-            });
         let operand = operand.map(|operand| compile(self, operand)).transpose()?;
         let has_operand = operand.is_some();
         let mut conditions = Vec::with_capacity(alternatives.len());
@@ -3176,39 +3241,6 @@ impl Compiler {
             .chain(conditions.iter().flatten())
             .map(|part| (part.scalar.clone(), part.inline))
             .collect::<Vec<_>>();
-
-        if aggregating {
-            // Everything in one scope per output; aggregates stay inline in
-            // the grouping query.
-            let mut parts = selectors;
-            parts.extend(
-                results
-                    .iter()
-                    .chain(otherwise.iter())
-                    .map(|part| (part.scalar.clone(), part.inline)),
-            );
-            let first_result = parts.len() - results.len() - usize::from(otherwise.is_some());
-            let build = |parts: &[(String, String)],
-                         pick: fn(&(String, String)) -> &String,
-                         default: &str| {
-                let mut sql = String::from("(CASE");
-                for (arm, condition) in arm_conditions(parts).into_iter().enumerate() {
-                    let result = pick(&parts[first_result + arm]);
-                    sql.push_str(&format!(" WHEN {condition} THEN ({result})"));
-                }
-                let otherwise = parts[first_result + results.len()..]
-                    .first()
-                    .map_or_else(|| default.to_owned(), |part| pick(part).clone());
-                sql.push_str(&format!(" ELSE ({otherwise}) END)"));
-                sql
-            };
-            let value = self.scoped_scalars(parts.clone(), |_, parts| {
-                Ok(build(parts, |part| &part.0, "NULL"))
-            })?;
-            let value_type =
-                self.scoped_scalars(parts, |_, parts| Ok(build(parts, |part| &part.1, "'null'")))?;
-            return Ok(Scalar::sql(value, value_type));
-        }
 
         let branch = self.scoped_scalars(selectors, |_, parts| {
             let arms = arm_conditions(parts)
@@ -3836,21 +3868,21 @@ fn is_native_boolean(expression: &Expr) -> bool {
 // into a subquery would aggregate over that subquery's single row instead of
 // over the group.
 fn is_inline_operand(expression: &Expr) -> bool {
-    expression.contains_aggregate()
-        || matches!(
-            expression,
-            Expr::Value(_)
-                | Expr::Scalar(_)
-                | Expr::Property(_, _)
-                | Expr::ElementId(_)
-                | Expr::EntityIdentity(_)
-                | Expr::RelationshipType(_)
-                | Expr::ListElement(_)
-                | Expr::Function {
-                    function: ScalarFunction::Rand,
-                    ..
-                }
-        )
+    matches!(
+        expression,
+        Expr::Aggregate { .. }
+            | Expr::Value(_)
+            | Expr::Scalar(_)
+            | Expr::Property(_, _)
+            | Expr::ElementId(_)
+            | Expr::EntityIdentity(_)
+            | Expr::RelationshipType(_)
+            | Expr::ListElement(_)
+            | Expr::Function {
+                function: ScalarFunction::Rand,
+                ..
+            }
+    )
 }
 
 // The JSON type name of a three-valued SQL boolean.
