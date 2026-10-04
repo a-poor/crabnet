@@ -288,6 +288,34 @@ Compare a change against `main` by running the suite before and after; the
 roadmap's rule still holds that optimizations follow a measured bottleneck
 rather than precede one.
 
+## Persistent application workload
+
+`examples/dependency_graph.rs` imports real Cargo metadata and supplies a
+deterministic disk-backed lifecycle workload through the public API. Its six
+tests cover package/edge import, identity and annotation preservation, changed
+and empty snapshots, hostile bound IDs, traversal results, invalid metadata,
+resource-failure rollback, deletion, reopening, and refusing existing demo
+files or unrelated graphs.
+
+```sh
+cargo test --example dependency_graph
+cargo build --release --example dependency_graph
+workload_dir=$(mktemp -d)
+python3 scripts/measure_dependency_graph.py target/release/examples/dependency_graph demo "$workload_dir/graph.sqlite" 1000 20 128
+```
+
+The wrapper uses Python 3.11+ and macOS/Linux child peak RSS. Compile separately
+and run measurements sequentially, so compiler memory and concurrent workloads
+do not distort the results. The demo checks expected graph bags, identities,
+query results, rollback, deletion, and reopening before reporting success.
+See [the application guide](dependency-graph.md) for the fixture, timing and
+memory boundaries, larger-scale commands, and recorded results.
+
+`cargo test --all-targets` includes these example tests. For an example-only
+change, `CRABNET_BENCH_SIZES=1000 cargo test --all-targets` still exercises all
+Criterion query shapes at the smaller social-graph scale; report that override
+explicitly. The default runs both 1,000 and 10,000-node social graphs.
+
 ## Adding broader test techniques
 
 Broader techniques should arrive in an order that keeps their maintenance cost

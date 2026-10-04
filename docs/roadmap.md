@@ -534,11 +534,17 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   interrupted writes, migration failures, and backup/restore; document file
   compatibility and recovery behavior. Broader concurrency remains outside
   the current contract until this work supplies implementation and tests.
-- [ ] **A realistic application and workload.** Build a runnable dependency
-  graph example exercising import, repeat import, traversal, update, delete,
-  rollback, and reopen. Measure disk-backed ingestion, query latency, and peak
-  memory at a declared scale. Use the measurements to prioritize Cypher plan
-  reuse, semantic deduplication, or other bottlenecks.
+- [x] **A realistic application and workload.** The runnable
+  `dependency_graph` example imports Cargo metadata, preserves identities and
+  review annotations on repeat import, reconciles stale data, queries forward
+  and reverse dependencies and shortest paths, updates/deletes, verifies
+  resource-failure rollback, and reopens a file. Six tests cover the lifecycle.
+  [Recorded release measurements](dependency-graph.md#measurements-and-next-work)
+  cover 1,000 and 10,000 packages with three fresh-file trials each, query
+  latency distributions, and child-process peak RSS. A scalar key projection
+  removed an import scan bottleneck using the existing property index.
+  Remaining node-upsert costs and shortest-path scaling deserve profiling
+  before plan reuse or semantic-deduplication changes.
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -550,13 +556,15 @@ Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
 (`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete, as is `UNWIND`
 for path-function and legacy relationship lists. Aggregate expressions such
 as `count(*) + 1` and application node uniqueness constraints are also complete.
-Caller-controlled query resources are complete for eager execution. Next develop
-the dependency-graph example and use it to guide persistent operation and
-incremental result consumption. Track broader entity-list operations
-(indexing, comprehensions, and nested collections) as follow-up composition
-work. Develop the dependency-graph example alongside these APIs so application
-needs guide constraints, resource controls, and persistent operation. Track
-completion in milestone 10 rather than a separate TODO file.
+Caller-controlled query resources and the dependency-graph application/workload
+are complete for eager execution. Next establish dependable on-disk operation:
+opening options, reader/writer contention, and backup/restore. Use the example's
+reopen and rollback checks as application regression coverage while extending
+that contract. Incremental result consumption and broader entity-list
+operations (indexing, comprehensions, and nested collections) remain follow-up
+work. Performance work should start with the measured node-upsert cost and
+shortest-path scaling. Track completion in milestone 10 rather than a separate
+TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;
 temporal support and broad differential testing remain follow-up conformance
 work rather than prerequisites for this usability milestone.

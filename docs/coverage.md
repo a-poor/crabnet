@@ -125,6 +125,13 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Generated SQL preparation invariants | Covered | `generated_read_fragments_prepare_with_exact_dense_bindings` asks initialized SQLite to prepare every main and traversal-edge fragment in seven named query families, checking read-only behavior, dense exact placeholder arity, and planned result widths |
 | Predicate truth-table invariants | Covered | An independent Rust oracle checks 9,408 binary and 84 unary outcomes across 28 missing/null/boolean/numeric/text/list/map operands, including mixed numeric precision boundaries and the documented stored-JSON structured-equality rule |
 
+## Application lifecycle
+
+| Feature | Status | Current contract / evidence |
+| --- | --- | --- |
+| Cargo dependency-graph application | Covered | Six tests in `examples/dependency_graph.rs` cover authoritative metadata import, bound hostile IDs, repeat-import node/relationship identity and annotation preservation, changed/empty snapshots, dependency/dependent and shortest-path queries, invalid input, resource-failure rollback, deletion, and reopening. Demo files are created exclusively; unrelated nonempty graphs are refused. The runnable workload independently checks expected graph bags and traversal results at 1,000 and 10,000 packages; [measurements](dependency-graph.md) record ingestion, latency, and process RSS. |
+| Broader persistent-operation contract | Pending | The example verifies ordinary reopen and transaction rollback. Opening options, lock contention, interrupted processes, backup/restore, and a documented recovery contract remain milestone 10 work. |
+
 ## Prioritized next-test backlog
 
 Add a case here before or alongside implementation work. Once work starts, turn the
@@ -140,8 +147,10 @@ milestone 10. Its next test slices are:
 2. Broader entity-list operations: indexing, comprehensions, and nested
    collections. Aggregate expressions and entity collection/expansion,
    including path-list `UNWIND`, are complete.
-3. A persistent dependency-graph application's lifecycle: repeated import,
-   traversal, update, deletion, rollback, reopening, backup, and recovery.
+3. Dependable persistent operation: opening options, reader/writer contention,
+   interrupted writes, backup/restore, and recovery. The dependency-graph
+   application's import/reimport, traversal, update, deletion, rollback, and
+   ordinary reopening lifecycle is covered.
 
 Continue checking the pinned TCK during these slices. Remaining NaN and other
 correctness gaps, the upstream parser label-context fix, temporal support,

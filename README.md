@@ -474,6 +474,30 @@ Materializing mutation input is intentionally naive, but gives this iteration
 clear snapshot, multiplicity, and rollback behavior. A streaming or more
 general staged executor can replace it later without changing the logical plan.
 
+## Dependency graph application
+
+The runnable Cargo dependency explorer imports a complete resolved graph into a
+dedicated database. Repeat imports preserve package and relationship identities,
+update package metadata, and remove stale dependencies atomically.
+
+```sh
+cargo metadata --format-version 1 --locked > /tmp/crabnet-metadata.json
+cargo run --release --example dependency_graph -- import /tmp/crabnet-dependencies.sqlite /tmp/crabnet-metadata.json
+cargo run --release --example dependency_graph -- --help
+```
+
+It supports dependency/dependent queries, shortest paths, review annotations,
+and deletion. Its generated workload verifies import, repeat import, queries,
+updates, resource-failure rollback, deletion, and reopening:
+
+```sh
+workload_dir=$(mktemp -d)
+cargo run --release --example dependency_graph -- demo "$workload_dir/graph.sqlite" 1000
+```
+
+See [the application guide](docs/dependency-graph.md) for query commands, import
+semantics, reproducible disk-backed timings, and peak-memory measurements.
+
 ## Project notes
 
 - [Roadmap](docs/roadmap.md) records the architectural direction and milestone
