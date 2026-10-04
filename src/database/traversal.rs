@@ -7,8 +7,9 @@ use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
 #[cfg(test)]
 use serde_json::{Value, json};
 
+use super::resources::QueryControl;
 use crate::{
-    Error, Result,
+    Error, QueryOptions, Result, TraversalLimits,
     planner::{ResolvedNodeDomain, ResolvedTrailExpansion, ShortestMode, TrailDirection},
 };
 
@@ -16,9 +17,9 @@ use crate::{
 // passed from hybrid traversal operators into SQLite, and the graph inputs a
 // hybrid producer retains while it runs. They fail closed rather than silently
 // truncating a result.
-pub(super) const DEFAULT_TRAIL_STATE_LIMIT: usize = 100_000;
-pub(super) const DEFAULT_TRAIL_PAYLOAD_LIMIT: usize = 128 * 1024 * 1024;
-pub(super) const DEFAULT_TRAIL_MEMORY_LIMIT: usize = 256 * 1024 * 1024;
+use crate::query::{
+    DEFAULT_TRAIL_MEMORY_LIMIT, DEFAULT_TRAIL_PAYLOAD_LIMIT, DEFAULT_TRAIL_STATE_LIMIT,
+};
 
 /// The deterministic cost charged for every retained ID string on top of its
 /// UTF-8 length. It stands in for the owning `String` header so one-byte IDs
@@ -31,6 +32,7 @@ const RETAINED_ID_OVERHEAD: usize = 24;
 const RETAINED_DEPTH_OVERHEAD: usize = 8;
 
 pub(super) struct TrailBudget {
+    control: QueryControl,
     state_limit: usize,
     state_used: usize,
     payload_limit: usize,
@@ -47,6 +49,19 @@ impl Default for TrailBudget {
 }
 
 impl TrailBudget {
+    pub(super) fn configured(limits: &TraversalLimits, control: QueryControl) -> Self {
+        Self {
+            control,
+            state_limit: limits.max_states,
+            state_used: 0,
+            payload_limit: limits.max_payload_bytes,
+            payload_used: 0,
+            memory_limit: limits.max_memory_bytes,
+            memory_used: 0,
+            memory_peak: 0,
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn new(state_limit: usize) -> Self {
         Self::with_limits(state_limit, DEFAULT_TRAIL_PAYLOAD_LIMIT)
@@ -54,6 +69,7 @@ impl TrailBudget {
 
     pub(super) fn with_limits(state_limit: usize, payload_limit: usize) -> Self {
         Self {
+            control: QueryControl::new(&QueryOptions::default()),
             state_limit,
             state_used: 0,
             payload_limit,
@@ -88,6 +104,7 @@ impl TrailBudget {
     }
 
     fn admit(&mut self, traversal: usize) -> Result<()> {
+        self.control.check()?;
         if self.state_used >= self.state_limit {
             return Err(Error::ResourceLimit(format!(
                 "trail expansion ~{traversal} exceeded the {}-state budget",
@@ -99,6 +116,7 @@ impl TrailBudget {
     }
 
     fn admit_payload(&mut self, traversal: usize, bytes: usize) -> Result<()> {
+        self.control.check()?;
         let Some(next) = self.payload_used.checked_add(bytes) else {
             return Err(Error::ResourceLimit(format!(
                 "trail expansion ~{traversal} exceeded the {}-byte serialized-payload budget",
@@ -120,6 +138,7 @@ impl TrailBudget {
     // than what was ever allocated, and it is compared against the limit
     // before the bytes are retained.
     fn retain(&mut self, traversal: usize, bytes: usize) -> Result<()> {
+        self.control.check()?;
         let next = self.memory_used.saturating_add(bytes);
         if next > self.memory_limit {
             return Err(Error::ResourceLimit(format!(
@@ -431,7 +450,7 @@ fn load_nodes(
 ) -> Result<Vec<String>> {
     let mut statement = connection.prepare("SELECT id FROM nodes ORDER BY id")?;
     debug_assert!(statement.readonly());
-    let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+    let rows = statement.query([])?;
     collect_retained_ids(rows, traversal, budget)
 }
 
@@ -443,22 +462,21 @@ fn load_domain(
 ) -> Result<Vec<String>> {
     let mut statement = connection.prepare_cached(&domain.sql)?;
     debug_assert!(statement.readonly());
-    let rows = statement.query_map(params_from_iter(domain.bindings.iter()), |row| {
-        row.get::<_, String>(0)
-    })?;
+    let rows = statement.query(params_from_iter(domain.bindings.iter()))?;
     collect_retained_ids(rows, traversal, budget)
 }
 
 // Retain each streamed ID only after the budget admits it, so the failure
 // point does not depend on how many rows SQLite has already produced.
 fn collect_retained_ids(
-    rows: impl Iterator<Item = rusqlite::Result<String>>,
+    mut rows: rusqlite::Rows<'_>,
     traversal: usize,
     budget: &mut TrailBudget,
 ) -> Result<Vec<String>> {
     let mut ids = Vec::new();
-    for row in rows {
-        let id = row?;
+    while let Some(row) = rows.next()? {
+        budget.control.record_sql_row(row, 1)?;
+        let id: String = row.get(0)?;
         budget.retain(traversal, id_cost(&id))?;
         ids.push(id);
     }
@@ -507,16 +525,15 @@ fn load_edges(
 ) -> Result<Vec<StoredEdge>> {
     let mut statement = connection.prepare_cached(&spec.edge_sql)?;
     debug_assert!(statement.readonly());
-    let rows = statement.query_map(params_from_iter(spec.edge_bindings.iter()), |row| {
-        Ok(StoredEdge {
+    let mut rows = statement.query(params_from_iter(spec.edge_bindings.iter()))?;
+    let mut edges = Vec::new();
+    while let Some(row) = rows.next()? {
+        budget.control.record_sql_row(row, 3)?;
+        let edge = StoredEdge {
             id: row.get(0)?,
             from: row.get(1)?,
             to: row.get(2)?,
-        })
-    })?;
-    let mut edges = Vec::new();
-    for row in rows {
-        let edge = row?;
+        };
         budget.retain(spec.traversal, edge_cost(&edge))?;
         edges.push(edge);
     }
@@ -571,6 +588,7 @@ fn enumerate_trails(
                     break 'expand;
                 };
                 for step in steps.iter().rev() {
+                    budget.control.check()?;
                     if state.edge_ids.contains(&step.edge_id) {
                         continue;
                     }
@@ -649,6 +667,7 @@ fn enumerate_shortest_paths(
                     break 'expand;
                 };
                 for step in steps {
+                    budget.control.check()?;
                     if state.edge_ids.contains(&step.edge_id) {
                         continue;
                     }
@@ -760,6 +779,7 @@ fn enumerate_shortest_cycles(
                     break 'expand;
                 };
                 for step in steps {
+                    budget.control.check()?;
                     if state.edge_ids.contains(&step.edge_id) {
                         continue;
                     }

@@ -46,6 +46,13 @@ end-to-end result test for user-visible semantics.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
+- `tests/query_resources.rs` exercises the options APIs on databases and
+  transactions: configurable traversal guards, deadline/cancellation errors,
+  SQLite work limits, materialized and final rows/bytes, UTF-8/recursive costs,
+  DISTINCT/pagination/UNION boundaries, hydration and traversal input charging,
+  per-query reset, and rollback after writes. Database unit tests inject
+  cancellation after an actual write; resource unit tests synchronize a
+  cancelling thread with running SQLite and verify callback cleanup on panic.
 - `tests/uniqueness_constraints.rs` covers the node label/property constraint
   API: installation over existing data, idempotent create/drop, typed recursive
   equality and numeric precision, missing/null values, exact names, independent
@@ -330,7 +337,8 @@ Application usability (milestone 10) is the next main milestone; its checklist
 and current working order live in [roadmap.md](roadmap.md). Multi-query
 transactions, `WITH DISTINCT`, entity collection/expansion, path-list `UNWIND`,
 aggregate expressions, and application node uniqueness constraints are complete.
-Configurable query resources are next. Milestone 9 continues as
+Resource controls for eager execution are complete; incremental consumption
+and the persistent application lifecycle are next. Milestone 9 continues as
 supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,

@@ -8,10 +8,12 @@
 mod database;
 mod error;
 mod planner;
+mod query;
 mod value;
 
 pub use database::{Database, constraints::UniqueConstraint, transaction::Transaction};
 pub use error::{Error, Result};
+pub use query::{CancellationToken, QueryOptions, TraversalLimits};
 pub use serde_json::Value;
 pub use value::{CypherValue, NodeValue, PathValue, RelationshipValue};
 

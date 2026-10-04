@@ -12,8 +12,8 @@ use rusqlite::{
 };
 
 use crate::{
-    CypherValue, NodeValue, Parameters, PathValue, QueryResult, QuerySummary, RelationshipValue,
-    Result,
+    CypherValue, NodeValue, Parameters, PathValue, QueryOptions, QueryResult, QuerySummary,
+    RelationshipValue, Result,
     planner::{
         self, EntityKind, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
         PreparedReadPlan, PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedMutation,
@@ -23,6 +23,8 @@ use crate::{
 };
 
 mod comparison;
+mod resources;
+use resources::ExecutionContext;
 pub(crate) mod constraints;
 pub(crate) mod transaction;
 mod traversal;
@@ -196,38 +198,68 @@ impl Database {
 
     /// Executes a Cypher query with named `$parameter` values.
     pub fn execute_with(&mut self, cypher: &str, parameters: &Parameters) -> Result<QueryResult> {
+        self.execute_with_options(cypher, parameters, &QueryOptions::default())
+    }
+
+    /// Executes a parameterized query with per-query resource controls.
+    ///
+    /// Limits cover all branches and write stages. Failures roll back the
+    /// statement; no partial result is returned. Existing execution methods
+    /// use [`QueryOptions::default`].
+    pub fn execute_with_options(
+        &mut self,
+        cypher: &str,
+        parameters: &Parameters,
+        options: &QueryOptions,
+    ) -> Result<QueryResult> {
+        let context = ExecutionContext::new(options);
+        context.check()?;
         match planner::compile(cypher)? {
-            Plan::Read(plan) => self.execute_read(plan, parameters),
+            Plan::Read(plan) => self.execute_read(plan, parameters, &context),
             Plan::Mutate(plan) => {
                 // Resolving every property and RETURN expression here keeps a
                 // missing/invalid parameter from starting a partial write.
                 let plan = (*plan).resolve(parameters)?;
-                self.execute_mutation(plan)
+                self.execute_mutation(plan, &context)
             }
         }
     }
 
-    fn execute_read(&mut self, plan: ReadPlan, parameters: &Parameters) -> Result<QueryResult> {
+    fn execute_read(
+        &mut self,
+        plan: ReadPlan,
+        parameters: &Parameters,
+        context: &ExecutionContext,
+    ) -> Result<QueryResult> {
+        context.check()?;
         // Path identities are emitted by the primary SQL fragments and
         // hydrated with follow-up reads. Keep every UNION branch and that
         // shared hydration pass on one deferred read snapshot.
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Deferred)?;
-        let mut trail_budget = traversal::TrailBudget::default();
-        let result = execute_read_plan(&transaction, plan, parameters, &mut trail_budget)?;
+        let result = context.run(&transaction, || {
+            execute_read_plan(&transaction, plan, parameters, context)
+        })?;
         transaction.commit()?;
         Ok(result)
     }
 
-    fn execute_mutation(&mut self, plan: ResolvedMutationPlan) -> Result<QueryResult> {
+    fn execute_mutation(
+        &mut self,
+        plan: ResolvedMutationPlan,
+        context: &ExecutionContext,
+    ) -> Result<QueryResult> {
+        context.check()?;
         // IMMEDIATE obtains the SQLite write reservation up front. MATCH and
         // its mutations still share one transaction, but do not risk a deferred
         // read-to-write upgrade failing halfway through the statement.
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = execute_mutation_plan(&transaction, plan)?;
+        let result = context.run(&transaction, || {
+            execute_mutation_plan(&transaction, plan, context)
+        })?;
         transaction.commit()?;
         Ok(result)
     }
@@ -236,6 +268,7 @@ impl Database {
 fn execute_mutation_plan(
     transaction: &Transaction<'_>,
     plan: ResolvedMutationPlan,
+    context: &ExecutionContext,
 ) -> Result<QueryResult> {
     let ResolvedMutationPlan {
         input,
@@ -245,7 +278,7 @@ fn execute_mutation_plan(
         result,
     } = plan;
     let mut input_rows = match &input {
-        Some(input) => read_row_source(transaction, input, &layout)?,
+        Some(input) => read_row_source(transaction, input, &layout, context)?,
         None => vec![ExecutionRow::empty(&layout)],
     };
     let mut summary = QuerySummary::default();
@@ -263,15 +296,20 @@ fn execute_mutation_plan(
             &mut input_rows,
             mutation,
             &mut summary,
+            context,
         )?;
     }
     // Each later segment reads on from the rows so far (its WITH, UNWIND,
     // and MATCH stages see the graph as the mutations left it) and then
     // applies its own mutations to the rows it produced.
     for ResolvedSegment { source, mutations } in &segments {
-        input_rows = with_rows_table(transaction, &layout, &input_rows, |transaction| {
-            read_row_source(transaction, source, &layout)
-        })?;
+        input_rows = with_rows_table(
+            transaction,
+            &layout,
+            &input_rows,
+            |transaction| read_row_source(transaction, source, &layout, context),
+            context,
+        )?;
         for mutation in mutations {
             apply_mutation(
                 transaction,
@@ -279,13 +317,15 @@ fn execute_mutation_plan(
                 &mut input_rows,
                 mutation,
                 &mut summary,
+                context,
             )?;
         }
     }
 
     let (columns, rows) = match result {
         Some(result) => {
-            let result = read_materialized_rows(transaction, &layout, &input_rows, result)?;
+            let result =
+                read_materialized_rows(transaction, &layout, &input_rows, result, true, context)?;
             (result.columns, result.rows)
         }
         None => (Vec::new(), Vec::new()),
@@ -311,31 +351,32 @@ fn execute_read_plan(
     connection: &Connection,
     plan: ReadPlan,
     parameters: &Parameters,
-    trail_budget: &mut traversal::TrailBudget,
+    context: &ExecutionContext,
 ) -> Result<QueryResult> {
     // Preparation walks the complete operator tree before execution. A bad
     // parameter in a later UNION branch therefore cannot spend traversal work
     // or issue a SQLite read in an earlier branch.
     let plan = plan.prepare(parameters)?;
-    execute_prepared_read_plan(connection, plan, trail_budget)
+    execute_prepared_read_plan(connection, plan, true, context)
 }
 
 fn execute_prepared_read_plan(
     connection: &Connection,
     plan: PreparedReadPlan,
-    trail_budget: &mut traversal::TrailBudget,
+    is_output: bool,
+    context: &ExecutionContext,
 ) -> Result<QueryResult> {
     let columns = plan.columns;
     let rows = match plan.root {
         PreparedPhysicalOperator::BatchHydrate { input } => {
-            let pending = execute_physical_operator(connection, *input, trail_budget)?;
-            hydrate_pending_rows(connection, pending)?
+            let pending = execute_physical_operator(connection, *input, context)?;
+            hydrate_pending_rows(connection, pending, is_output, context)?
         }
-        operator => finish_materialized_rows(execute_physical_operator(
-            connection,
-            operator,
-            trail_budget,
-        )?)?,
+        operator => finish_materialized_rows(
+            execute_physical_operator(connection, operator, context)?,
+            is_output,
+            context,
+        )?,
     };
     Ok(QueryResult {
         columns,
@@ -347,29 +388,31 @@ fn execute_prepared_read_plan(
 fn execute_physical_operator(
     connection: &Connection,
     operator: PreparedPhysicalOperator,
-    trail_budget: &mut traversal::TrailBudget,
+    context: &ExecutionContext,
 ) -> Result<Vec<PendingRow>> {
+    context.check()?;
     match operator {
         PreparedPhysicalOperator::Sqlite(fragment) => {
-            execute_sql_fragment(connection, fragment, trail_budget)
+            execute_sql_fragment(connection, fragment, context)
         }
-        PreparedPhysicalOperator::SemanticDistinct { input } => {
-            execute_physical_operator(connection, *input, trail_budget).map(distinct_pending_rows)
-        }
+        PreparedPhysicalOperator::SemanticDistinct { input } => distinct_pending_rows(
+            execute_physical_operator(connection, *input, context)?,
+            context,
+        ),
         PreparedPhysicalOperator::Paginate {
             input,
             offset,
             limit,
-        } => Ok(execute_physical_operator(connection, *input, trail_budget)?
+        } => Ok(execute_physical_operator(connection, *input, context)?
             .into_iter()
             .skip(offset)
             .take(limit.unwrap_or(usize::MAX))
             .collect()),
         PreparedPhysicalOperator::Union { left, right, kind } => {
-            let mut rows = execute_physical_operator(connection, *left, trail_budget)?;
-            rows.extend(execute_physical_operator(connection, *right, trail_budget)?);
+            let mut rows = execute_physical_operator(connection, *left, context)?;
+            rows.extend(execute_physical_operator(connection, *right, context)?);
             if kind == UnionKind::Distinct {
-                rows = distinct_pending_rows(rows);
+                rows = distinct_pending_rows(rows, context)?;
             }
             Ok(rows)
         }
@@ -382,18 +425,23 @@ fn execute_physical_operator(
 fn execute_sql_fragment(
     connection: &Connection,
     plan: PreparedSqlFragment,
-    trail_budget: &mut traversal::TrailBudget,
+    context: &ExecutionContext,
 ) -> Result<Vec<PendingRow>> {
     let mut runtime_values = HashMap::with_capacity(plan.inputs.len());
     for input in plan.inputs {
         let (output, value) = match input {
             PreparedValueOperator::TrailExpand { output, spec } => (
                 output,
-                traversal::materialize_trails(connection, &spec, trail_budget)?,
+                traversal::materialize_trails(connection, &spec, &mut context.trails.borrow_mut())?,
             ),
             PreparedValueOperator::ShortestExpand { output, mode, spec } => (
                 output,
-                traversal::materialize_shortest(connection, &spec, mode, trail_budget)?,
+                traversal::materialize_shortest(
+                    connection,
+                    &spec,
+                    mode,
+                    &mut context.trails.borrow_mut(),
+                )?,
             ),
         };
         if runtime_values.insert(output, value).is_some() {
@@ -429,33 +477,45 @@ fn execute_sql_fragment(
 
     // Completely drain and drop the SQLite cursor before a later Rust operator
     // issues another fragment, traversal query, or hydration query.
-    let encoded_rows = {
-        let mut statement = connection.prepare_cached(&plan.sql)?;
-        debug_assert!(statement.readonly());
-        statement
-            .query_map(params_from_iter(bindings.iter()), |row| {
-                (0..plan.output_shapes.len())
-                    .map(|index| row.get::<_, String>(index))
-                    .collect::<rusqlite::Result<Vec<_>>>()
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-    };
-    encoded_rows
-        .into_iter()
-        .map(|values| {
-            values
-                .into_iter()
-                .zip(plan.output_shapes.iter().copied())
-                .map(|(value, shape)| decode_pending_output(&value, shape))
-                .collect::<Result<PendingRow>>()
-        })
-        .collect()
+    let mut statement = connection.prepare_cached(&plan.sql)?;
+    debug_assert!(statement.readonly());
+    let mut cursor = statement.query(params_from_iter(bindings.iter()))?;
+    let mut rows = Vec::new();
+    while let Some(row) = cursor.next()? {
+        context.record_sql_row(row, plan.output_shapes.len())?;
+        let values = plan
+            .output_shapes
+            .iter()
+            .enumerate()
+            .map(|(index, shape)| {
+                context.check()?;
+                decode_pending_output(
+                    row.get_ref(index)?
+                        .as_str()
+                        .map_err(rusqlite::Error::from)?,
+                    *shape,
+                )
+            })
+            .collect::<Result<PendingRow>>()?;
+        rows.push(values);
+    }
+    Ok(rows)
 }
 
-fn finish_materialized_rows(rows: Vec<PendingRow>) -> Result<Vec<Vec<CypherValue>>> {
+fn finish_materialized_rows(
+    rows: Vec<PendingRow>,
+    is_output: bool,
+    context: &ExecutionContext,
+) -> Result<Vec<Vec<CypherValue>>> {
+    if is_output {
+        context.result_rows(rows.len())?;
+    }
+    let mut result_bytes = 0;
     rows.into_iter()
         .map(|row| {
-            row.into_iter()
+            context.check()?;
+            let row = row
+                .into_iter()
                 .map(|value| match value {
                     PendingValue::Materialized(value) => Ok(value),
                     PendingValue::Path(_)
@@ -464,7 +524,11 @@ fn finish_materialized_rows(rows: Vec<PendingRow>) -> Result<Vec<Vec<CypherValue
                         "physical read plan omitted required batch hydration".into(),
                     )),
                 })
-                .collect()
+                .collect::<Result<Vec<_>>>()?;
+            if is_output {
+                context.result_row(&row, &mut result_bytes)?;
+            }
+            Ok(row)
         })
         .collect()
 }
@@ -475,11 +539,13 @@ fn delete_entities(
     targets: &[(SlotId, EntityKind)],
     detach: bool,
     summary: &mut QuerySummary,
+    context: &ExecutionContext,
 ) -> Result<()> {
     let mut node_ids = BTreeSet::new();
     let mut relationship_ids = BTreeSet::new();
 
     for row in rows {
+        context.check()?;
         for (slot, expected_kind) in targets {
             if !row.binds(*slot) {
                 continue;
@@ -506,12 +572,14 @@ fn delete_entities(
     // position, so `DELETE node, relationship` can satisfy the node foreign
     // keys just like `DELETE relationship, node`.
     for id in relationship_ids {
+        context.check()?;
         summary.relationships_deleted +=
             transaction.execute("DELETE FROM edges WHERE id = ?1", params![id])?;
     }
 
     if detach {
         for id in &node_ids {
+            context.check()?;
             summary.relationships_deleted += transaction.execute(
                 "DELETE FROM edges WHERE from_node = ?1 OR to_node = ?1",
                 params![id],
@@ -520,6 +588,7 @@ fn delete_entities(
     }
 
     for id in node_ids {
+        context.check()?;
         summary.nodes_deleted += transaction
             .execute("DELETE FROM nodes WHERE id = ?1", params![id])
             .map_err(|error| match &error {
@@ -551,9 +620,11 @@ fn update_labels(
     slot: SlotId,
     labels: &[String],
     add: bool,
+    context: &ExecutionContext,
 ) -> Result<usize> {
     let mut changed = 0;
     for target_index in 0..rows.len() {
+        context.check()?;
         if !rows[target_index].binds(slot) {
             continue;
         }
@@ -569,6 +640,7 @@ fn update_labels(
         let before = current.len();
         if add {
             for label in labels {
+                context.check()?;
                 if !current.contains(label) {
                     current.push(label.clone());
                 }
@@ -584,6 +656,7 @@ fn update_labels(
             )?;
         }
         for row in rows.iter_mut() {
+            context.check()?;
             for entity in row.all_entities_mut() {
                 if let EntityValue::Node(node) = entity
                     && node.element_id == id
@@ -601,9 +674,11 @@ fn update_properties(
     rows: &mut [ExecutionRow],
     slot: SlotId,
     update: impl Fn(usize, &mut serde_json::Map<String, serde_json::Value>),
+    context: &ExecutionContext,
 ) -> Result<usize> {
     let mut total_changed = 0;
     for target_index in 0..rows.len() {
+        context.check()?;
         if !rows[target_index].binds(slot) {
             continue;
         }
@@ -646,6 +721,7 @@ fn update_properties(
         let properties = cypher_properties(serde_json::Value::Object(properties))?;
         let mut refreshed = false;
         for row in rows.iter_mut() {
+            context.check()?;
             refreshed |= row.replace_properties_for_identity(kind, &id, &properties);
         }
         if !refreshed {
@@ -673,17 +749,22 @@ fn property_change_count(
             .count()
 }
 
-fn distinct_pending_rows(rows: Vec<PendingRow>) -> Vec<PendingRow> {
+fn distinct_pending_rows(
+    rows: Vec<PendingRow>,
+    context: &ExecutionContext,
+) -> Result<Vec<PendingRow>> {
     let mut distinct: Vec<PendingRow> = Vec::with_capacity(rows.len());
-    for row in rows {
-        if !distinct
-            .iter()
-            .any(|existing| pending_rows_equivalent(existing, &row))
-        {
-            distinct.push(row);
+    'rows: for row in rows {
+        context.check()?;
+        for existing in &distinct {
+            context.check()?;
+            if pending_rows_equivalent(existing, &row) {
+                continue 'rows;
+            }
         }
+        distinct.push(row);
     }
-    distinct
+    Ok(distinct)
 }
 
 fn pending_rows_equivalent(left: &[PendingValue], right: &[PendingValue]) -> bool {
@@ -926,17 +1007,20 @@ fn apply_mutation(
     rows: &mut Vec<ExecutionRow>,
     mutation: &ResolvedMutation,
     summary: &mut QuerySummary,
+    context: &ExecutionContext,
 ) -> Result<()> {
     let slots = layout.slots.as_slice();
+    context.check()?;
     match mutation {
         ResolvedMutation::CreateNode {
             slot,
             labels,
             properties,
         } => {
-            let values = row_values(transaction, layout, rows, properties, true)?;
+            let values = row_values(transaction, layout, rows, properties, true, context)?;
             let encoded_labels = serde_json::Value::from(labels.clone()).to_string();
             for (index, input_row) in rows.iter_mut().enumerate() {
+                context.check()?;
                 let properties = &stored_properties(values.get(index));
                 let id = transaction.query_row(
                     "INSERT INTO nodes (id, labels, props)
@@ -965,8 +1049,9 @@ fn apply_mutation(
             to,
             properties,
         } => {
-            let values = row_values(transaction, layout, rows, properties, true)?;
+            let values = row_values(transaction, layout, rows, properties, true, context)?;
             for (index, input_row) in rows.iter_mut().enumerate() {
+                context.check()?;
                 let properties = &stored_properties(values.get(index));
                 let from = input_row.node_id(*from)?.to_owned();
                 let to = input_row.node_id(*to)?.to_owned();
@@ -992,33 +1077,46 @@ fn apply_mutation(
             }
         }
         ResolvedMutation::SetProperty { slot, key, value } => {
-            let values = row_values(transaction, layout, rows, value, false)?;
-            summary.properties_set +=
-                update_properties(transaction, rows, *slot, |index, properties| {
+            let values = row_values(transaction, layout, rows, value, false, context)?;
+            summary.properties_set += update_properties(
+                transaction,
+                rows,
+                *slot,
+                |index, properties| {
                     let value = values.get(index);
                     if value.is_null() {
                         properties.remove(key);
                     } else {
                         properties.insert(key.clone(), value.clone());
                     }
-                })?;
+                },
+                context,
+            )?;
         }
         ResolvedMutation::ReplaceProperties { slot, properties } => {
-            let values = row_values(transaction, layout, rows, properties, true)?;
-            summary.properties_set +=
-                update_properties(transaction, rows, *slot, |index, current| {
+            let values = row_values(transaction, layout, rows, properties, true, context)?;
+            summary.properties_set += update_properties(
+                transaction,
+                rows,
+                *slot,
+                |index, current| {
                     let serde_json::Value::Object(replacement) =
                         stored_properties(values.get(index))
                     else {
                         unreachable!("stored properties are validated maps")
                     };
                     *current = replacement;
-                })?;
+                },
+                context,
+            )?;
         }
         ResolvedMutation::MergeProperties { slot, properties } => {
-            let values = row_values(transaction, layout, rows, properties, true)?;
-            summary.properties_set +=
-                update_properties(transaction, rows, *slot, |index, current| {
+            let values = row_values(transaction, layout, rows, properties, true, context)?;
+            summary.properties_set += update_properties(
+                transaction,
+                rows,
+                *slot,
+                |index, current| {
                     let patch = values
                         .get(index)
                         .as_object()
@@ -1030,22 +1128,30 @@ fn apply_mutation(
                             current.insert(key.clone(), value.clone());
                         }
                     }
-                })?;
+                },
+                context,
+            )?;
         }
         ResolvedMutation::RemoveProperty { slot, key } => {
-            summary.properties_set +=
-                update_properties(transaction, rows, *slot, |_, properties| {
+            summary.properties_set += update_properties(
+                transaction,
+                rows,
+                *slot,
+                |_, properties| {
                     properties.remove(key);
-                })?;
+                },
+                context,
+            )?;
         }
         ResolvedMutation::SetLabels { slot, labels } => {
-            summary.labels_added += update_labels(transaction, rows, *slot, labels, true)?;
+            summary.labels_added += update_labels(transaction, rows, *slot, labels, true, context)?;
         }
         ResolvedMutation::RemoveLabels { slot, labels } => {
-            summary.labels_removed += update_labels(transaction, rows, *slot, labels, false)?;
+            summary.labels_removed +=
+                update_labels(transaction, rows, *slot, labels, false, context)?;
         }
         ResolvedMutation::Delete { targets, detach } => {
-            delete_entities(transaction, rows, targets, *detach, summary)?;
+            delete_entities(transaction, rows, targets, *detach, summary, context)?;
         }
         ResolvedMutation::Merge {
             matcher,
@@ -1063,6 +1169,7 @@ fn apply_mutation(
             on_create,
             on_match,
             summary,
+            context,
         )?,
     }
     Ok(())
@@ -1106,8 +1213,10 @@ fn merge_rows(
     on_create: &[ResolvedMutation],
     on_match: &[ResolvedMutation],
     summary: &mut QuerySummary,
+    context: &ExecutionContext,
 ) -> Result<()> {
     let mut merge = MergeRun {
+        context,
         transaction,
         layout,
         matcher,
@@ -1120,6 +1229,7 @@ fn merge_rows(
     let pending = rows.drain(..).enumerate().collect::<Vec<_>>();
     let unmatched = merge.match_batch(pending)?;
     for row in unmatched {
+        context.check()?;
         let (origin, row) = if merge.changed {
             let Some(row) = merge.match_batch(vec![row])?.pop() else {
                 continue;
@@ -1130,7 +1240,15 @@ fn merge_rows(
         };
         let mut created = vec![row];
         for mutation in creates.iter().chain(on_create) {
-            apply_mutation(transaction, layout, &mut created, mutation, merge.summary)?;
+            context.check()?;
+            apply_mutation(
+                transaction,
+                layout,
+                &mut created,
+                mutation,
+                merge.summary,
+                context,
+            )?;
         }
         merge.changed = true;
         merge
@@ -1145,6 +1263,7 @@ fn merge_rows(
 
 /// The state one `MERGE` shares between its matcher reads.
 struct MergeRun<'a, 'b> {
+    context: &'a ExecutionContext,
     transaction: &'a Transaction<'b>,
     layout: &'a RowLayout,
     matcher: &'a PreparedReadPlan,
@@ -1166,14 +1285,23 @@ impl MergeRun<'_, '_> {
         &mut self,
         pending: Vec<(usize, ExecutionRow)>,
     ) -> Result<Vec<(usize, ExecutionRow)>> {
+        let context = self.context;
+        context.check()?;
         let subset = pending
             .iter()
             .map(|(_, row)| row.clone())
             .collect::<Vec<_>>();
-        let result =
-            read_materialized_rows(self.transaction, self.layout, &subset, self.matcher.clone())?;
+        let result = read_materialized_rows(
+            self.transaction,
+            self.layout,
+            &subset,
+            self.matcher.clone(),
+            false,
+            context,
+        )?;
         let mut matches: Vec<Vec<Vec<CypherValue>>> = vec![Vec::new(); subset.len()];
         for mut row in result.rows {
+            context.check()?;
             let index = match row.remove(0) {
                 CypherValue::Integer(index) => usize::try_from(index).ok(),
                 _ => None,
@@ -1186,13 +1314,16 @@ impl MergeRun<'_, '_> {
         let mut matched: Vec<(usize, ExecutionRow)> = Vec::new();
         let mut unmatched = Vec::new();
         for ((origin, row), found) in pending.into_iter().zip(matches) {
+            context.check()?;
             if found.is_empty() {
                 unmatched.push((origin, row));
                 continue;
             }
             for values in found {
+                context.check()?;
                 let mut expanded = row.clone();
                 for ((slot, kind), value) in self.fresh.iter().zip(values) {
+                    context.check()?;
                     expanded.set(&self.layout.slots, *slot, entity_from_value(value, *kind)?)?;
                 }
                 matched.push((origin, expanded));
@@ -1202,12 +1333,14 @@ impl MergeRun<'_, '_> {
             self.changed |= !self.on_match.is_empty();
             let (origins, mut matched_rows): (Vec<_>, Vec<_>) = matched.into_iter().unzip();
             for mutation in self.on_match {
+                context.check()?;
                 apply_mutation(
                     self.transaction,
                     self.layout,
                     &mut matched_rows,
                     mutation,
                     self.summary,
+                    context,
                 )?;
             }
             self.finished.extend(origins.into_iter().zip(matched_rows));
@@ -1253,12 +1386,13 @@ fn row_values(
     rows: &[ExecutionRow],
     value: &ResolvedStoredValue,
     map: bool,
+    context: &ExecutionContext,
 ) -> Result<RowValues> {
     let plan = match value {
         ResolvedStoredValue::Static(value) => return Ok(RowValues::Static(value.clone())),
         ResolvedStoredValue::Computed(plan) => plan.clone(),
     };
-    let result = read_materialized_rows(transaction, layout, rows, plan)?;
+    let result = read_materialized_rows(transaction, layout, rows, plan, false, context)?;
     if result.rows.len() != rows.len() {
         return Err(crate::Error::Data(
             "a computed stored value did not yield one value per row".into(),
@@ -1313,11 +1447,16 @@ fn read_materialized_rows(
     layout: &RowLayout,
     rows: &[ExecutionRow],
     result: PreparedReadPlan,
+    is_output: bool,
+    context: &ExecutionContext,
 ) -> Result<QueryResult> {
-    with_rows_table(transaction, layout, rows, |transaction| {
-        let mut trail_budget = traversal::TrailBudget::default();
-        execute_prepared_read_plan(transaction, result, &mut trail_budget)
-    })
+    with_rows_table(
+        transaction,
+        layout,
+        rows,
+        |transaction| execute_prepared_read_plan(transaction, result, is_output, context),
+        context,
+    )
 }
 
 /// Writes the rows to the temporary rows table, one encoded entity record
@@ -1333,6 +1472,7 @@ fn with_rows_table<T>(
     layout: &RowLayout,
     rows: &[ExecutionRow],
     body: impl FnOnce(&Transaction<'_>) -> Result<T>,
+    context: &ExecutionContext,
 ) -> Result<T> {
     let table = crate::planner::ROWS_TABLE;
     let columns = std::iter::once("k TEXT".to_owned())
@@ -1362,6 +1502,7 @@ fn with_rows_table<T>(
         let mut insert =
             transaction.prepare_cached(&format!("INSERT INTO {table} VALUES ({placeholders})"))?;
         for (index, row) in rows.iter().enumerate() {
+            context.check()?;
             // Unbound slots hold JSON `null` text, exactly as an OPTIONAL
             // MATCH leaves them in a read pipeline's intermediate rows.
             let records =
@@ -1388,9 +1529,9 @@ fn with_rows_table<T>(
             insert.execute(params_from_iter(records.iter()))?;
         }
     }
-    let result = body(transaction);
+    let result = body(transaction)?;
     transaction.execute(&format!("DELETE FROM temp.{table}"), [])?;
-    result
+    Ok(result)
 }
 
 /// The JSON record the SQL compiler expects for an encoded entity: the
@@ -1456,12 +1597,14 @@ fn read_row_source(
     transaction: &Transaction<'_>,
     input: &ResolvedRowSource,
     layout: &RowLayout,
+    context: &ExecutionContext,
 ) -> Result<Vec<ExecutionRow>> {
     let mut statement = transaction.prepare_cached(&input.sql)?;
     debug_assert!(statement.readonly());
     let mut cursor = statement.query(params_from_iter(input.bindings.iter()))?;
     let mut input_rows = Vec::new();
     while let Some(row) = cursor.next()? {
+        context.record_sql_row(row, input.slots.len() + input.scalars.len())?;
         let mut execution_row = ExecutionRow::empty(layout);
         for (column, (slot, kind)) in input.slots.iter().enumerate() {
             let Some(encoded) = row.get::<_, Option<String>>(column)? else {
@@ -1571,8 +1714,47 @@ struct PathHydrator {
 }
 
 impl PathHydrator {
-    fn load(connection: &Connection, rows: &[PendingRow]) -> Result<Self> {
-        let (mut node_ids, mut relationship_ids) = collect_path_ids(rows);
+    /// Account for every repeated snapshot before cloning hydrated entities.
+    fn pending_bytes(&self, value: &PendingValue, context: &ExecutionContext) -> Result<usize> {
+        let node_bytes = |id: &String| -> Result<usize> {
+            let node = self.nodes.get(id).ok_or_else(|| {
+                crate::Error::Data(format!("path references missing node `{id}`"))
+            })?;
+            Ok(8_usize.saturating_add(context.node_bytes(node)?))
+        };
+        let relationship_bytes = |id: &String| -> Result<usize> {
+            let edge = self.relationships.get(id).ok_or_else(|| {
+                crate::Error::Data(format!("path references missing relationship `{id}`"))
+            })?;
+            Ok(8_usize.saturating_add(context.relationship_bytes(edge)?))
+        };
+        match value {
+            PendingValue::Materialized(value) => context.value_bytes(value),
+            PendingValue::Path(path) => {
+                let mut bytes = 24_usize; // path value and its two containers
+                for id in &path.node_ids {
+                    bytes = bytes.saturating_add(node_bytes(id)?);
+                }
+                for id in &path.relationship_ids {
+                    bytes = bytes.saturating_add(relationship_bytes(id)?);
+                }
+                Ok(bytes)
+            }
+            PendingValue::PathNodes(ids) => ids.iter().try_fold(8_usize, |bytes, id| {
+                Ok(bytes.saturating_add(node_bytes(id)?))
+            }),
+            PendingValue::PathRelationships(ids) => ids.iter().try_fold(8_usize, |bytes, id| {
+                Ok(bytes.saturating_add(relationship_bytes(id)?))
+            }),
+        }
+    }
+
+    fn load(
+        connection: &Connection,
+        rows: &[PendingRow],
+        context: &ExecutionContext,
+    ) -> Result<Self> {
+        let (mut node_ids, mut relationship_ids) = collect_path_ids(rows, context)?;
         if node_ids.is_empty() && relationship_ids.is_empty() {
             return Ok(Self::default());
         }
@@ -1581,6 +1763,7 @@ impl PathHydrator {
         // Whole entities already decoded from the primary SQL fragments are
         // snapshots from the same read transaction and can seed the cache.
         for value in rows.iter().flatten() {
+            context.check()?;
             match value {
                 PendingValue::Materialized(CypherValue::Node(node))
                     if node_ids.remove(&node.element_id) =>
@@ -1605,31 +1788,34 @@ impl PathHydrator {
             }
         }
 
-        hydrator.load_nodes(connection, &node_ids)?;
-        hydrator.load_relationships(connection, &relationship_ids)?;
+        hydrator.load_nodes(connection, &node_ids, context)?;
+        hydrator.load_relationships(connection, &relationship_ids, context)?;
         Ok(hydrator)
     }
 
-    fn load_nodes(&mut self, connection: &Connection, ids: &BTreeSet<String>) -> Result<()> {
+    fn load_nodes(
+        &mut self,
+        connection: &Connection,
+        ids: &BTreeSet<String>,
+        context: &ExecutionContext,
+    ) -> Result<()> {
         if ids.is_empty() {
             return Ok(());
         }
         let encoded_ids = encode_id_set(ids);
-        let encoded_nodes = {
-            let mut statement = connection.prepare(
-                "SELECT json_object(
+        let mut statement = connection.prepare(
+            "SELECT json_object(
                     'id', n.id, 'labels', json(n.labels), 'props', json(n.props)
                  )
                  FROM json_each(?1) AS wanted
                  JOIN nodes AS n ON n.id = wanted.value
                  WHERE wanted.type = 'text'",
-            )?;
-            statement
-                .query_map(params![encoded_ids], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        for encoded in encoded_nodes {
-            let EntityValue::Node(node) = decode_entity(&encoded, EntityKind::Node)? else {
+        )?;
+        let mut cursor = statement.query(params![encoded_ids])?;
+        while let Some(row) = cursor.next()? {
+            context.record_sql_row(row, 1)?;
+            let encoded = row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?;
+            let EntityValue::Node(node) = decode_entity(encoded, EntityKind::Node)? else {
                 unreachable!("node decoder always returns a node")
             };
             self.nodes.insert(node.element_id.clone(), node);
@@ -1646,28 +1832,27 @@ impl PathHydrator {
         &mut self,
         connection: &Connection,
         ids: &BTreeSet<String>,
+        context: &ExecutionContext,
     ) -> Result<()> {
         if ids.is_empty() {
             return Ok(());
         }
         let encoded_ids = encode_id_set(ids);
-        let encoded_relationships = {
-            let mut statement = connection.prepare(
-                "SELECT json_object(
+        let mut statement = connection.prepare(
+            "SELECT json_object(
                     'id', e.id, 'type', e.edge_type, 'from', e.from_node,
                     'to', e.to_node, 'props', json(e.props)
                  )
                  FROM json_each(?1) AS wanted
                  JOIN edges AS e ON e.id = wanted.value
                  WHERE wanted.type = 'text'",
-            )?;
-            statement
-                .query_map(params![encoded_ids], |row| row.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?
-        };
-        for encoded in encoded_relationships {
+        )?;
+        let mut cursor = statement.query(params![encoded_ids])?;
+        while let Some(row) = cursor.next()? {
+            context.record_sql_row(row, 1)?;
+            let encoded = row.get_ref(0)?.as_str().map_err(rusqlite::Error::from)?;
             let EntityValue::Relationship(relationship) =
-                decode_entity(&encoded, EntityKind::Relationship)?
+                decode_entity(encoded, EntityKind::Relationship)?
             else {
                 unreachable!("relationship decoder always returns a relationship")
             };
@@ -1685,14 +1870,14 @@ impl PathHydrator {
         Ok(())
     }
 
-    fn hydrate(&self, identity: PathIdentity) -> Result<PathValue> {
+    fn hydrate(&self, identity: PathIdentity, context: &ExecutionContext) -> Result<PathValue> {
         let mut nodes = Vec::with_capacity(identity.node_ids.len());
         for id in identity.node_ids {
-            nodes.push(self.node(&id)?);
+            nodes.push(self.node(&id, context)?);
         }
         let mut relationships = Vec::with_capacity(identity.relationship_ids.len());
         for id in identity.relationship_ids {
-            relationships.push(self.relationship(&id)?);
+            relationships.push(self.relationship(&id, context)?);
         }
         if nodes.len() != relationships.len() + 1 {
             return Err(crate::Error::Data(
@@ -1719,51 +1904,71 @@ impl PathHydrator {
         })
     }
 
-    fn node(&self, id: &str) -> Result<NodeValue> {
+    fn node(&self, id: &str, context: &ExecutionContext) -> Result<NodeValue> {
+        context.check()?;
         self.nodes
             .get(id)
             .cloned()
             .ok_or_else(|| crate::Error::Data(format!("path references missing node `{id}`")))
     }
 
-    fn relationship(&self, id: &str) -> Result<RelationshipValue> {
+    fn relationship(&self, id: &str, context: &ExecutionContext) -> Result<RelationshipValue> {
+        context.check()?;
         self.relationships.get(id).cloned().ok_or_else(|| {
             crate::Error::Data(format!("path references missing relationship `{id}`"))
         })
     }
 
-    fn hydrate_node_list(&self, ids: Vec<String>) -> Result<CypherValue> {
+    fn hydrate_node_list(
+        &self,
+        ids: Vec<String>,
+        context: &ExecutionContext,
+    ) -> Result<CypherValue> {
         ids.into_iter()
-            .map(|id| self.node(&id).map(CypherValue::Node))
+            .map(|id| self.node(&id, context).map(CypherValue::Node))
             .collect::<Result<Vec<_>>>()
             .map(CypherValue::List)
     }
 
-    fn hydrate_relationship_list(&self, ids: Vec<String>) -> Result<CypherValue> {
+    fn hydrate_relationship_list(
+        &self,
+        ids: Vec<String>,
+        context: &ExecutionContext,
+    ) -> Result<CypherValue> {
         ids.into_iter()
-            .map(|id| self.relationship(&id).map(CypherValue::Relationship))
+            .map(|id| {
+                self.relationship(&id, context)
+                    .map(CypherValue::Relationship)
+            })
             .collect::<Result<Vec<_>>>()
             .map(CypherValue::List)
     }
 }
 
-fn collect_path_ids(rows: &[PendingRow]) -> (BTreeSet<String>, BTreeSet<String>) {
+fn collect_path_ids(
+    rows: &[PendingRow],
+    context: &ExecutionContext,
+) -> Result<(BTreeSet<String>, BTreeSet<String>)> {
     let mut nodes = BTreeSet::new();
     let mut relationships = BTreeSet::new();
     for value in rows.iter().flatten() {
-        match value {
-            PendingValue::Path(path) => {
-                nodes.extend(path.node_ids.iter().cloned());
-                relationships.extend(path.relationship_ids.iter().cloned());
-            }
-            PendingValue::PathNodes(ids) => nodes.extend(ids.iter().cloned()),
-            PendingValue::PathRelationships(ids) => {
-                relationships.extend(ids.iter().cloned());
-            }
-            PendingValue::Materialized(_) => {}
+        context.check()?;
+        let (node_ids, relationship_ids): (&[String], &[String]) = match value {
+            PendingValue::Path(path) => (&path.node_ids, &path.relationship_ids),
+            PendingValue::PathNodes(ids) => (ids, &[]),
+            PendingValue::PathRelationships(ids) => (&[], ids),
+            PendingValue::Materialized(_) => continue,
+        };
+        for id in node_ids {
+            context.check()?;
+            nodes.insert(id.clone());
+        }
+        for id in relationship_ids {
+            context.check()?;
+            relationships.insert(id.clone());
         }
     }
-    (nodes, relationships)
+    Ok((nodes, relationships))
 }
 
 fn encode_id_set(ids: &BTreeSet<String>) -> String {
@@ -1856,20 +2061,40 @@ fn take_string_array(
 fn hydrate_pending_rows(
     connection: &Connection,
     rows: Vec<PendingRow>,
+    is_output: bool,
+    context: &ExecutionContext,
 ) -> Result<Vec<Vec<CypherValue>>> {
-    let hydrator = PathHydrator::load(connection, &rows)?;
+    if is_output {
+        context.result_rows(rows.len())?;
+    }
+    let mut result_bytes = 0;
+    let hydrator = PathHydrator::load(connection, &rows, context)?;
     rows.into_iter()
         .map(|row| {
-            row.into_iter()
+            context.check()?;
+            if is_output && context.counts_result_bytes() {
+                context.admit_result_bytes(8, &mut result_bytes)?;
+                for value in &row {
+                    context.admit_result_bytes(
+                        hydrator.pending_bytes(value, context)?,
+                        &mut result_bytes,
+                    )?;
+                }
+            }
+            let row = row
+                .into_iter()
                 .map(|value| match value {
                     PendingValue::Materialized(value) => Ok(value),
                     PendingValue::Path(identity) => {
-                        hydrator.hydrate(identity).map(CypherValue::Path)
+                        hydrator.hydrate(identity, context).map(CypherValue::Path)
                     }
-                    PendingValue::PathNodes(ids) => hydrator.hydrate_node_list(ids),
-                    PendingValue::PathRelationships(ids) => hydrator.hydrate_relationship_list(ids),
+                    PendingValue::PathNodes(ids) => hydrator.hydrate_node_list(ids, context),
+                    PendingValue::PathRelationships(ids) => {
+                        hydrator.hydrate_relationship_list(ids, context)
+                    }
                 })
-                .collect::<Result<Vec<_>>>()
+                .collect::<Result<Vec<_>>>()?;
+            Ok(row)
         })
         .collect()
 }
@@ -2464,6 +2689,81 @@ fn validate_schema(connection: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancellation_after_a_write_aborts_the_transaction_and_restores_indexes() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        let mut database = Database::in_memory().unwrap();
+        database.create_unique_constraint("Item", "key").unwrap();
+        database.execute("CREATE (:Item {key: 'saved'})").unwrap();
+        let token = crate::CancellationToken::new();
+        let from_trigger = token.clone();
+        let wrote = Arc::new(AtomicBool::new(false));
+        let trigger_wrote = wrote.clone();
+        database
+            .connection
+            .create_scalar_function("cancel_query", 0, FunctionFlags::SQLITE_UTF8, move |_| {
+                trigger_wrote.store(true, Ordering::Relaxed);
+                from_trigger.cancel();
+                Ok(0)
+            })
+            .unwrap();
+        database.connection.execute_batch("CREATE TRIGGER cancel_insert AFTER INSERT ON nodes WHEN json_extract(NEW.props, '$.cancel') = 1 BEGIN SELECT cancel_query(); END;").unwrap();
+        let mut transaction = database.transaction().unwrap();
+        transaction
+            .execute("MATCH (n:Item) SET n.key = 'changed'")
+            .unwrap();
+        let options = QueryOptions {
+            cancellation: Some(token),
+            ..QueryOptions::default()
+        };
+        let error = transaction
+            .execute_with_options(
+                "CREATE (:Item {key: 'new', cancel: true}), (:Item {key: 'later'})",
+                &Parameters::new(),
+                &options,
+            )
+            .unwrap_err();
+        assert!(
+            wrote.load(Ordering::Relaxed),
+            "the cancellation must happen after a write"
+        );
+        assert!(matches!(error, crate::Error::Cancelled), "{error}");
+        assert!(matches!(
+            transaction.commit(),
+            Err(crate::Error::TransactionAborted)
+        ));
+        assert_eq!(
+            database
+                .execute("MATCH (n:Item {key: 'saved'}) RETURN n.key")
+                .unwrap()
+                .rows,
+            [vec![crate::Value::from("saved")]]
+        );
+        database
+            .execute(
+                "CREATE (:Item {key: 'changed'}), (:Item {key: 'new'}), (:Item {key: 'later'})",
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn rust_distinct_checks_cancellation_without_running_sqlite() {
+        let token = crate::CancellationToken::new();
+        let context = ExecutionContext::new(&QueryOptions {
+            cancellation: Some(token.clone()),
+            ..QueryOptions::default()
+        });
+        token.cancel();
+        let result = distinct_pending_rows(
+            vec![vec![PendingValue::Materialized(CypherValue::Integer(1))]],
+            &context,
+        );
+        assert!(matches!(result, Err(crate::Error::Cancelled)));
+    }
     use rusqlite::OptionalExtension;
     use serde_json::json;
 
@@ -2845,10 +3145,10 @@ mod tests {
         .unwrap() else {
             panic!("expected a read plan");
         };
-        let mut budget = traversal::TrailBudget::new(0);
+        let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(0));
 
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
-            .unwrap_err();
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
 
         assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
     }
@@ -2866,10 +3166,10 @@ mod tests {
         else {
             panic!("expected a read plan");
         };
-        let mut budget = traversal::TrailBudget::new(0);
+        let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(0));
 
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
-            .unwrap_err();
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
 
         assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
     }
@@ -2885,10 +3185,10 @@ mod tests {
         else {
             panic!("expected a read plan");
         };
-        let mut budget = traversal::TrailBudget::new(0);
+        let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(0));
 
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
-            .unwrap_err();
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
 
         assert!(matches!(
             error,
@@ -2908,10 +3208,10 @@ mod tests {
         else {
             panic!("expected a read plan");
         };
-        let mut budget = traversal::TrailBudget::new(1);
+        let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(1));
 
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
-            .unwrap_err();
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
 
         assert!(matches!(
             error,
@@ -2930,25 +3230,29 @@ mod tests {
         let Plan::Read(single_plan) = planner::compile(branch).unwrap() else {
             panic!("expected a read plan");
         };
-        let mut measurement = traversal::TrailBudget::with_limits(100, usize::MAX);
+        let measurement =
+            ExecutionContext::with_trails(traversal::TrailBudget::with_limits(100, usize::MAX));
         execute_read_plan(
             &database.connection,
             single_plan,
             &Parameters::new(),
-            &mut measurement,
+            &measurement,
         )
         .unwrap();
-        let one_branch_payload = measurement.payload_used();
+        let one_branch_payload = measurement.trails.borrow().payload_used();
         assert!(one_branch_payload > 0);
 
         let Plan::Read(plan) = planner::compile(&format!("{branch} UNION ALL {branch}")).unwrap()
         else {
             panic!("expected a read plan");
         };
-        let mut budget = traversal::TrailBudget::with_limits(100, one_branch_payload);
+        let budget = ExecutionContext::with_trails(traversal::TrailBudget::with_limits(
+            100,
+            one_branch_payload,
+        ));
 
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
-            .unwrap_err();
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
 
         assert!(matches!(
             error,
@@ -2971,10 +3275,11 @@ mod tests {
         else {
             panic!("expected a read plan");
         };
-        let mut budget = traversal::TrailBudget::new(100).with_memory_limit(0);
+        let budget =
+            ExecutionContext::with_trails(traversal::TrailBudget::new(100).with_memory_limit(0));
 
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut budget)
-            .unwrap_err();
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
 
         assert!(matches!(
             error,
@@ -2994,17 +3299,18 @@ mod tests {
         let Plan::Read(single_plan) = planner::compile(branch).unwrap() else {
             panic!("expected a read plan");
         };
-        let mut measurement = traversal::TrailBudget::with_limits(100, usize::MAX);
+        let measurement =
+            ExecutionContext::with_trails(traversal::TrailBudget::with_limits(100, usize::MAX));
         execute_read_plan(
             &database.connection,
             single_plan,
             &Parameters::new(),
-            &mut measurement,
+            &measurement,
         )
         .unwrap();
-        let one_branch_peak = measurement.memory_peak();
+        let one_branch_peak = measurement.trails.borrow().memory_peak();
         assert!(one_branch_peak > 0);
-        assert_eq!(measurement.memory_used(), 0);
+        assert_eq!(measurement.trails.borrow().memory_used(), 0);
 
         // Unlike the cumulative state and payload counters, each producer
         // returns its inputs when it finishes, so two branches fit inside the
@@ -3013,21 +3319,24 @@ mod tests {
         else {
             panic!("expected a read plan");
         };
-        let mut exact =
-            traversal::TrailBudget::with_limits(100, usize::MAX).with_memory_limit(one_branch_peak);
+        let exact = ExecutionContext::with_trails(
+            traversal::TrailBudget::with_limits(100, usize::MAX).with_memory_limit(one_branch_peak),
+        );
         let result =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &mut exact).unwrap();
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &exact).unwrap();
         assert_eq!(result.rows.len(), 2);
-        assert_eq!(exact.memory_peak(), one_branch_peak);
-        assert_eq!(exact.memory_used(), 0);
+        assert_eq!(exact.trails.borrow().memory_peak(), one_branch_peak);
+        assert_eq!(exact.trails.borrow().memory_used(), 0);
 
         let Plan::Read(plan) = planner::compile(branch).unwrap() else {
             panic!("expected a read plan");
         };
-        let mut short = traversal::TrailBudget::with_limits(100, usize::MAX)
-            .with_memory_limit(one_branch_peak - 1);
-        let error = execute_read_plan(&database.connection, plan, &Parameters::new(), &mut short)
-            .unwrap_err();
+        let short = ExecutionContext::with_trails(
+            traversal::TrailBudget::with_limits(100, usize::MAX)
+                .with_memory_limit(one_branch_peak - 1),
+        );
+        let error =
+            execute_read_plan(&database.connection, plan, &Parameters::new(), &short).unwrap_err();
         assert!(matches!(
             error,
             crate::Error::ResourceLimit(message)
@@ -3157,7 +3466,8 @@ mod tests {
             ],
         ];
 
-        let (nodes, relationships) = collect_path_ids(&rows);
+        let (nodes, relationships) =
+            collect_path_ids(&rows, &ExecutionContext::new(&QueryOptions::default())).unwrap();
         assert_eq!(
             nodes,
             BTreeSet::from([
@@ -3175,6 +3485,7 @@ mod tests {
 
     #[test]
     fn directly_materialized_entities_seed_path_hydration() {
+        let context = ExecutionContext::new(&QueryOptions::default());
         let node = NodeValue {
             element_id: "seeded".into(),
             labels: vec!["Seed".into()],
@@ -3191,12 +3502,20 @@ mod tests {
         // This connection intentionally has no graph schema. Loading can only
         // succeed if the directly materialized node satisfies the path cache.
         let connection = Connection::open_in_memory().unwrap();
-        let hydrator = PathHydrator::load(&connection, &rows).unwrap();
+        let hydrator = PathHydrator::load(
+            &connection,
+            &rows,
+            &ExecutionContext::new(&QueryOptions::default()),
+        )
+        .unwrap();
         let path = hydrator
-            .hydrate(PathIdentity {
-                node_ids: vec![node.element_id.clone()],
-                relationship_ids: Vec::new(),
-            })
+            .hydrate(
+                PathIdentity {
+                    node_ids: vec![node.element_id.clone()],
+                    relationship_ids: Vec::new(),
+                },
+                &context,
+            )
             .unwrap();
         assert_eq!(path.nodes, [node]);
         assert!(path.relationships.is_empty());
@@ -3204,6 +3523,7 @@ mod tests {
 
     #[test]
     fn empty_and_seeded_relationship_lists_need_no_storage_query() {
+        let context = ExecutionContext::new(&QueryOptions::default());
         let relationship = RelationshipValue {
             element_id: "seeded-edge".into(),
             relationship_type: "LINK".into(),
@@ -3222,14 +3542,21 @@ mod tests {
         // No graph schema exists: both the empty zero-hop list and the seeded
         // relationship list must avoid a storage lookup entirely.
         let connection = Connection::open_in_memory().unwrap();
-        let hydrator = PathHydrator::load(&connection, &rows).unwrap();
+        let hydrator = PathHydrator::load(
+            &connection,
+            &rows,
+            &ExecutionContext::new(&QueryOptions::default()),
+        )
+        .unwrap();
         assert_eq!(
-            hydrator.hydrate_relationship_list(Vec::new()).unwrap(),
+            hydrator
+                .hydrate_relationship_list(Vec::new(), &context)
+                .unwrap(),
             CypherValue::List(Vec::new())
         );
         assert_eq!(
             hydrator
-                .hydrate_relationship_list(vec![relationship.element_id.clone()])
+                .hydrate_relationship_list(vec![relationship.element_id.clone()], &context)
                 .unwrap(),
             CypherValue::List(vec![CypherValue::Relationship(relationship)])
         );

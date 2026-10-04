@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 open-cypher = "0.2.1"
-rusqlite = { version = "0.40.2", features = ["bundled", "functions"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "functions", "hooks"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 
 [dev-dependencies]

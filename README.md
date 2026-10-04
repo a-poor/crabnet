@@ -67,6 +67,45 @@ Results and mutation summaries are per query and provisional until commit.
 The transaction reserves SQLite's writer immediately and borrows the database
 until consumed or dropped. Nested transactions and savepoints are not exposed.
 
+## Query resource controls
+
+`Database::execute_with_options` and `Transaction::execute_with_options` accept
+per-query budgets, a cooperative deadline, and a shared cancellation token:
+
+```rust
+use crabnet::{CancellationToken, Database, Parameters, QueryOptions};
+use std::time::{Duration, Instant};
+
+let mut database = Database::in_memory()?;
+let cancellation = CancellationToken::new();
+let options = QueryOptions {
+    cancellation: Some(cancellation.clone()),
+    deadline: Some(Instant::now() + Duration::from_secs(5)),
+    max_result_rows: Some(1_000),
+    max_result_bytes: Some(8 * 1024 * 1024),
+    max_materialized_bytes: Some(32 * 1024 * 1024),
+    ..QueryOptions::default()
+};
+// Another thread may call cancellation.cancel(). Tokens cannot be reset.
+let result = database.execute_with_options(
+    "MATCH (n) RETURN n LIMIT 1000", &Parameters::new(), &options,
+)?;
+# Ok::<(), crabnet::Error>(())
+```
+
+`options.traversal` configures the existing state, payload, and retained-memory
+budgets. `max_sqlite_steps` optionally bounds SQLite progress callbacks across
+the query. Every counter spans all branches and write stages, then resets for
+the next call. Existing execution methods retain their defaults.
+
+Exhaustion returns `Error::ResourceLimit`; cancellation and deadline expiry
+return `Error::Cancelled` and `Error::DeadlineExceeded`. Failures roll back the
+statement, or the whole explicit transaction, and leave the database reusable.
+Results remain eager. Byte limits use documented accounting rather than total
+process memory, and deadlines do not preempt parsing, an individual scalar or
+aggregate callback, or lock/I/O waits. See [resource semantics](docs/semantics.md#query-resource-controls)
+for accounting boundaries and cleanup behavior.
+
 ## Current query slice
 
 The accepted statement shapes are:

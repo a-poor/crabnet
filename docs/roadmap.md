@@ -518,11 +518,17 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   Schema version 4 upgrades versions 1–3 atomically, with migration and
   failed-upgrade tests. Composite keys, relationship constraints, and Cypher
   schema DDL remain follow-up work.
-- [ ] **Caller-controlled query resources.** Add configurable budgets,
-  deadlines, cancellation, and result-size limits. Cover SQLite execution,
-  Rust operators, and materialized results; failures must leave the connection
-  usable and roll back writes. Add incremental result consumption where the
-  physical operators permit it, with explicit cursor/snapshot lifetime rules.
+- [x] **Caller-controlled query resources.** `QueryOptions` on both execution
+  APIs configures traversal budgets, SQLite instruction work, cooperative
+  deadlines/cancellation, cumulative materialized rows/bytes, and final
+  result rows/bytes. One context spans branches, mutation stages, and hydration.
+  Failures preserve rollback and connection reuse; tests cover cancellation
+  after writes, cross-thread interruption, cleanup on panic, exact accounting
+  boundaries, and per-query reset. Accounting boundaries and cooperative
+  timing limits are explicit in the semantics document.
+- [ ] **Incremental result consumption.** Add it where the physical operators
+  permit it, with explicit cursor/snapshot lifetime rules. Current results
+  remain eager, with resource controls independent of a future cursor API.
 - [ ] **Dependable on-disk operation.** Establish opening options and the
   supported reader/writer and lock-contention contract. Cover close/reopen,
   interrupted writes, migration failures, and backup/restore; document file
@@ -544,7 +550,9 @@ Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
 (`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete, as is `UNWIND`
 for path-function and legacy relationship lists. Aggregate expressions such
 as `count(*) + 1` and application node uniqueness constraints are also complete.
-Next tackle caller-controlled query resources. Track broader entity-list operations
+Caller-controlled query resources are complete for eager execution. Next develop
+the dependency-graph example and use it to guide persistent operation and
+incremental result consumption. Track broader entity-list operations
 (indexing, comprehensions, and nested collections) as follow-up composition
 work. Develop the dependency-graph example alongside these APIs so application
 needs guide constraints, resource controls, and persistent operation. Track

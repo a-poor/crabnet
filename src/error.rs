@@ -17,8 +17,12 @@ pub enum Error {
     /// A query failed in an explicit transaction. Its handle can no longer
     /// execute queries or commit.
     TransactionAborted,
-    /// Execution stopped because a built-in query resource budget was exhausted.
+    /// Execution stopped because a query resource budget was exhausted.
     ResourceLimit(String),
+    /// The caller cancelled this query through its cancellation token.
+    Cancelled,
+    /// The query's cooperative deadline expired.
+    DeadlineExceeded,
     /// SQLite rejected a schema or query operation.
     Sqlite(rusqlite::Error),
     /// Stored data or an internally generated result had an invalid shape.
@@ -47,6 +51,8 @@ impl fmt::Display for Error {
             Self::MissingParameter(name) => write!(formatter, "missing Cypher parameter `${name}`"),
             Self::TransactionAborted => formatter.write_str("the transaction has been aborted"),
             Self::ResourceLimit(message) => write!(formatter, "query resource limit: {message}"),
+            Self::Cancelled => formatter.write_str("query cancelled"),
+            Self::DeadlineExceeded => formatter.write_str("query deadline exceeded"),
             Self::Sqlite(error) => write!(formatter, "SQLite error: {error}"),
             Self::Data(message) => write!(formatter, "invalid graph data: {message}"),
             Self::Argument(message) => write!(formatter, "invalid argument: {message}"),

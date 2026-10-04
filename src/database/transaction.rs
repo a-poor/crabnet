@@ -1,9 +1,11 @@
 use rusqlite::{Connection, Transaction as SqliteTransaction, TransactionBehavior};
 
-use crate::{Error, Parameters, QueryResult, Result, UniqueConstraint, planner::Plan};
+use crate::{
+    Error, Parameters, QueryOptions, QueryResult, Result, UniqueConstraint, planner::Plan,
+};
 
 use super::{
-    constraints, execute_mutation_plan, execute_read_plan, planner, traversal::TrailBudget,
+    constraints, execute_mutation_plan, execute_read_plan, planner, resources::ExecutionContext,
 };
 
 /// An atomic group of Cypher queries, created by [`crate::Database::transaction`].
@@ -45,11 +47,28 @@ impl<'database> Transaction<'database> {
     /// Planning and parameter validation finish before this query executes.
     /// Any error rolls back the entire transaction and prevents a later commit.
     pub fn execute_with(&mut self, cypher: &str, parameters: &Parameters) -> Result<QueryResult> {
-        self.run(|transaction| match planner::compile(cypher)? {
-            Plan::Read(plan) => {
-                execute_read_plan(transaction, plan, parameters, &mut TrailBudget::default())
-            }
-            Plan::Mutate(plan) => execute_mutation_plan(transaction, (*plan).resolve(parameters)?),
+        self.execute_with_options(cypher, parameters, &QueryOptions::default())
+    }
+
+    /// Executes a query with resource controls that reset for this call.
+    /// Cancellation, deadlines, and budget failures abort and roll back the
+    /// whole transaction, including all earlier successful statements.
+    pub fn execute_with_options(
+        &mut self,
+        cypher: &str,
+        parameters: &Parameters,
+        options: &QueryOptions,
+    ) -> Result<QueryResult> {
+        self.run(|transaction| {
+            let context = ExecutionContext::new(options);
+            context.check()?;
+            let plan = planner::compile(cypher)?;
+            context.run(transaction, || match plan {
+                Plan::Read(plan) => execute_read_plan(transaction, plan, parameters, &context),
+                Plan::Mutate(plan) => {
+                    execute_mutation_plan(transaction, (*plan).resolve(parameters)?, &context)
+                }
+            })
         })
     }
 

@@ -695,9 +695,9 @@ either seed.
 An omitted upper bound has no hidden hop cutoff: relationship uniqueness limits
 one trail to at most the number of eligible stored edges, although the number of
 distinct trails can still grow rapidly. Deep/open-ended enumeration and
-shortest-path BFS share a 100,000-trail-state budget across one top-level query,
+shortest-path BFS default to a 100,000-trail-state budget across one top-level query,
 including `UNION` branches and multiple hybrid expansions. Their runtime
-relations also share a 128 MiB (134,217,728-byte) serialized-payload budget.
+relations also share a default 128 MiB (134,217,728-byte) serialized-payload budget.
 That second counter is the exact UTF-8 byte length of each compact JSON array,
 including `[]`, row separators, JSON escapes, keys, and values. The relation is
 encoded incrementally, and a byte is appended only after the budget admits it.
@@ -709,7 +709,7 @@ The state counter is an explored-work guard, while the payload counter bounds
 only the serialized Rust-to-SQLite relations. A third counter bounds the graph
 inputs a hybrid producer retains while it runs: eligible edges, seed and
 end-domain node lists, adjacency maps, search frontiers, shortest-path visited
-maps, and retained candidate cycles share a 256 MiB (268,435,456-byte)
+maps, and retained candidate cycles share a default 256 MiB (268,435,456-byte)
 retained-memory budget. That counter is deterministic rather than an allocator
 measurement: every retained ID string costs its UTF-8 length plus a fixed 24
 bytes, and each visited-map entry costs a further 8 bytes. Edges, seeds, and
@@ -1027,7 +1027,7 @@ neither nested transactions nor savepoints nor a read-only transaction mode.
 
 Any query or constraint-management error aborts the entire application
 transaction, including parse, semantic, unsupported-feature, missing-parameter,
-runtime type, constraint, and resource-limit errors. The failing call rolls back immediately and returns
+runtime type, constraint, resource-limit, cancellation, and deadline errors. The failing call rolls back immediately and returns
 the query's original error unless rollback itself fails. If SQLite has
 already rolled back, cleanup does not replace the original error with a
 redundant-rollback error. Further query execution and commit return
@@ -1040,9 +1040,77 @@ execution, although the outer transaction is already open. Read results are
 owned snapshots; `QuerySummary` reports only the current query's changes.
 Both remain provisional until the application transaction commits: retaining
 a returned node or summary does not preserve a write that was rolled back.
-Hybrid traversal budgets reset for each query, while all operators within a
+Resource budgets reset for each query, while all operators within a
 query continue sharing that query's budget. Standalone execution retains its
 existing per-statement transaction and preflight behavior.
+
+## Query resource controls
+
+`Database::execute_with_options(cypher, parameters, options)` and the equivalent
+`Transaction` method accept `QueryOptions`. Existing execution methods delegate
+with default options. Each call gets a fresh budget; all UNION branches,
+mutation stages, computed write values, MERGE reads, traversal producers, and
+hydration within that call share it.
+
+`TraversalLimits` preserves the defaults of 100,000 explored states, 128 MiB
+serialized traversal payload, and 256 MiB retained traversal accounting. All
+three limits are configurable, and zero is an actual limit. The state and
+payload counters are cumulative; retained memory is released as producers
+finish. These traversal-specific counters apply to Rust-backed traversal,
+not the bounded recursive SQLite strategy.
+
+The remaining limits default to `None`:
+
+- `deadline` is an absolute monotonic `Instant`. A past deadline fails before
+  execution. It remains absolute when the same options are used again.
+- `cancellation` accepts a clonable, thread-safe `CancellationToken`. Calling
+  `cancel()` permanently cancels that token and its clones. A later independent
+  query needs a new token or options without that token.
+- `max_sqlite_steps` limits progress-callback work across SQLite statements in
+  one query. The callback runs at SQLite's one-VM-instruction interval when this
+  limit is set, adding overhead. This is a work guard, not a stable instruction
+  count across SQLite versions, query plans, or statement-cache state. Transaction
+  begin/commit/rollback are outside the query's progress handler.
+- `max_materialized_rows` and `max_materialized_bytes` count cumulative row
+  transfers at query fragments, mutation row sources, traversal input reads,
+  and hydration reads. The bytes are the encoded UTF-8 cells (including JSON
+  quotes and escapes). Rows are charged before copying their cells into Rust.
+  Repeated reads count again, including internal computed-value and MERGE reads;
+  DISTINCT, pagination, and producer completion do not refund these counters.
+  Metadata and individual mutation property-refresh lookups are outside these
+  row-transfer counters, as are SQLite's internal aggregates, sorts, CTEs, and
+  temporary storage, Rust allocator overhead, parameters, and planner memory.
+- `max_result_rows` and `max_result_bytes` apply to the final result after
+  DISTINCT, pagination, and UNION, including post-write RETURN. Internal write
+  reads are not final results. A write with no RETURN has zero result rows and
+  bytes. Exceeding a result limit fails rather than returning a truncated bag.
+
+Result bytes use deterministic value accounting, not JSON size or allocator
+usage. A row costs 8 plus its values. Every value costs 8, with these additions:
+strings add their UTF-8 length; lists add their values; maps add each key's
+UTF-8 length and value. Nodes add their ID bytes, an 8-byte label container
+with each label counted as a string value, and an 8-byte property container
+with keys and values counted as a map. Relationships add their ID, type, and
+endpoint ID bytes and the same property-container cost. Paths add two 8-byte
+containers holding complete node and relationship values. Every occurrence
+counts, including repeated graph identities. Column names and summary counters
+are excluded. Hydrated result costs are checked before cloning snapshots into
+output paths and lists. These budgets do not promise a total process-memory cap.
+
+Cancellation and deadlines are cooperative. Checks run around planning, between
+Rust work units, and through SQLite's progress callback (every 1,000 VM
+instructions when only time/cancellation controls are enabled). A parser call,
+individual scalar/aggregate callback, allocation, or lock/I/O wait cannot be
+preempted by these checks. An absolute deadline is not a hard wall-clock bound.
+
+Budget exhaustion returns `Error::ResourceLimit`, cancellation returns
+`Error::Cancelled`, and deadline expiry returns `Error::DeadlineExceeded`.
+Progress callbacks are removed before commit or rollback, including on panic
+unwinding. Failure rolls back a standalone statement or aborts the entire
+explicit transaction, including earlier successful statements; cleanup remains
+able to execute after the query has exhausted its budget. The database can be
+used again after the transaction handle is consumed or dropped. Results remain
+eager, with no exposed cursor or additional snapshot-lifetime contract.
 
 ## Unsupported constructs and errors
 
@@ -1058,11 +1126,9 @@ that still has relationships, with `Error::Constraint`. Planning completes
 before mutation execution, so an unsupported write statement cannot partially
 modify the graph.
 
-Supported deep/open-ended or shortest-path traversal can instead fail during
-execution with `Error::ResourceLimit` when either shared query-wide limit is
-exhausted: 100,000 explored trail states or 128 MiB of serialized runtime JSON.
-This is an explicit resource failure; Crabnet does not return a truncated
-result.
+Supported queries can fail with `Error::ResourceLimit`, `Error::Cancelled`, or
+`Error::DeadlineExceeded` under the resource controls above. These are explicit
+execution failures; Crabnet does not return a truncated result.
 
 Semantics for unsupported constructs—including modern path selectors,
 expression-position shortest-path calls, other path expressions beyond the
