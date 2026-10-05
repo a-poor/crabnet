@@ -832,8 +832,8 @@ public paths and typed lists in traversal order.
 
 The complete read—runtime traversal producers, every branch SQL fragment, and
 union evaluation plus both possible hydration queries—shares one deferred
-SQLite read snapshot. Concurrent external-writer semantics beyond that snapshot
-remain a non-goal.
+SQLite read snapshot. Independent Crabnet connections follow the
+[file-opening and contention contract](#file-opening-and-contention).
 
 ## Entity identifiers
 
@@ -998,7 +998,7 @@ transaction. Rollback, drop, and query-result failures restore both data and
 constraints. These schema methods do not produce `QuerySummary` counters.
 
 Declarations and their keys persist in schema version 4. Opening main's
-versions 1, 2, or 3 upgrades atomically, retaining existing data and installing
+versions 1, 2, or 3 in a writable mode upgrades atomically, retaining existing data and installing
 no constraints by default. Failed migrations leave the previous schema and
 version marker intact. Triggers enforce uniqueness under SQLite's writer
 reservation; another Crabnet connection observes committed constraint
@@ -1043,6 +1043,95 @@ a returned node or summary does not preserve a write that was rolled back.
 Resource budgets reset for each query, while all operators within a
 query continue sharing that query's budget. Standalone execution retains its
 existing per-statement transaction and preflight behavior.
+
+## File opening and contention
+
+`Database::open(path)` delegates to `Database::open_with_options(path,
+&OpenOptions::default())`. Each database owns one connection; the options are
+connection-local, including when several handles use the same file.
+
+| `OpenMode` | Missing or uninitialized file | Existing Crabnet graph |
+| --- | --- | --- |
+| `OpenOrCreate` (default) | Creates a missing file or initializes an empty file | Opens read/write, migrating supported older schemas |
+| `ReadWrite` | Rejects it without creating or initializing a graph | Opens read/write, migrating supported older schemas |
+| `ReadOnly` | Rejects it without creating or initializing a graph | Opens only the current schema; never migrates |
+
+Create-or-open does not mean exclusive creation and never truncates an existing
+graph. Paths are filesystem paths: empty paths, `:memory:`, and `file:` SQLite
+URIs return `Error::Argument`. Use `Database::in_memory()` for a transient
+graph. URI parameters cannot override the access mode or enable shared cache.
+Read/write opens reject SQLite's fallback to read-only filesystem access with
+`Error::ReadOnly`. Missing files, inaccessible directories, and other open/I/O
+failures retain `Error::Sqlite` and its underlying code.
+
+A read-only handle supports all supported read queries, including hybrid
+traversal and hydration, and `unique_constraints()`. Valid mutation queries
+(even when they would match zero rows), create/drop-constraint calls, and
+`transaction()` return `Error::ReadOnly`. The latter reserves a writer, even
+if the caller only intended to read. Planning, parameter, and query-resource
+preflight errors can still be returned before the write-access check. Read-only
+application transactions spanning several queries are not exposed.
+
+Schema version 4 remains current; this API does not change the file format.
+Writable opens atomically migrate main's versions 1–3. A read-only open of an
+older version returns `Error::Data` explaining that a writable migration is
+required. Future versions, foreign application IDs, and unrelated nonempty
+SQLite databases are refused. The earlier experimental single-label version 2
+is still unsupported. Inspection and validation use one read snapshot. When
+initialization or migration needs a writer, it releases that snapshot, acquires
+the writer, and rechecks the version before applying DDL: concurrent openers
+must not apply the same migration twice. Current-schema opens do not reserve
+a writer. Validation checks the expected table/column layout; it is not a full
+integrity or corruption-repair check.
+
+### Readers, writers, and retries
+
+The tested concurrency contract uses independent connections on a local file
+with SQLite's default DELETE rollback journal. Each connection is used
+serially; different threads can own different `Database` handles. Crabnet
+opens file connections with private caches. It does not switch a file's
+existing journal mode or expose journal/durability tuning. WAL configuration,
+shared cache, network filesystems, and direct external SQLite mutations are
+outside this contract.
+
+Standalone reads retain one snapshot until all operators and hydration finish,
+then release it before returning owned, eager results. Holding those results
+does not hold a database lock. Other connections observe committed graph and
+constraint changes on later calls, never another connection's partial writes.
+There is one writer at a time. Standalone mutations and application
+transactions acquire that reservation with `BEGIN IMMEDIATE` before executing
+writes. Readers can coexist with a writer's reservation, but rollback-journal
+writes/commit may need an exclusive lock and can block readers or be blocked
+by an active reader. This follows [SQLite's isolation model](https://sqlite.org/isolation.html).
+
+`OpenOptions::busy_timeout` defaults to five seconds and is installed before
+schema inspection or migration. Zero disables waiting. Durations are truncated
+to whole milliseconds; values greater than `i32::MAX` milliseconds return
+`Error::Argument` before opening a file. The timeout applies to individual
+SQLite lock waits during opening, queries, constraint operations, and
+begin/commit. It is not a whole-operation deadline, and SQLite may skip waiting
+to avoid deadlock. See SQLite's [timeout](https://sqlite.org/c3ref/busy_timeout.html)
+and [busy-handler](https://sqlite.org/c3ref/busy_handler.html) contracts.
+
+SQLite `SQLITE_BUSY`, including its extended codes, becomes
+`Error::Busy(Box<rusqlite::Error>)`, retaining the original error through `source()`.
+Other SQLite errors, including `SQLITE_LOCKED` (a different same-connection or
+shared-cache condition), remain `Error::Sqlite`. Crabnet does not automatically
+replay a query or application transaction. A failed begin leaves the connection
+reusable; a later statement failure aborts the enclosing transaction. A busy
+commit consumes the transaction and attempts rollback, so its provisional
+results must not be treated as persisted. Retry the entire standalone operation
+or application transaction, including its reads and decisions, after handling
+the failure. Tests verify rollback of graph and constraint changes after a
+reader blocks commit and verify subsequent connection reuse.
+
+Query deadlines and cancellation do not interrupt lock sleeping, opening,
+constraint management, or explicit begin/commit/rollback. Choose the connection
+timeout alongside `QueryOptions`; a short query deadline does not shorten a
+longer lock wait. Process interruption, backup/restore, recovery tooling, and
+power-loss durability testing remain the next persistence work. Ordinary
+close/reopen and transaction rollback are covered; file compatibility is still
+experimental.
 
 ## Query resource controls
 

@@ -43,6 +43,15 @@ end-to-end result test for user-visible semantics.
   write-lock release, and persistence after reopening. Transaction unit tests
   cover cleanup after SQLite itself has already rolled back and after a
   failed commit.
+- `tests/opening.rs` covers file access modes, missing/empty/foreign/future
+  files, migration policy, read-only hybrid reads and rejected writes,
+  connection-local lock timeouts, concurrent openers, reader visibility,
+  competing writers, and connection reuse. Raw SQLite connections are used
+  only as lock/legacy-schema fixtures, including a reader held across a
+  Crabnet commit to verify rollback of provisional graph/constraint changes.
+  The timeout test uses a loose lower bound; other contention cases assert
+  outcomes rather than timing. Threaded waiting uses a readiness channel and
+  a short delayed release; concurrent opening uses a start barrier.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

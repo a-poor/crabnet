@@ -38,6 +38,33 @@ cells use `CypherValue`, which keeps scalar, list, and map kinds distinct and
 represents whole nodes, relationships, and paths without disguising them as
 maps.
 
+## Opening a database file
+
+`Database::open("graph.sqlite")` opens or creates a writable graph. Use
+`OpenOptions` when an application must require an existing graph, open
+read-only, or choose how long to wait for a lock:
+
+```rust
+use crabnet::{Database, OpenMode, OpenOptions};
+use std::time::Duration;
+
+fn main() -> crabnet::Result<()> {
+    let mut graph = Database::open_with_options("graph.sqlite", &OpenOptions {
+        mode: OpenMode::ReadOnly,
+        busy_timeout: Duration::from_millis(250),
+    })?;
+    let nodes = graph.execute("MATCH (n) RETURN n")?;
+    Ok(())
+}
+```
+
+`OpenMode::ReadWrite` requires an existing graph; the default
+`OpenMode::OpenOrCreate` can initialize one. Read-only handles reject mutations
+and require the current schema. Lock contention returns `Error::Busy`, with
+the underlying SQLite error preserved. The default lock timeout is five
+seconds. See [file opening and contention](docs/semantics.md#file-opening-and-contention)
+for migration, concurrency, and retry behavior.
+
 ## Transactions across queries
 
 Use `Database::transaction()` when a Rust operation needs several queries to
@@ -544,7 +571,7 @@ are foreign keys. Foreign-key enforcement is enabled per connection. A
 trigger-maintained `node_labels (label, node_id)` table indexes label lookups,
 and indexes cover endpoint/type lookups. Schema version 4 adds persistent node
 uniqueness declarations and typed value keys maintained by triggers. Files from
-main's versions 1, 2, and 3 are upgraded atomically on open, including
+main's versions 1, 2, and 3 are upgraded atomically on writable open, including
 property-index backfill. The experimental single-label version 2 from the former benchmark
 branch is rejected; recreate those experimental databases.
 

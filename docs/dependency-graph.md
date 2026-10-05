@@ -4,7 +4,10 @@
 Rust application using only Crabnet's public API. It imports Cargo metadata,
 answers dependency questions, preserves local review annotations on reimport,
 and exercises a complete persistent graph lifecycle. Every command prints JSON;
-errors go to stderr with a nonzero exit status.
+errors go to stderr with a nonzero exit status. Query commands open read-only;
+review/delete require an existing writable graph. Import can create a graph.
+All use the default five-second lock timeout; see the
+[opening contract](semantics.md#file-opening-and-contention).
 
 ## Import a real workspace
 
@@ -193,9 +196,9 @@ and hop count; inspect eligible-edge loading and adjacency construction next.
 The eight-result distinct neighborhood queries stay nearly flat, giving no
 reason to prioritize semantic deduplication for this workload.
 
-The next application-usability slice is dependable on-disk operation: opening
-options, reader/writer contention, and backup/restore. This example verifies
-ordinary close/reopen and transactional rollback; it does not establish a
-crash-recovery, concurrent-writer, or backup contract. Incremental result
-consumption remains separate work; the eager correctness snapshots contribute
-to the reported process RSS.
+Opening options and reader/writer contention are now covered by the library's
+file-operation tests. The next application-usability slice is interrupted-process
+recovery and backup/restore. This example verifies ordinary close/reopen and
+transactional rollback; it does not establish a crash-recovery or backup
+contract. Incremental result consumption remains separate work; the eager
+correctness snapshots contribute to the reported process RSS.

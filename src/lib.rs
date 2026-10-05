@@ -11,7 +11,12 @@ mod planner;
 mod query;
 mod value;
 
-pub use database::{Database, constraints::UniqueConstraint, transaction::Transaction};
+pub use database::{
+    Database,
+    constraints::UniqueConstraint,
+    open::{OpenMode, OpenOptions},
+    transaction::Transaction,
+};
 pub use error::{Error, Result};
 pub use query::{CancellationToken, QueryOptions, TraversalLimits};
 pub use serde_json::Value;

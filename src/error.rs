@@ -1,6 +1,6 @@
 use std::fmt;
 
-/// An error produced while parsing, planning, or executing a Cypher query.
+/// An error produced while opening a graph or planning/executing an operation.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
@@ -23,6 +23,13 @@ pub enum Error {
     Cancelled,
     /// The query's cooperative deadline expired.
     DeadlineExceeded,
+    /// A writer operation was requested on a read-only database, or a
+    /// read/write open could only obtain read-only filesystem access.
+    ReadOnly,
+    /// SQLite could not acquire a database lock. The underlying error retains
+    /// the extended SQLite code. A lock wait may expire or SQLite may fail
+    /// early; retry at the whole-statement/application-transaction boundary.
+    Busy(Box<rusqlite::Error>),
     /// SQLite rejected a schema or query operation.
     Sqlite(rusqlite::Error),
     /// Stored data or an internally generated result had an invalid shape.
@@ -53,6 +60,8 @@ impl fmt::Display for Error {
             Self::ResourceLimit(message) => write!(formatter, "query resource limit: {message}"),
             Self::Cancelled => formatter.write_str("query cancelled"),
             Self::DeadlineExceeded => formatter.write_str("query deadline exceeded"),
+            Self::ReadOnly => formatter.write_str("the database is read-only"),
+            Self::Busy(error) => write!(formatter, "database busy: {error}"),
             Self::Sqlite(error) => write!(formatter, "SQLite error: {error}"),
             Self::Data(message) => write!(formatter, "invalid graph data: {message}"),
             Self::Argument(message) => write!(formatter, "invalid argument: {message}"),
@@ -66,6 +75,7 @@ impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Sqlite(error) => Some(error),
+            Self::Busy(error) => Some(error.as_ref()),
             _ => None,
         }
     }
@@ -82,6 +92,12 @@ const CONSTRAINT_ERROR_TAG: &str = "crabnet-constraint-error: ";
 
 impl From<rusqlite::Error> for Error {
     fn from(error: rusqlite::Error) -> Self {
+        if error.sqlite_error_code() == Some(rusqlite::ErrorCode::DatabaseBusy) {
+            // A second inline rusqlite::Error payload enlarges this enum and
+            // every Result frame in the recursive planner. Keep that uncommon
+            // case indirect so the documented nesting guard fits normal stacks.
+            return Self::Busy(Box::new(error));
+        }
         // Generated SQL raises runtime argument errors through a registered
         // function. SQLite only carries the message text back out of the
         // statement, so the function tags it and the tag is recovered here.

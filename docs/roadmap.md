@@ -529,11 +529,19 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
 - [ ] **Incremental result consumption.** Add it where the physical operators
   permit it, with explicit cursor/snapshot lifetime rules. Current results
   remain eager, with resource controls independent of a future cursor API.
-- [ ] **Dependable on-disk operation.** Establish opening options and the
-  supported reader/writer and lock-contention contract. Cover close/reopen,
-  interrupted writes, migration failures, and backup/restore; document file
-  compatibility and recovery behavior. Broader concurrency remains outside
-  the current contract until this work supplies implementation and tests.
+- [x] **File opening and lock contention.** `OpenOptions` selects create-or-open,
+  existing read/write, or read-only access and a connection-local busy timeout.
+  Read-only handles reject mutations and migration; `Error::Busy` preserves
+  SQLite contention details. Concurrent initialization/migration rechecks the
+  schema after acquiring the writer. Twelve integration tests cover modes,
+  invalid/foreign/future files, read-only hybrid queries, migrations, concurrent
+  openers, visibility, competing writers, blocked reads/open/commit, rollback,
+  and connection reuse. The dependency example uses these modes. The supported
+  local-file rollback-journal contract and compatibility rules are documented.
+- [ ] **Process recovery and backup.** Cover interrupted writes, backup/restore,
+  and recovery behavior. Ordinary close/reopen, atomic migrations and failed
+  migrations, and rollback after contention are covered. Power-loss durability,
+  broader filesystem support, and journal-mode tuning remain separate work.
 - [x] **A realistic application and workload.** The runnable
   `dependency_graph` example imports Cargo metadata, preserves identities and
   review annotations on repeat import, reconciles stale data, queries forward
@@ -557,8 +565,9 @@ Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
 for path-function and legacy relationship lists. Aggregate expressions such
 as `count(*) + 1` and application node uniqueness constraints are also complete.
 Caller-controlled query resources and the dependency-graph application/workload
-are complete for eager execution. Next establish dependable on-disk operation:
-opening options, reader/writer contention, and backup/restore. Use the example's
+are complete for eager execution. Opening options and reader/writer contention
+are complete for local files with rollback journaling. Next cover interrupted
+processes, backup/restore, and recovery. Use the example's
 reopen and rollback checks as application regression coverage while extending
 that contract. Incremental result consumption and broader entity-list
 operations (indexing, comprehensions, and nested collections) remain follow-up

@@ -8,7 +8,7 @@ type AppResult<T> = Result<T, Box<dyn std::error::Error>>;
 
 use std::{fs, path::Path, time::Instant};
 
-use crabnet::{Database, Parameters};
+use crabnet::{Database, OpenMode, OpenOptions, Parameters};
 use serde_json::{Value, json};
 
 const USAGE: &str = "Dependency graph example (JSON output)
@@ -67,7 +67,12 @@ fn command(args: &[String]) -> AppResult<Value> {
             )
         }
         "dependencies" | "dependents" | "review" | "remove" if args.len() == 3 => {
-            let mut database = open_existing(Path::new(&args[1]))?;
+            let mode = if matches!(command, "dependencies" | "dependents") {
+                OpenMode::ReadOnly
+            } else {
+                OpenMode::ReadWrite
+            };
+            let mut database = open_existing(Path::new(&args[1]), mode)?;
             match command {
                 "dependencies" => store::neighbourhood(&mut database, &args[2], false),
                 "dependents" => store::neighbourhood(&mut database, &args[2], true),
@@ -78,9 +83,11 @@ fn command(args: &[String]) -> AppResult<Value> {
                 _ => store::delete(&mut database, &args[2]),
             }
         }
-        "path" if args.len() == 4 => {
-            store::shortest_path(&mut open_existing(Path::new(&args[1]))?, &args[2], &args[3])
-        }
+        "path" if args.len() == 4 => store::shortest_path(
+            &mut open_existing(Path::new(&args[1]), OpenMode::ReadOnly)?,
+            &args[2],
+            &args[3],
+        ),
         _ => Err(USAGE.into()),
     }
 }
@@ -121,12 +128,14 @@ fn check_owner(database: &mut Database, allow_empty: bool) -> AppResult<()> {
     Err("database is not an initialized dependency-graph example; use a dedicated database".into())
 }
 
-fn open_existing(path: &Path) -> AppResult<Database> {
-    // Read commands must not create files when the path is mistyped.
-    if !fs::metadata(path)?.is_file() {
-        return Err("database path is not a file".into());
-    }
-    let mut database = Database::open(path)?;
+fn open_existing(path: &Path, mode: OpenMode) -> AppResult<Database> {
+    let mut database = Database::open_with_options(
+        path,
+        &OpenOptions {
+            mode,
+            ..OpenOptions::default()
+        },
+    )?;
     check_owner(&mut database, false)?;
     Ok(database)
 }
@@ -241,7 +250,7 @@ fn demo(path: &Path, package_count: usize, samples: usize, batch_size: usize) ->
     final_state.check_snapshot(&snapshot)?;
     drop(database);
     let reopen_started = Instant::now();
-    let mut database = open_existing(path)?;
+    let mut database = open_existing(path, OpenMode::ReadOnly)?;
     let reopen_ms = milliseconds(reopen_started);
     if final_state != store::state(&mut database)? {
         return Err("reopened database changed graph values or identities".into());
@@ -495,7 +504,7 @@ mod tests {
         assert!(demo(&path, 16, 1, 4).is_err());
         assert_eq!(bytes, fs::read(&path)?);
         let absent = directory.0.join("absent.sqlite");
-        assert!(open_existing(&absent).is_err());
+        assert!(open_existing(&absent, OpenMode::ReadOnly).is_err());
         assert!(!absent.exists());
         Ok(())
     }
@@ -518,7 +527,24 @@ mod tests {
             "workspace:a'\n".into(),
         ])?;
         assert_eq!(command(&import)?["import"]["edges_created"], 0);
-        let mut reopened = open_existing(&path)?;
+        assert_eq!(
+            command(&[
+                "dependencies".into(),
+                path.to_str().unwrap().into(),
+                "workspace:a'\n".into(),
+            ])?,
+            json!([{"id": "registry:b@2.0.0", "name": "dep", "version": "2.0.0"}])
+        );
+        assert_eq!(
+            command(&[
+                "path".into(),
+                path.to_str().unwrap().into(),
+                "workspace:a'\n".into(),
+                "registry:b@2.0.0".into(),
+            ])?["hops"],
+            1
+        );
+        let mut reopened = open_existing(&path, OpenMode::ReadOnly)?;
         assert_eq!(
             store::lookup(&mut reopened, "workspace:a'\n")?.rows[0][3].as_bool(),
             Some(true)

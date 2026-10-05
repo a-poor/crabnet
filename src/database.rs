@@ -12,8 +12,8 @@ use rusqlite::{
 };
 
 use crate::{
-    CypherValue, NodeValue, Parameters, PathValue, QueryOptions, QueryResult, QuerySummary,
-    RelationshipValue, Result,
+    CypherValue, NodeValue, OpenMode, OpenOptions, Parameters, PathValue, QueryOptions,
+    QueryResult, QuerySummary, RelationshipValue, Result,
     planner::{
         self, EntityKind, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
         PreparedReadPlan, PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedMutation,
@@ -26,6 +26,7 @@ mod comparison;
 mod resources;
 use resources::ExecutionContext;
 pub(crate) mod constraints;
+pub(crate) mod open;
 pub(crate) mod transaction;
 mod traversal;
 
@@ -156,12 +157,15 @@ impl Database {
         Self::from_connection(Connection::open_in_memory()?)
     }
 
-    /// Opens or creates a graph at a SQLite database path.
+    /// Opens or creates a graph at a filesystem path with default [`OpenOptions`].
+    /// Use [`Self::open_with_options`] to require an existing graph, open
+    /// read-only, or configure lock waiting.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::from_connection(Connection::open(path)?)
+        Self::open_with_options(path, &OpenOptions::default())
     }
 
     fn from_connection(mut connection: Connection) -> Result<Self> {
+        connection.busy_timeout(OpenOptions::default().busy_timeout)?;
         initialize(&mut connection)?;
         register_functions(&connection)?;
         Ok(Self { connection })
@@ -174,6 +178,8 @@ impl Database {
     /// transaction's earlier writes. Any query error rolls back the entire
     /// transaction and prevents further execution or commit. Dropping an
     /// uncommitted transaction also rolls it back.
+    /// A read-only database returns [`crate::Error::ReadOnly`]; contention for
+    /// the writer returns [`crate::Error::Busy`] according to its opening options.
     ///
     /// ```
     /// use crabnet::Database;
@@ -188,6 +194,7 @@ impl Database {
     /// # Ok::<(), crabnet::Error>(())
     /// ```
     pub fn transaction(&mut self) -> Result<crate::Transaction<'_>> {
+        self.ensure_writable()?;
         transaction::Transaction::begin(&mut self.connection)
     }
 
@@ -254,6 +261,7 @@ impl Database {
         // IMMEDIATE obtains the SQLite write reservation up front. MATCH and
         // its mutations still share one transaction, but do not risk a deferred
         // read-to-write upgrade failing halfway through the statement.
+        self.ensure_writable()?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -2154,26 +2162,49 @@ fn take_string(
 }
 
 fn initialize(connection: &mut Connection) -> Result<()> {
+    initialize_with_mode(connection, OpenMode::OpenOrCreate)
+}
+
+fn initialize_with_mode(connection: &mut Connection, mode: OpenMode) -> Result<()> {
     constraints::register(connection)?;
     // Foreign-key enforcement is connection-local and cannot be changed while
     // a transaction is active, so enable it before schema initialization.
     connection.execute_batch("PRAGMA foreign_keys = ON;")?;
 
+    // Inspect all metadata and validate under one read snapshot. Opening a
+    // current graph needs no writer reservation, including on read-only handles.
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Deferred)?;
+    let version = inspect_schema(&transaction, mode)?;
+    if version == SCHEMA_VERSION {
+        validate_schema(&transaction)?;
+        transaction.commit()?;
+        return Ok(());
+    }
+    transaction.commit()?;
+    upgrade_schema(connection, mode)
+}
+
+/// Classify a file without modifying it. Zero denotes an uninitialized file.
+fn inspect_schema(connection: &Connection, mode: OpenMode) -> Result<i64> {
     let application_id: i64 =
         connection.query_row("PRAGMA application_id", [], |row| row.get(0))?;
     let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if application_id == APPLICATION_ID {
         if matches!(schema_version, 1..=3) {
-            return upgrade_schema(connection, schema_version);
+            if mode == OpenMode::ReadOnly {
+                return Err(crate::Error::Data(format!(
+                    "Crabnet schema version {schema_version} requires migration; open read/write first"
+                )));
+            }
+            return Ok(schema_version);
         }
         if schema_version != SCHEMA_VERSION {
             return Err(crate::Error::Data(format!(
                 "unsupported Crabnet schema version {schema_version}; expected {SCHEMA_VERSION}"
             )));
         }
-        validate_schema(connection)?;
-        return Ok(());
+        return Ok(schema_version);
     }
     if application_id != 0 || schema_version != 0 {
         return Err(crate::Error::Data(format!(
@@ -2194,13 +2225,26 @@ fn initialize(connection: &mut Connection) -> Result<()> {
         ));
     }
 
-    upgrade_schema(connection, 0)
+    if mode != OpenMode::OpenOrCreate {
+        return Err(crate::Error::Data(
+            "expected an existing Crabnet graph; file is uninitialized".into(),
+        ));
+    }
+    Ok(0)
 }
 
 /// Install labels, property indexes, and uniqueness support, rolling back schema
 /// changes and the version marker if any validation or backfill fails.
-fn upgrade_schema(connection: &mut Connection, from: i64) -> Result<()> {
+fn upgrade_schema(connection: &mut Connection, mode: OpenMode) -> Result<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    // Another opener may have initialized/upgraded the file while we waited
+    // for the writer. Never apply DDL using the earlier snapshot's version.
+    let from = inspect_schema(&transaction, mode)?;
+    if from == SCHEMA_VERSION {
+        validate_schema(&transaction)?;
+        transaction.commit()?;
+        return Ok(());
+    }
     match from {
         0 => transaction.execute_batch(INITIAL_SCHEMA)?,
         1 => transaction.execute_batch(MIGRATE_V1_TO_V2)?,

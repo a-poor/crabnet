@@ -130,7 +130,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Feature | Status | Current contract / evidence |
 | --- | --- | --- |
 | Cargo dependency-graph application | Covered | Six tests in `examples/dependency_graph.rs` cover authoritative metadata import, bound hostile IDs, repeat-import node/relationship identity and annotation preservation, changed/empty snapshots, dependency/dependent and shortest-path queries, invalid input, resource-failure rollback, deletion, and reopening. Demo files are created exclusively; unrelated nonempty graphs are refused. The runnable workload independently checks expected graph bags and traversal results at 1,000 and 10,000 packages; [measurements](dependency-graph.md) record ingestion, latency, and process RSS. |
-| Broader persistent-operation contract | Pending | The example verifies ordinary reopen and transaction rollback. Opening options, lock contention, interrupted processes, backup/restore, and a documented recovery contract remain milestone 10 work. |
+| File opening and contention | Covered | `OpenOptions` selects create-or-open, existing read/write, or read-only access and a connection-local busy timeout. Twelve tests in `opening.rs` cover missing/empty/foreign/future files, invalid options, read-only hybrid bags and rejected writes, migration policy, concurrent initialization/migration, reader visibility, competing/waiting writers, blocked opening/reads/commit, rollback, and connection reuse. Schema unit tests retain failed-migration coverage. The example uses read-only query handles and existing-only mutation handles. See the [contract](semantics.md#file-opening-and-contention). |
+| Process recovery and backup | Pending | Interrupted processes, backup/restore, recovery tooling, and power-loss durability testing remain milestone 10 work. Ordinary reopen, migration failure, and transaction rollback are covered. |
 
 ## Prioritized next-test backlog
 
@@ -147,8 +148,9 @@ milestone 10. Its next test slices are:
 2. Broader entity-list operations: indexing, comprehensions, and nested
    collections. Aggregate expressions and entity collection/expansion,
    including path-list `UNWIND`, are complete.
-3. Dependable persistent operation: opening options, reader/writer contention,
-   interrupted writes, backup/restore, and recovery. The dependency-graph
+3. Dependable persistent operation: interrupted writes, backup/restore, and
+   recovery. Opening modes and reader/writer contention are covered, and the
+   dependency-graph
    application's import/reimport, traversal, update, deletion, rollback, and
    ordinary reopening lifecycle is covered.
 

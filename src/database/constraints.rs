@@ -145,6 +145,7 @@ impl Database {
     /// # Ok::<(), crabnet::Error>(())
     /// ```
     pub fn create_unique_constraint(&mut self, label: &str, property: &str) -> Result<bool> {
+        self.ensure_writable()?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -156,6 +157,7 @@ impl Database {
     /// Removes a node uniqueness constraint. Returns `false` if it was absent.
     /// Stored nodes and their properties are unchanged.
     pub fn drop_unique_constraint(&mut self, label: &str, property: &str) -> Result<bool> {
+        self.ensure_writable()?;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
