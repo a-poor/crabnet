@@ -1094,9 +1094,10 @@ existing journal mode or expose journal/durability tuning. WAL configuration,
 shared cache, network filesystems, and direct external SQLite mutations are
 outside this contract.
 
-Standalone reads retain one snapshot until all operators and hydration finish,
+Standalone eager reads retain one snapshot until all operators and hydration finish,
 then release it before returning owned, eager results. Holding those results
-does not hold a database lock. Other connections observe committed graph and
+does not hold a database lock. Incremental [read cursors](#read-cursors) retain
+their snapshot until exhaustion, error, or drop. Other connections observe committed graph and
 constraint changes on later calls, never another connection's partial writes.
 There is one writer at a time. Standalone mutations and application
 transactions acquire that reservation with `BEGIN IMMEDIATE` before executing
@@ -1219,6 +1220,69 @@ storage. Torn writes, disk-full/I/O fault injection, corruption repair,
 network filesystems, and journal/durability tuning remain outside this tested
 contract. Existing atomic migration and failed-migration tests remain in place.
 
+## Read cursors
+
+`Database::prepare_read`, `prepare_read_with`, and `prepare_read_with_options`
+return a `PreparedRead` that exclusively borrows the database. Planning and
+whole-tree parameter resolution finish before this returns; query text,
+parameters, and options are owned by the preparation and can be dropped by
+the caller. Writes return `Error::Unsupported` without executing. This API is
+available on writable and read-only databases, but not inside an application
+`Transaction`.
+
+`PreparedRead::columns()` exposes ordered column names. `mode()` makes the
+execution strategy explicit before starting:
+
+- `ReadMode::Incremental`: a single SQLite fragment without Rust runtime
+  producers. Each iterator advance fetches and decodes at most one output row
+  into Rust. Scalar values, whole entities, nulls, nested values, and duplicate
+  rows use the same decoding as eager execution. SQLite itself can materialize
+  sorts, aggregates, intermediate `WITH` stages, JSON arrays, and recursive
+  traversals before producing the first row. Each individual value is decoded
+  in full; this is not a whole-query memory cap.
+- `ReadMode::Buffered`: the existing eager executor runs at cursor creation.
+  Rust semantic DISTINCT/pagination, UNION/UNION ALL, path and relationship-list
+  hydration, and Rust traversal producers currently use this mode. All rows
+  and resource checks finish before the cursor is returned; the cursor then
+  owns the result buffer. This fallback preserves the existing operator order
+  and query-wide hydration behavior. Extending incremental execution through
+  these operators is follow-up work.
+
+`PreparedRead::cursor()` starts a new deferred transaction and pins the main
+database snapshot before returning, even when no row has been requested yet.
+Preparation alone holds no snapshot. An incremental cursor keeps the snapshot
+until it is exhausted, errors, or is dropped, including early drop without any
+advances. A buffered cursor releases it before returning. In rollback-journal
+mode an active read snapshot can block another connection's commit; callers
+should drop idle cursors promptly. Dropping after the last row releases the
+snapshot without requiring an extra advance to `None`.
+
+`ReadCursor` implements `Iterator<Item = Result<Vec<CypherValue>>>` and
+`FusedIterator`; rows are owned and remain usable after the cursor and prepared
+handle are dropped. A runtime, resource, cancellation, or deadline error can
+follow already yielded rows. The error is yielded once and subsequent calls
+return `None`. Exhaustion and failure release the snapshot immediately, even
+if the caller retains the terminal cursor. Cleanup resets the SQLite statement
+before rolling back the read transaction, with no progress callback active.
+Ordinary drop and panic unwinding use the same order.
+
+Only one cursor can borrow a prepared read at a time. Once it is dropped,
+`cursor()` can run again with the same parameters and options, a fresh snapshot,
+and new counters. Drop the prepared read before using its `Database` again.
+The borrow rules enforce both restrictions. Options retain their absolute
+deadline and shared cancellation token across repeated cursors.
+
+Incremental row-transfer and result limits accumulate over advances. A limit
+fails on the first disallowed row, before exposing it; earlier rows remain
+visible to the caller. Early drop does not execute or validate the unread
+suffix. SQLite VM steps accumulate across snapshot pinning and all advances;
+the metadata read used to pin the snapshot is excluded from row/byte counters.
+Buffered plans keep eager accounting, including all branches and hydration,
+and also check cancellation/deadline when yielding their buffered rows. There
+is no background deadline timer: an idle cursor keeps its lock until it is
+resumed or dropped. All other [resource boundaries](#query-resource-controls)
+still apply. See [examples and measurements](cursors.md).
+
 ## Query resource controls
 
 `Database::execute_with_options(cypher, parameters, options)` and the equivalent
@@ -1226,6 +1290,8 @@ contract. Existing atomic migration and failed-migration tests remain in place.
 with default options. Each call gets a fresh budget; all UNION branches,
 mutation stages, computed write values, MERGE reads, traversal producers, and
 hydration within that call share it.
+Prepared reads accept the same options and reset counters for each cursor;
+incremental accounting and partial-error behavior are described above.
 
 `TraversalLimits` preserves the defaults of 100,000 explored states, 128 MiB
 serialized traversal payload, and 256 MiB retained traversal accounting. All
@@ -1284,8 +1350,8 @@ Progress callbacks are removed before commit or rollback, including on panic
 unwinding. Failure rolls back a standalone statement or aborts the entire
 explicit transaction, including earlier successful statements; cleanup remains
 able to execute after the query has exhausted its budget. The database can be
-used again after the transaction handle is consumed or dropped. Results remain
-eager, with no exposed cursor or additional snapshot-lifetime contract.
+used again after the transaction handle is consumed or dropped. The `execute`
+methods return eager results; read cursors have the lifetime contract above.
 
 ## Unsupported constructs and errors
 
@@ -1303,7 +1369,8 @@ modify the graph.
 
 Supported queries can fail with `Error::ResourceLimit`, `Error::Cancelled`, or
 `Error::DeadlineExceeded` under the resource controls above. These are explicit
-execution failures; Crabnet does not return a truncated result.
+execution failures; Crabnet does not silently truncate results. An incremental
+cursor may already have yielded earlier rows before reporting its error.
 
 Semantics for unsupported constructs—including modern path selectors,
 expression-position shortest-path calls, other path expressions beyond the

@@ -157,10 +157,40 @@ the next call. Existing execution methods retain their defaults.
 Exhaustion returns `Error::ResourceLimit`; cancellation and deadline expiry
 return `Error::Cancelled` and `Error::DeadlineExceeded`. Failures roll back the
 statement, or the whole explicit transaction, and leave the database reusable.
-Results remain eager. Byte limits use documented accounting rather than total
+The `execute` methods remain eager. Byte limits use documented accounting rather than total
 process memory, and deadlines do not preempt parsing, an individual scalar or
 aggregate callback, or lock/I/O waits. See [resource semantics](docs/semantics.md#query-resource-controls)
 for accounting boundaries and cleanup behavior.
+
+## Read cursors
+
+Use a prepared read to consume rows incrementally:
+
+```rust
+use crabnet::{Database, ReadMode};
+
+let mut database = Database::in_memory()?;
+database.execute("CREATE (:Person {name: 'Ada'})")?;
+let mut read = database.prepare_read("MATCH (p:Person) RETURN p.name")?;
+assert_eq!(read.mode(), ReadMode::Incremental);
+for row in read.cursor()? {
+    let row = row?;
+    println!("{row:?}");
+}
+drop(read); // releases the database borrow
+# Ok::<(), crabnet::Error>(())
+```
+
+`prepare_read_with` binds parameters; `prepare_read_with_options` also accepts
+`QueryOptions`. `columns()` and `mode()` are available before execution.
+Single SQLite fragments without Rust traversal inputs decode one row per
+advance. Other plans use `ReadMode::Buffered`, computing the complete result
+when the cursor starts. SQLite may still buffer internally for sorts or aggregates.
+
+Incremental cursors retain a read snapshot. Drop them promptly after early exit
+to release locks. A later error can follow rows already yielded; the error ends iteration.
+Mutations are rejected. See [cursor usage and measurements](docs/cursors.md) and
+the [lifetime and resource contract](docs/semantics.md#read-cursors).
 
 ## Current query slice
 

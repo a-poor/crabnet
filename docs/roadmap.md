@@ -526,9 +526,15 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   after writes, cross-thread interruption, cleanup on panic, exact accounting
   boundaries, and per-query reset. Accounting boundaries and cooperative
   timing limits are explicit in the semantics document.
-- [ ] **Incremental result consumption.** Add it where the physical operators
-  permit it, with explicit cursor/snapshot lifetime rules. Current results
-  remain eager, with resource controls independent of a future cursor API.
+- [x] **Incremental result consumption — initial slice.** `prepare_read*`
+  returns a reusable `PreparedRead` with explicit `ReadMode`; its borrowing
+  cursor decodes single SQLite fragments without runtime producers one row
+  at a time. Rust operators retain explicit buffered execution. Eleven tests
+  cover typed bags, snapshot pinning, early drop, partial errors, resource
+  accounting across advances, cancellation, read-only files, lock failures,
+  and reuse. The lifetime contract and [scan measurements](cursors.md) are
+  documented. Incremental UNION, hydration, and Rust traversal consumption,
+  plus cursors inside application transactions, remain follow-up extensions.
 - [x] **File opening and lock contention.** `OpenOptions` selects create-or-open,
   existing read/write, or read-only access and a connection-local busy timeout.
   Read-only handles reject mutations and migration; `Error::Busy` preserves
@@ -573,11 +579,12 @@ as `count(*) + 1` and application node uniqueness constraints are also complete.
 Caller-controlled query resources and the dependency-graph application/workload
 are complete for eager execution. Opening options and reader/writer contention
 are complete for local files with rollback journaling, as are process-termination
-recovery and backup/restore. Next establish incremental result consumption where
-the physical operators permit it, with explicit cursor/snapshot and early-drop
-rules. Keep the example and persistence tests as application regression coverage.
-Broader entity-list operations (indexing, comprehensions, and nested collections)
-remain follow-up work. Performance work should start with the measured node-upsert cost and
+recovery and backup/restore. The first incremental read slice is complete for
+single SQLite fragments, with explicit buffering and cursor/snapshot rules.
+Keep the example, cursor, and persistence tests as application regression coverage.
+Next address broader entity-list operations (indexing, comprehensions, and nested
+collections), or extend cursors through measured buffering bottlenecks.
+Performance work should start with the measured node-upsert cost and
 shortest-path scaling. Track completion in milestone 10 rather than a separate
 TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;

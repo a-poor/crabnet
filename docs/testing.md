@@ -68,6 +68,13 @@ end-to-end result test for user-visible semantics.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
+- `tests/read_cursor.rs` covers incremental and buffered reads, typed bag parity,
+  parameter/write preflight, partial errors, cumulative row/byte/VM budgets,
+  repeated cursors, cancellation/deadlines, read-only files, snapshot pinning,
+  and lock release after early drop, exhaustion, failure, or panic. A one-row
+  fetch budget proves that the first row does not require consuming the suffix.
+  File tests retain prepared/terminal handles while a second connection writes
+  to prove cleanup happens before those handles are dropped.
 - `tests/query_resources.rs` exercises the options APIs on databases and
   transactions: configurable traversal guards, deadline/cancellation errors,
   SQLite work limits, materialized and final rows/bytes, UTF-8/recursive costs,
@@ -310,6 +317,12 @@ Compare a change against `main` by running the suite before and after; the
 roadmap's rule still holds that optimizations follow a measured bottleneck
 rather than precede one.
 
+`read/cursor_scan_properties/<nodes>` measures full cursor consumption, and
+`read/cursor_first_row/<nodes>` measures preparation, first-row delivery, and
+early-drop cleanup. They share the eager scan's fixture and projection.
+For process memory and first-row timings on a larger result bag, see the
+standalone [cursor measurement](cursors.md#measurements).
+
 ## Persistent application workload
 
 `examples/dependency_graph.rs` imports real Cargo metadata and supplies a
@@ -387,8 +400,9 @@ Application usability (milestone 10) is the next main milestone; its checklist
 and current working order live in [roadmap.md](roadmap.md). Multi-query
 transactions, `WITH DISTINCT`, entity collection/expansion, path-list `UNWIND`,
 aggregate expressions, and application node uniqueness constraints are complete.
-Resource controls for eager execution are complete; incremental consumption
-and the persistent application lifecycle are next. Milestone 9 continues as
+Resource controls, the initial incremental cursor API, and the persistent
+application lifecycle are complete. Broader entity-list operations and cursor
+operator extensions remain follow-up work. Milestone 9 continues as
 supporting conformance work. Its deterministic invariants now exhaust
 runtime-slot layouts, prepare a representative generated-SQL corpus directly
 with SQLite, cover typed relationship properties in fixed and hybrid paths,

@@ -63,14 +63,16 @@ impl Default for TraversalLimits {
 /// Resource controls for one query, including all its branches and write stages.
 ///
 /// Existing execution methods use these defaults. Counters reset on each call,
-/// including within an application transaction. Limits fail with a structured
-/// error rather than returning truncated results. A failure rolls back the
-/// statement, or the entire explicit transaction.
+/// including within an application transaction, and for each prepared-read
+/// cursor. Limits fail with a structured error rather than silently truncating.
+/// A write failure rolls back the statement, or the entire explicit transaction.
+/// Read cursors can report errors after yielding earlier rows.
 ///
 /// Deadlines and cancellation are checked around planning, periodically inside
 /// SQLite, and between Rust work units. They do not preempt parsing, a single
-/// scalar/aggregate callback, an allocation, or SQLite lock/I/O waits. Result consumption
-/// is currently eager; these options do not introduce a streaming cursor.
+/// scalar/aggregate callback, an allocation, or SQLite lock/I/O waits. Use
+/// [`crate::Database::prepare_read_with_options`] for cursor consumption; the
+/// `execute` methods remain eager.
 ///
 /// ```
 /// use crabnet::{Database, Parameters, QueryOptions};

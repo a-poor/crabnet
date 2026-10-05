@@ -2,7 +2,7 @@ use std::{
     cell::RefCell,
     sync::{
         Arc,
-        atomic::{AtomicU8, AtomicUsize, Ordering},
+        atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -21,6 +21,7 @@ pub(super) struct QueryControl {
 #[derive(Default)]
 struct QueryState {
     stopped: AtomicU8,
+    sqlite_steps: AtomicU64,
     materialized_rows: AtomicUsize,
     materialized_bytes: AtomicUsize,
 }
@@ -154,15 +155,22 @@ impl ExecutionContext {
         let guard = if enabled {
             let control = self.control.clone();
             let limit = options.max_sqlite_steps;
-            let mut steps = 0_u64;
             connection.progress_handler(
                 if limit.is_some() { 1 } else { 1000 },
                 Some(move || {
                     if let Some(limit) = limit {
+                        // One context can span multiple cursor advances. Removing
+                        // the callback between advances must not reset its budget.
+                        let steps = control
+                            .state
+                            .sqlite_steps
+                            .try_update(Ordering::Relaxed, Ordering::Relaxed, |steps| {
+                                Some(steps.saturating_add(1))
+                            })
+                            .expect("the step counter always accepts an update");
                         if steps >= limit {
                             control.stop(3);
                         }
-                        steps = steps.saturating_add(1);
                     }
                     control.check().is_err()
                 }),

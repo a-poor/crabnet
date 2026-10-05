@@ -199,6 +199,7 @@ reason to prioritize semantic deduplication for this workload.
 Opening options, reader/writer contention, process-termination recovery, and
 backup/restore are covered by the library's persistence tests; see the
 [recovery contract](semantics.md#backups-and-process-recovery). This example's
-workload verifies ordinary close/reopen and transactional rollback. Incremental
-result consumption is the next application-usability slice; the eager
-correctness snapshots contribute to the reported process RSS.
+workload verifies ordinary close/reopen and transactional rollback. The initial
+[incremental cursor API](cursors.md) is available for single SQLite fragments;
+this example still uses eager correctness snapshots, which contribute to the
+reported process RSS.

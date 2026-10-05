@@ -24,6 +24,7 @@ use crate::{
 
 mod backup;
 mod comparison;
+pub(crate) mod cursor;
 mod resources;
 use resources::ExecutionContext;
 pub(crate) mod constraints;
@@ -492,23 +493,42 @@ fn execute_sql_fragment(
     let mut rows = Vec::new();
     while let Some(row) = cursor.next()? {
         context.record_sql_row(row, plan.output_shapes.len())?;
-        let values = plan
-            .output_shapes
-            .iter()
-            .enumerate()
-            .map(|(index, shape)| {
-                context.check()?;
-                decode_pending_output(
-                    row.get_ref(index)?
-                        .as_str()
-                        .map_err(rusqlite::Error::from)?,
-                    *shape,
-                )
-            })
-            .collect::<Result<PendingRow>>()?;
-        rows.push(values);
+        rows.push(decode_pending_row(row, &plan.output_shapes, context)?);
     }
     Ok(rows)
+}
+
+fn decode_pending_row(
+    row: &rusqlite::Row<'_>,
+    shapes: &[OutputShape],
+    context: &ExecutionContext,
+) -> Result<PendingRow> {
+    shapes
+        .iter()
+        .enumerate()
+        .map(|(index, shape)| {
+            context.check()?;
+            decode_pending_output(
+                row.get_ref(index)?
+                    .as_str()
+                    .map_err(rusqlite::Error::from)?,
+                *shape,
+            )
+        })
+        .collect()
+}
+
+fn finish_pending_row(row: PendingRow) -> Result<Vec<CypherValue>> {
+    row.into_iter()
+        .map(|value| match value {
+            PendingValue::Materialized(value) => Ok(value),
+            PendingValue::Path(_)
+            | PendingValue::PathNodes(_)
+            | PendingValue::PathRelationships(_) => Err(crate::Error::Data(
+                "physical read plan omitted required batch hydration".into(),
+            )),
+        })
+        .collect()
 }
 
 fn finish_materialized_rows(
@@ -523,17 +543,7 @@ fn finish_materialized_rows(
     rows.into_iter()
         .map(|row| {
             context.check()?;
-            let row = row
-                .into_iter()
-                .map(|value| match value {
-                    PendingValue::Materialized(value) => Ok(value),
-                    PendingValue::Path(_)
-                    | PendingValue::PathNodes(_)
-                    | PendingValue::PathRelationships(_) => Err(crate::Error::Data(
-                        "physical read plan omitted required batch hydration".into(),
-                    )),
-                })
-                .collect::<Result<Vec<_>>>()?;
+            let row = finish_pending_row(row)?;
             if is_output {
                 context.result_row(&row, &mut result_bytes)?;
             }

@@ -344,6 +344,42 @@ fn bench_reads(c: &mut Criterion) {
                 b.iter(|| run_with(&mut database, black_box(cypher), parameters))
             });
         }
+        let scan = "MATCH (p:Person) RETURN p.name, p.city";
+        {
+            let mut read = database.prepare_read(scan).unwrap();
+            assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
+            let count = read
+                .cursor()
+                .unwrap()
+                .try_fold(0, |count, row| row.map(|_| count + 1))
+                .unwrap();
+            assert_eq!(count, nodes);
+        }
+        for first_only in [false, true] {
+            let name = if first_only {
+                "cursor_first_row"
+            } else {
+                "cursor_scan_properties"
+            };
+            group.throughput(Throughput::Elements(if first_only {
+                1
+            } else {
+                nodes as u64
+            }));
+            group.bench_function(BenchmarkId::new(name, nodes), |b| {
+                b.iter(|| {
+                    let mut read = database.prepare_read(black_box(scan)).unwrap();
+                    let mut cursor = read.cursor().unwrap();
+                    if first_only {
+                        black_box(cursor.next().unwrap().unwrap());
+                    } else {
+                        for row in cursor {
+                            black_box(row.unwrap());
+                        }
+                    }
+                });
+            });
+        }
     }
     group.finish();
 }

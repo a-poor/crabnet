@@ -14,6 +14,7 @@ mod value;
 pub use database::{
     Database,
     constraints::UniqueConstraint,
+    cursor::{PreparedRead, ReadCursor, ReadMode},
     open::{OpenMode, OpenOptions},
     transaction::Transaction,
 };
