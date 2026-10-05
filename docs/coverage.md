@@ -63,7 +63,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | Exponentiation (`^`) and concatenation (`\|\|`) | Rejected | Both parser operators fail with a structured planning error rather than being approximated |
 | `IN` | Covered | Typed scalar and structured membership, list parameters, empty lists, null members, and non-list RHS behavior are covered in `membership_and_string_predicates.rs` |
 | List quantifiers `all`, `any`, `none`, `single` | Covered | `quantifiers.rs` pins the three-valued truth table over true/false/null outcome patterns, null and non-list operands, element kinds, nesting on nested and shared lists, shadowing, `WHERE` filtering, parameters, properties, ordering, aggregation, and rejections; 424 TCK quantifier and precedence scenarios are allowlisted |
-| List comprehensions `[x IN list WHERE p \| e]` | Covered | `lists.rs` covers filtering, projection, list order, element kinds, empty/null/non-list operands, nesting, shadowing, composition with `size`, quantifiers, and `IN`, stored properties, parameters, `WHERE` use, aggregate rejection, and plan rendering; the TCK list-comprehension bucket is empty |
+| List comprehensions `[x IN list WHERE p \| e]` | Covered | `lists.rs` covers scalar filtering/projection, ordering, kinds, empty/null/non-list inputs, nesting, shadowing, scalar composition, stored properties, parameters, aggregate rejection, and plans. `entity_list_comprehensions.rs` covers typed collected/path/legacy lists across every traversal transport, scalar and entity projections, nullable members, aliases/UNWIND, grouping/distinct/union, scoped node/relationship pattern predicates, writes/refresh/deletion snapshots/rollback, parameters, and eager/cursor parity including partial runtime errors. Nested graph results remain unsupported |
 | `size()` of lists and strings | Covered | `lists.rs` covers literal, stored, parameter, nested, and empty lists, character counts of strings, null and wrong-kind operands, predicates, ordering, grouping, and the path/entity semantic errors; the TCK `size` bucket is empty |
 | String and list concatenation with `+` | Covered | `plus_concatenates_strings_and_lists` in `lists.rs` covers string joins, list joins, appending and prepending scalars, nested lists, null and mismatched operands, and use in `WITH`, `WHERE`, `UNWIND`, and ordering |
 | List indexing `list[i]`, map indexing `map[k]`, and `entity[k]` | Covered | `list_indexing.rs` covers positive, negative, out-of-range, null, and wrong-kind indexes on literals, parameters, properties, and nested lists, case-sensitive map keys, runtime property names in `WHERE` and projections, and whole-path rejections. `entity_list_indexing.rs` covers typed node/relationship indexes from collections and every path transport, property/function access, rebinding, parameters, nulls, invalid indexes, rollback, and eager/cursor parity |
@@ -144,9 +144,9 @@ move the row into the matrix when green.
 The active milestone and task status live in [roadmap.md](roadmap.md),
 milestone 10. Its next test slices are:
 
-1. Broader entity-list operations: comprehensions and nested
-   collections. Aggregate expressions and entity collection/expansion,
-   including path-list `UNWIND`, indexing, and slicing, are complete.
+1. Broader entity-list operations: quantifiers and nested graph collections.
+   Aggregate expressions and entity collection/expansion, including path-list
+   `UNWIND`, indexing, slicing, and typed comprehensions, are complete.
 2. Cursor extensions through UNION, hydration, and Rust traversal operators,
    or inside application transactions. The initial single-fragment API and its
    cursor/snapshot, partial-error, resource, and early-drop contracts are covered.

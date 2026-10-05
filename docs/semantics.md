@@ -65,7 +65,7 @@ of these values a new name. A path may cross directly or feed an aliased
 `length(path)`, `nodes(path)`, or `relationships(path)` projection. Length uses
 a normal scalar slot. The two entity-list results retain ordered path identity
 and element kind across later direct aliases and projections. They support
-`UNWIND`, indexing, and slicing. Bare path lists cannot be predicates,
+`UNWIND`, indexing, slicing, and comprehensions. Bare path lists cannot be predicates,
 general scalar operands, ordering/grouping keys, or aggregate inputs. After the boundary, only projected names remain in scope:
 a binding that was not projected cannot be referenced by a later `MATCH`,
 `WITH`, or `RETURN`.
@@ -172,9 +172,11 @@ Collected entities can feed `UNWIND`, property reads, later matches, and
 writes. Property and label changes refresh all retained copies in collected
 lists as well as direct entity bindings; deletion retains the same pre-delete
 snapshots as direct entity returns. Lists do not become ordinary JSON maps
-or storable properties. Indexing and slicing preserve these graph types;
-comprehensions, nested collections, general scalar operations, and further
-aggregation of entity lists remain unsupported.
+or storable properties. Indexing, slicing, and list comprehensions preserve
+these graph types. Comprehensions can also project scalar properties or maps,
+which produce ordinary lists. Nested graph collections, entity-list
+quantifiers, general scalar operations, and further aggregation of entity
+lists remain unsupported.
 
 Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
 behavior as an omitted aggregate quantifier. The parser currently rejects
@@ -472,11 +474,29 @@ part may be omitted: without `WHERE` every element is kept, and without a
 projection the element itself is collected. The bound variable shadows outer
 bindings inside the predicate and projection only; the list is evaluated in
 the enclosing scope. Comprehensions nest, may mention outer scalars,
-properties, and parameters, and are ordinary list values afterwards, so they
-compose with `size`, quantifiers, `IN`, `UNWIND`, and equality. Aggregates are
-rejected inside either part. A null or non-list operand produces null; Cypher
-raises a type error for a non-list. Lists of graph entities are not scalar
-values, so comprehensions over them are rejected.
+properties, and parameters. Scalar results compose with `size`, quantifiers,
+`IN`, `UNWIND`, and equality. Aggregates are rejected inside either part, but
+may supply the input list, as in `[n IN collect(n) | n.name]`. A null or
+non-list operand produces null; Cypher raises a type error for a non-list.
+
+Comprehensions also accept collected node/relationship lists, `nodes(path)`,
+`relationships(path)`, their aliases and slices, and legacy relationship-list
+bindings. Members retain graph behavior for property access, entity functions,
+identity comparisons, label/type tests, and supported fixed-length pattern
+predicates. Local variables shadow outer bindings in patterns as well as in
+ordinary expressions. `[n IN people WHERE n.active]` returns a typed node list;
+`[n IN people | n.name]` returns an ordinary property-value list. A projection
+can return an outer entity or an indexed entity, including null. Typed results
+preserve order, duplicates, and null positions across `WITH`, `UNWIND`, indexing,
+slicing, grouping, distinctness, unions, and supported writes. Null members
+count toward `size`, unlike `collect`, which omits null input values. Mutation
+refreshes and deletion snapshots also apply to entities in these lists.
+
+Nesting scalar results is supported, as is iterating the typed result of another
+comprehension. Placing graph entities inside nested lists or maps remains
+unsupported. Scalar projections can be stored as properties; entity-valued
+results cannot. Path-derived inputs retain the existing restrictions on
+path-fed writes and may materialize the full source entity list internally.
 
 `size(list)` is the element count and `size(string)` the character count.
 `size(null)` is null, and so is `size` of any other kind of value, where Cypher

@@ -291,7 +291,7 @@ fn entity_lists_cannot_silently_become_json_maps_or_stored_properties() {
         "MATCH (n) WITH collect(n) AS ns RETURN [ns]",
         "MATCH (n) WITH collect(n) AS ns RETURN collect(ns)",
         "MATCH (n) WITH collect(n) AS ns CREATE (:Bad {nodes:ns})",
-        "MATCH (n) WITH collect(n) AS ns RETURN [x IN ns | x]",
+        "MATCH (n) WITH collect(n) AS ns RETURN [x IN ns | [x]]",
     ] {
         assert!(
             matches!(db.execute(query), Err(Error::Unsupported(_))),

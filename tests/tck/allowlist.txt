@@ -1436,6 +1436,9 @@ expressions/list/List11.feature::[5] Fail on invalid argument types for `range()
 expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 7
 expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 8
 expressions/list/List11.feature::[5] Fail on invalid argument types for `range()`::example 9
+expressions/list/List12.feature::[1] Collect and extract using a list comprehension
+expressions/list/List12.feature::[2] Collect and filter using a list comprehension
+expressions/list/List12.feature::[3] Size of list comprehension
 expressions/list/List12.feature::[6] Using a list comprehension in a WHERE
 expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension
 expressions/list/List2.feature::[10] List slice with parameterised range

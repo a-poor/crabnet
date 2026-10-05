@@ -470,12 +470,15 @@ themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
-`DISTINCT`, `size()`, `UNWIND`, indexing, and slicing. For example,
+`DISTINCT`, `size()`, `UNWIND`, indexing, slicing, and list comprehensions. For example,
 `people[0].name` reads the first collected node's name and `people[-2..]`
 returns the last two entities. Indexing and slicing also work on `nodes(path)`
 and `relationships(path)`, preserving graph types, order, and duplicates.
-Comprehensions, nested collections, and general scalar operations on entity
-lists remain unsupported.
+Comprehensions such as `[n IN people WHERE n.active]`,
+`[n IN nodes(path) | n.name]`, and `[r IN relationships(path) | r.weight]`
+filter typed entities or project ordinary values while keeping list order,
+duplicates, and null members. Nested graph collections, entity-list quantifiers,
+and general scalar operations on entity lists remain unsupported.
 Unaliased computed `WITH` expressions and aggregates nested inside aggregates
 are explicitly rejected, as is an updating clause after `DELETE` in the same
 statement. Among aggregates, `DISTINCT` is supported by `count` and `collect`;

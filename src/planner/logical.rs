@@ -233,8 +233,13 @@ pub(crate) enum Expr {
     /// matches from the row's bound entities. `local` are the anonymous
     /// slots the pattern introduces; they are scoped to the predicate.
     Exists {
-        pattern: MatchPlan,
+        // Keep this variant compact: Expr lives on each recursive lowering
+        // frame, including frames for unrelated deeply nested scalar syntax.
+        pattern: Box<MatchPlan>,
         local: Vec<(SlotId, EntityKind)>,
+        /// Computed entities from the expression scope, such as a comprehension
+        /// member, bound only while evaluating this predicate.
+        bindings: Box<[(SlotId, EntityKind, Self)]>,
     },
     RelationshipType(SlotId),
     Binary {
@@ -507,11 +512,11 @@ impl Expr {
             | Self::EntityIdentity(_)
             | Self::Labels(_)
             | Self::HasLabel(_, _)
-            | Self::Exists { .. }
             | Self::RelationshipType(_)
             | Self::ListElement(_)
             | Self::EntityKeys(_)
             | Self::EntityProperties(_) => Vec::new(),
+            Self::Exists { bindings, .. } => bindings.iter().map(|(_, _, value)| value).collect(),
             Self::Binary { left, right, .. } => vec![left, right],
             Self::Unary { operand, .. } => vec![operand],
             Self::IsNull { expression, .. } => vec![expression],
@@ -584,7 +589,9 @@ impl Expr {
                 alternatives,
                 otherwise,
             } => Self::case_parts(operand, alternatives, otherwise).any(Self::contains_aggregate),
-            Self::EntityAccess { .. } => self.children().into_iter().any(Self::contains_aggregate),
+            Self::EntityAccess { .. } | Self::Exists { .. } => {
+                self.children().into_iter().any(Self::contains_aggregate)
+            }
             Self::Aggregate { .. } => true,
             Self::Binary { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()

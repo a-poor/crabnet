@@ -49,6 +49,7 @@ impl Kind {
     fn element(&self) -> Option<Kind> {
         match self {
             Self::List(element) => element.as_deref().cloned(),
+            Self::EntityList(kind) => Some(Self::Entity(*kind)),
             _ => None,
         }
     }
@@ -66,7 +67,13 @@ pub(crate) struct Kinds {
 pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>, String> {
     Ok(match expression {
         Expr::Value(value) => value_kind(value),
-        Expr::HasLabel(..) | Expr::Exists { .. } => Some(Kind::Boolean),
+        Expr::HasLabel(..) => Some(Kind::Boolean),
+        Expr::Exists { bindings, .. } => {
+            for (_, _, value) in bindings.iter() {
+                check(value, kinds)?;
+            }
+            Some(Kind::Boolean)
+        }
         Expr::Scalar(slot) => kinds.scalars.get(slot).cloned(),
         Expr::EntityValue { kind, expression } => {
             check(expression, kinds)?;

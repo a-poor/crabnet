@@ -68,6 +68,11 @@ end-to-end result test for user-visible semantics.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
+- `tests/entity_list_comprehensions.rs` covers typed filtering and projection
+  over collected entities and every path-list transport, nullable members,
+  shadowing and correlated pattern predicates, aliases, grouping/distinctness,
+  unions, writes and rollback, mutation refresh/deletion snapshots, and
+  eager/cursor parity including partial runtime errors.
 - `tests/entity_list_indexing.rs` covers typed indexes and slices over collected
   entities and every supported path producer: ordering/duplicates, graph
   properties and identities, aliases/matches, bounds/nulls, grouping/distinct,

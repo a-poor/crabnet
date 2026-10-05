@@ -640,12 +640,18 @@ fn render_expr(expression: &Expr) -> String {
         Expr::ElementId(slot) => format!("element-id({})", slot_name(*slot)),
         Expr::Labels(slot) => format!("labels({})", slot_name(*slot)),
         Expr::HasLabel(slot, label) => format!("has-label({}, {})", slot_name(*slot), quote(label)),
-        Expr::Exists { pattern, .. } => format!(
+        Expr::Exists {
+            pattern, bindings, ..
+        } => format!(
             "exists({})",
-            pattern
-                .operators
+            bindings
                 .iter()
-                .map(render_match_operator)
+                .map(|(slot, _, value)| format!(
+                    "bind {} = {}",
+                    slot_name(*slot),
+                    render_expr(value)
+                ))
+                .chain(pattern.operators.iter().map(render_match_operator))
                 .collect::<Vec<_>>()
                 .join("; ")
         ),

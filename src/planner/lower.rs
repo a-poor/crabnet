@@ -1710,7 +1710,12 @@ impl<'source> Lowerer<'source> {
     /// `(n)-[:KNOWS]->()` as a boolean: the pattern is lowered by a scoped
     /// copy of this lowerer, so it sees the bound variables but its anonymous
     /// entities stay local to the predicate.
-    fn pattern_predicate(&self, pattern: &open_cypher::ast::Pattern, span: Span) -> Result<Expr> {
+    fn pattern_predicate(
+        &self,
+        pattern: &open_cypher::ast::Pattern,
+        span: Span,
+        aliases: &HashMap<String, Expr>,
+    ) -> Result<Expr> {
         let mut scoped = Lowerer::new(self.source);
         scoped.slots = RefCell::new(self.slots.borrow().clone());
         scoped.scalar_slots = self.scalar_slots;
@@ -1719,6 +1724,49 @@ impl<'source> Lowerer<'source> {
         scoped.symbols = self.symbols.clone();
         scoped.kinds = RefCell::new(self.kinds.borrow().clone());
         scoped.list_variables.set(self.list_variables.get());
+
+        let before = self.slots.borrow().len();
+        let mut bindings = Vec::new();
+        let mut seen = HashSet::new();
+        // Pattern variables obey the same expression scope as property access.
+        // Bind computed members to temporary entity slots; scalar locals must
+        // never fall back to a shadowed outer graph variable.
+        for name in pattern
+            .parts
+            .iter()
+            .flat_map(|part| &part.kind.path.kind.factors)
+            .filter_map(|factor| match &factor.kind {
+                PathFactorKind::Node(node) => node.variable.as_ref(),
+                PathFactorKind::Relationship(relationship) => relationship.variable.as_ref(),
+                _ => None,
+            })
+        {
+            if !seen.insert(&name.kind.text) {
+                continue;
+            }
+            let Some(value) = aliases.get(&name.kind.text) else {
+                continue;
+            };
+            let slot = match value {
+                Expr::Entity(slot) => *slot,
+                Expr::EntityValue { kind, .. } => {
+                    let slot = scoped.allocate(*kind);
+                    bindings.push((slot, *kind, value.clone()));
+                    slot
+                }
+                _ => {
+                    return Err(semantic(
+                        name.span,
+                        "a pattern variable must be a graph entity",
+                    ));
+                }
+            };
+            scoped
+                .symbols
+                .insert(name.kind.text.clone(), Symbol::Entity(slot));
+        }
+        let bound_names = scoped.symbols.keys().cloned().collect::<HashSet<_>>();
+        let local_start = scoped.slots.borrow().len();
 
         let mut plan = MatchPlan::default();
         let mut relationships = Vec::new();
@@ -1764,7 +1812,7 @@ impl<'source> Lowerer<'source> {
         if let Some(name) = scoped
             .symbols
             .keys()
-            .find(|name| !self.symbols.contains_key(*name))
+            .find(|name| !bound_names.contains(*name))
         {
             return Err(semantic(
                 span,
@@ -1772,18 +1820,18 @@ impl<'source> Lowerer<'source> {
             ));
         }
 
-        let before = self.slots.borrow().len();
         let all = scoped.slots.into_inner();
-        let local = all[before..]
+        let local = all[local_start..]
             .iter()
             .enumerate()
-            .map(|(offset, kind)| (SlotId(before + offset), *kind))
+            .map(|(offset, kind)| (SlotId(local_start + offset), *kind))
             .collect::<Vec<_>>();
         self.slots.borrow_mut().extend_from_slice(&all[before..]);
         self.list_variables.set(scoped.list_variables.get());
         Ok(Expr::Exists {
-            pattern: plan,
+            pattern: Box::new(plan),
             local,
+            bindings: bindings.into_boxed_slice(),
         })
     }
 
@@ -2380,6 +2428,9 @@ impl<'source> Lowerer<'source> {
         }
 
         match &expression.kind {
+            ExprKind::ListComprehension(comprehension) => {
+                self.list_comprehension(comprehension, aliases, expression_depth)
+            }
             ExprKind::DynamicProperty { .. } | ExprKind::Index { .. } | ExprKind::Slice { .. } => {
                 self.subscript_expression(expression, aliases, expression_depth)
             }
@@ -2411,6 +2462,82 @@ impl<'source> Lowerer<'source> {
                 self.scalar_expression_with_aliases_at_depth(expression, aliases, expression_depth)
             }
         }
+    }
+
+    /// The input uses the outer scope; the element shadows its name only in
+    /// the predicate and projection. A graph-valued projection retains its
+    /// kind so downstream clauses never mistake entity records for maps.
+    fn list_comprehension(
+        &self,
+        comprehension: &open_cypher::ast::ListComprehension,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        let list = self.output_expression_with_aliases_at_depth(
+            &comprehension.list,
+            aliases,
+            expression_depth + 1,
+        )?;
+        if matches!(
+            list,
+            Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
+        ) {
+            return Err(semantic(
+                comprehension.list.span,
+                "a list comprehension requires a list",
+            ));
+        }
+        let input_kind = entity_list_kind(&list);
+        let variable = self.allocate_list_variable();
+        let element = Expr::ListElement(variable);
+        let element = match input_kind {
+            Some(kind) => Expr::EntityValue {
+                kind,
+                expression: Box::new(element),
+            },
+            None => element,
+        };
+        let mut inner = aliases.clone();
+        inner.insert(comprehension.variable.kind.text.clone(), element);
+        let lower_inner = |part: &Option<Box<AstExpr>>,
+                           output: bool|
+         -> Result<Option<Box<Expr>>> {
+            let Some(part) = part else { return Ok(None) };
+            let lowered = if output {
+                self.output_expression_with_aliases_at_depth(part, &inner, expression_depth + 1)?
+            } else {
+                self.scalar_expression_with_aliases_at_depth(part, &inner, expression_depth + 1)?
+            };
+            if lowered.contains_aggregate() {
+                return Err(semantic(
+                    part.span,
+                    "aggregate calls are not allowed inside a list comprehension",
+                ));
+            }
+            if matches!(lowered, Expr::Path(_)) || entity_list_kind(&lowered).is_some() {
+                return Err(unsupported(part.span, "nested graph collections"));
+            }
+            Ok(Some(Box::new(lowered)))
+        };
+        let predicate = lower_inner(&comprehension.predicate, false)?;
+        let projection = lower_inner(&comprehension.projection, true)?;
+        let output_kind = match &projection {
+            Some(projection) => self.expression_entity_kind(projection),
+            None => input_kind,
+        };
+        let expression = Expr::ListComprehension {
+            variable,
+            list: Box::new(list),
+            predicate,
+            projection,
+        };
+        Ok(match output_kind {
+            Some(kind) => Expr::EntityList {
+                kind,
+                expression: Box::new(expression),
+            },
+            None => expression,
+        })
     }
 
     fn subscript_expression(
@@ -2841,45 +2968,8 @@ impl<'source> Lowerer<'source> {
                 })
             }
             ExprKind::ListComprehension(comprehension) => {
-                // As with quantifiers, the list is evaluated in the enclosing
-                // scope while the predicate and projection see the bound
-                // variable, which shadows any outer binding of the same name.
-                let list = self.scalar_expression_with_aliases_at_depth(
-                    &comprehension.list,
-                    aliases,
-                    expression_depth + 1,
-                )?;
-                let variable = self.allocate_list_variable();
-                let mut inner = aliases.clone();
-                inner.insert(
-                    comprehension.variable.kind.text.clone(),
-                    Expr::ListElement(variable),
-                );
-                let lower_inner = |part: &Option<Box<AstExpr>>| -> Result<Option<Box<Expr>>> {
-                    let Some(part) = part else {
-                        return Ok(None);
-                    };
-                    let lowered = self.scalar_expression_with_aliases_at_depth(
-                        part,
-                        &inner,
-                        expression_depth + 1,
-                    )?;
-                    if lowered.contains_aggregate() {
-                        return Err(semantic(
-                            part.span,
-                            "aggregate calls are not allowed inside a list comprehension",
-                        ));
-                    }
-                    Ok(Some(Box::new(lowered)))
-                };
-                let predicate = lower_inner(&comprehension.predicate)?;
-                let projection = lower_inner(&comprehension.projection)?;
-                Ok(Expr::ListComprehension {
-                    variable,
-                    list: Box::new(list),
-                    predicate,
-                    projection,
-                })
+                let lowered = self.list_comprehension(comprehension, aliases, expression_depth)?;
+                require_scalar_context(lowered, expression.span)
             }
             ExprKind::PatternComprehension(_) => {
                 Err(unsupported(expression.span, "pattern comprehension"))
@@ -2926,7 +3016,7 @@ impl<'source> Lowerer<'source> {
                 })
             }
             ExprKind::Subquery(_) => Err(unsupported(expression.span, "subquery expression")),
-            ExprKind::Pattern(pattern) => self.pattern_predicate(pattern, expression.span),
+            ExprKind::Pattern(pattern) => self.pattern_predicate(pattern, expression.span, aliases),
             ExprKind::Wildcard => Err(unsupported(expression.span, "`*` in an expression")),
             ExprKind::Error(_) => Err(unsupported(expression.span, "malformed expression")),
             _ => Err(unsupported(expression.span, "expression")),
@@ -3032,7 +3122,7 @@ impl<'source> Lowerer<'source> {
                     let ExprKind::Pattern(pattern) = &argument.kind else {
                         unreachable!("matched a pattern argument");
                     };
-                    self.pattern_predicate(pattern, span)
+                    self.pattern_predicate(pattern, span, aliases)
                 }
                 [argument] => Ok(Expr::IsNull {
                     expression: Box::new(self.scalar_expression_with_aliases(argument, aliases)?),
@@ -3944,12 +4034,20 @@ fn semantic(span: Span, message: impl AsRef<str>) -> Error {
     ))
 }
 
-/// Whether an expression mentions a node, relationship, path, or path
-/// collection anywhere, which no stored value may contain.
+/// Whether the resulting value can contain graph values, which cannot be stored.
 fn contains_graph_value(expression: &Expr) -> bool {
-    // An entity access produces a scalar/property value, not its input record.
-    if matches!(expression, Expr::EntityAccess { .. }) {
+    // These operations return scalar/property values, not their input records.
+    if matches!(
+        expression,
+        Expr::EntityAccess { .. } | Expr::Exists { .. } | Expr::Size(_) | Expr::IsNull { .. }
+    ) {
         return false;
+    }
+    if let Expr::ListComprehension {
+        list, projection, ..
+    } = expression
+    {
+        return contains_graph_value(projection.as_deref().unwrap_or(list));
     }
     matches!(
         expression,

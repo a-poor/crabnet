@@ -609,7 +609,24 @@ impl Compiler {
         &mut self,
         pattern: &MatchPlan,
         local: &[(SlotId, EntityKind)],
+        bindings: &[(SlotId, EntityKind, Expr)],
     ) -> Result<String> {
+        let sources = bindings
+            .iter()
+            .map(|(slot, kind, value)| {
+                Ok((
+                    *slot,
+                    EntitySource::Encoded {
+                        sql: self.output_expression(value)?.0,
+                        kind: *kind,
+                    },
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let previous = sources
+            .into_iter()
+            .map(|(slot, source)| (slot, self.entities.insert(slot, source)))
+            .collect::<Vec<_>>();
         let saved_from = std::mem::take(&mut self.from);
         let saved_filters = std::mem::take(&mut self.filters);
         let saved_scanned = std::mem::take(&mut self.scanned);
@@ -627,13 +644,24 @@ impl Compiler {
         for (slot, _) in local {
             self.entities.remove(slot);
         }
-        compiled?;
-        if from.is_empty() {
-            return Err(Error::Data(
-                "a pattern predicate compiled without any source".into(),
-            ));
+        for (slot, source) in previous {
+            match source {
+                Some(source) => {
+                    self.entities.insert(slot, source);
+                }
+                None => {
+                    self.entities.remove(&slot);
+                }
+            }
         }
-        let mut sql = format!("EXISTS (SELECT 1 FROM {}", from.join(", "));
+        compiled?;
+        // If every node and relationship is already bound, the predicate
+        // only checks endpoints/labels/properties and needs no table scan.
+        let mut sql = "EXISTS (SELECT 1".to_owned();
+        if !from.is_empty() {
+            sql.push_str(" FROM ");
+            sql.push_str(&from.join(", "));
+        }
         if !filters.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&filters.join(" AND "));
@@ -2496,8 +2524,12 @@ impl Compiler {
                     "'array'",
                 ))
             }
-            Expr::Exists { pattern, local } => {
-                let subquery = self.exists_subquery(pattern, local)?;
+            Expr::Exists {
+                pattern,
+                local,
+                bindings,
+            } => {
+                let subquery = self.exists_subquery(pattern, local, bindings)?;
                 Ok(Scalar::boolean(subquery))
             }
             Expr::HasLabel(slot, label) => {
@@ -3436,7 +3468,7 @@ impl Compiler {
                     None => String::new(),
                 };
                 let element = match projection {
-                    Some(projection) => this.encoded_expression(projection)?,
+                    Some(projection) => this.output_expression(projection)?.0,
                     None => element_json(&alias),
                 };
                 Ok::<_, Error>((filter, element))

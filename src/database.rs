@@ -918,7 +918,7 @@ struct ExecutionRow {
     scalars: Vec<Option<String>>,
     // Typed collection slots live here during writes, so identity-based
     // property/label refreshes also reach entities retained inside a list.
-    entity_lists: Vec<Option<Vec<EntityValue>>>,
+    entity_lists: Vec<Option<Vec<Option<EntityValue>>>>,
 }
 
 impl ExecutionRow {
@@ -934,7 +934,7 @@ impl ExecutionRow {
         self.entities
             .iter_mut()
             .flatten()
-            .chain(self.entity_lists.iter_mut().flatten().flatten())
+            .chain(self.entity_lists.iter_mut().flatten().flatten().flatten())
     }
 
     fn set(&mut self, slots: &[EntityKind], slot: SlotId, entity: EntityValue) -> Result<()> {
@@ -1537,7 +1537,9 @@ fn with_rows_table<T>(
                                 "[{}]",
                                 entities
                                     .iter()
-                                    .map(encode_entity)
+                                    .map(|entity| entity
+                                        .as_ref()
+                                        .map_or_else(|| "null".to_owned(), encode_entity))
                                     .collect::<Vec<_>>()
                                     .join(",")
                             ),
@@ -1657,12 +1659,18 @@ fn read_row_source(
     Ok(input_rows)
 }
 
-fn decode_entity_list(encoded: &str, kind: EntityKind) -> Result<Vec<EntityValue>> {
+fn decode_entity_list(encoded: &str, kind: EntityKind) -> Result<Vec<Option<EntityValue>>> {
     let values: Vec<serde_json::Value> = serde_json::from_str(encoded)
         .map_err(|error| crate::Error::Data(format!("malformed entity list: {error}")))?;
     values
         .into_iter()
-        .map(|value| decode_entity(&value.to_string(), kind))
+        .map(|value| {
+            if value.is_null() {
+                Ok(None)
+            } else {
+                decode_entity(&value.to_string(), kind).map(Some)
+            }
+        })
         .collect()
 }
 
@@ -2136,7 +2144,7 @@ fn decode_pending_output(encoded: &str, shape: OutputShape) -> Result<PendingVal
         OutputShape::EntityList(kind) => {
             let values = decode_entity_list(encoded, kind)?
                 .into_iter()
-                .map(|entity| entity.to_cypher_value())
+                .map(|entity| entity.map_or(CypherValue::Null, |entity| entity.to_cypher_value()))
                 .collect();
             Ok(PendingValue::Materialized(CypherValue::List(values)))
         }
@@ -2304,6 +2312,9 @@ fn register_functions(connection: &Connection) -> Result<()> {
                 })?
                 .iter()
                 .map(|entity| {
+                    if entity.is_null() {
+                        return Ok(serde_json::Value::Null);
+                    }
                     entity
                         .get("id")
                         .filter(|id| id.is_string())
