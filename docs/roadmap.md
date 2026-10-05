@@ -538,10 +538,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   openers, visibility, competing writers, blocked reads/open/commit, rollback,
   and connection reuse. The dependency example uses these modes. The supported
   local-file rollback-journal contract and compatibility rules are documented.
-- [ ] **Process recovery and backup.** Cover interrupted writes, backup/restore,
-  and recovery behavior. Ordinary close/reopen, atomic migrations and failed
-  migrations, and rollback after contention are covered. Power-loss durability,
-  broader filesystem support, and journal-mode tuning remain separate work.
+- [x] **Process recovery and backup.** `backup_to` publishes a validated snapshot
+  at a new path without overwrite; `restore_from` validates a current-version
+  source and atomically replaces the destination graph and constraints. Nine
+  integration tests cover identity, bags, memory/read-only files, replacement,
+  visibility, invalid sources, lock failures, and cleanup. A subprocess test
+  kills writers after dirty-page spill and after commit, then verifies journal
+  recovery, exact rollback, retained commits, indexes/constraints, and reuse.
+  The initial local-file recovery contract is documented. Power-loss/I/O fault
+  injection, corruption repair, broader filesystems, and journal tuning remain
+  separate work.
 - [x] **A realistic application and workload.** The runnable
   `dependency_graph` example imports Cargo metadata, preserves identities and
   review annotations on repeat import, reconciles stale data, queries forward
@@ -566,12 +572,12 @@ for path-function and legacy relationship lists. Aggregate expressions such
 as `count(*) + 1` and application node uniqueness constraints are also complete.
 Caller-controlled query resources and the dependency-graph application/workload
 are complete for eager execution. Opening options and reader/writer contention
-are complete for local files with rollback journaling. Next cover interrupted
-processes, backup/restore, and recovery. Use the example's
-reopen and rollback checks as application regression coverage while extending
-that contract. Incremental result consumption and broader entity-list
-operations (indexing, comprehensions, and nested collections) remain follow-up
-work. Performance work should start with the measured node-upsert cost and
+are complete for local files with rollback journaling, as are process-termination
+recovery and backup/restore. Next establish incremental result consumption where
+the physical operators permit it, with explicit cursor/snapshot and early-drop
+rules. Keep the example and persistence tests as application regression coverage.
+Broader entity-list operations (indexing, comprehensions, and nested collections)
+remain follow-up work. Performance work should start with the measured node-upsert cost and
 shortest-path scaling. Track completion in milestone 10 rather than a separate
 TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;

@@ -22,6 +22,7 @@ use crate::{
     },
 };
 
+mod backup;
 mod comparison;
 mod resources;
 use resources::ExecutionContext;

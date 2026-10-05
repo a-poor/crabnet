@@ -30,6 +30,8 @@ pub enum Error {
     /// the extended SQLite code. A lock wait may expire or SQLite may fail
     /// early; retry at the whole-statement/application-transaction boundary.
     Busy(Box<rusqlite::Error>),
+    /// A filesystem operation used to stage or publish a backup failed.
+    Io(std::io::Error),
     /// SQLite rejected a schema or query operation.
     Sqlite(rusqlite::Error),
     /// Stored data or an internally generated result had an invalid shape.
@@ -62,6 +64,7 @@ impl fmt::Display for Error {
             Self::DeadlineExceeded => formatter.write_str("query deadline exceeded"),
             Self::ReadOnly => formatter.write_str("the database is read-only"),
             Self::Busy(error) => write!(formatter, "database busy: {error}"),
+            Self::Io(error) => write!(formatter, "filesystem error: {error}"),
             Self::Sqlite(error) => write!(formatter, "SQLite error: {error}"),
             Self::Data(message) => write!(formatter, "invalid graph data: {message}"),
             Self::Argument(message) => write!(formatter, "invalid argument: {message}"),
@@ -76,8 +79,15 @@ impl std::error::Error for Error {
         match self {
             Self::Sqlite(error) => Some(error),
             Self::Busy(error) => Some(error.as_ref()),
+            Self::Io(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+impl From<std::io::Error> for Error {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
     }
 }
 

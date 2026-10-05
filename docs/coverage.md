@@ -131,7 +131,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | --- | --- | --- |
 | Cargo dependency-graph application | Covered | Six tests in `examples/dependency_graph.rs` cover authoritative metadata import, bound hostile IDs, repeat-import node/relationship identity and annotation preservation, changed/empty snapshots, dependency/dependent and shortest-path queries, invalid input, resource-failure rollback, deletion, and reopening. Demo files are created exclusively; unrelated nonempty graphs are refused. The runnable workload independently checks expected graph bags and traversal results at 1,000 and 10,000 packages; [measurements](dependency-graph.md) record ingestion, latency, and process RSS. |
 | File opening and contention | Covered | `OpenOptions` selects create-or-open, existing read/write, or read-only access and a connection-local busy timeout. Twelve tests in `opening.rs` cover missing/empty/foreign/future files, invalid options, read-only hybrid bags and rejected writes, migration policy, concurrent initialization/migration, reader visibility, competing/waiting writers, blocked opening/reads/commit, rollback, and connection reuse. Schema unit tests retain failed-migration coverage. The example uses read-only query handles and existing-only mutation handles. See the [contract](semantics.md#file-opening-and-contention). |
-| Process recovery and backup | Pending | Interrupted processes, backup/restore, recovery tooling, and power-loss durability testing remain milestone 10 work. Ordinary reopen, migration failure, and transaction rollback are covered. |
+| Backup and restore | Covered | Nine tests in `backup.rs` cover snapshots from memory and read-only files, identity/parallel-relationship bags, preserved constraints, replacement of an existing graph and prepared statements, observer visibility, exclusion of uncommitted changes, rejection of missing/old/future/foreign/corrupt or inconsistent sources, lock failures, same-file restore, connection reuse, and no-overwrite publication including aliases/symlinks. Full SQLite integrity, foreign-key, and explicit persisted CHECK validation precede restore. |
+| Process-termination recovery | Covered | `recovery.rs` kills synchronized child processes before and after commit. It proves dirty-page spill and a hot rollback journal before killing the uncommitted writer, then checks exact rollback, retained commits, constraints, property/label indexes, integrity, further writes, and backup/restore after reopening. Read-only recovery refusal is covered. Power-loss and I/O fault injection, corruption repair, and broader filesystem/journal support remain follow-ups. |
 
 ## Prioritized next-test backlog
 
@@ -148,11 +149,10 @@ milestone 10. Its next test slices are:
 2. Broader entity-list operations: indexing, comprehensions, and nested
    collections. Aggregate expressions and entity collection/expansion,
    including path-list `UNWIND`, are complete.
-3. Dependable persistent operation: interrupted writes, backup/restore, and
-   recovery. Opening modes and reader/writer contention are covered, and the
-   dependency-graph
-   application's import/reimport, traversal, update, deletion, rollback, and
-   ordinary reopening lifecycle is covered.
+3. Persistent-operation extensions: power-loss and disk/I/O fault injection,
+   corruption repair, and broader filesystem/journal support. Opening modes,
+   reader/writer contention, process termination, and backup/restore now cover
+   the initial local-file contract.
 
 Continue checking the pinned TCK during these slices. Remaining NaN and other
 correctness gaps, the upstream parser label-context fix, temporal support,

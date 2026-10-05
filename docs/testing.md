@@ -52,6 +52,19 @@ end-to-end result test for user-visible semantics.
   The timeout test uses a loose lower bound; other contention cases assert
   outcomes rather than timing. Threaded waiting uses a readiness channel and
   a short delayed release; concurrent opening uses a start barrier.
+- `tests/backup.rs` covers backup publication without overwrite, memory/file
+  and read-only round trips, preserved identities and relationship bags,
+  constraint/index persistence, replacement/observer behavior, invalid and
+  corrupted sources, lock failures, and connection/staging cleanup. Corruption
+  fixtures use raw SQLite to violate foreign keys and persisted CHECK clauses;
+  restore must reject them before touching the destination.
+- `tests/recovery.rs` launches its own test binary as a controlled child writer.
+  A readiness message follows either a spilled uncommitted transaction or a
+  completed commit. The parent checks the journal/main-file evidence before
+  killing and reaping the child, then checks recovery, retained commits,
+  constraints, derived indexes, integrity, connection reuse, and backup/restore.
+  A timeout and child guard prevent leaked processes on failed assertions.
+  This exercises process death without Rust cleanup, not machine power loss.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

@@ -196,9 +196,9 @@ and hop count; inspect eligible-edge loading and adjacency construction next.
 The eight-result distinct neighborhood queries stay nearly flat, giving no
 reason to prioritize semantic deduplication for this workload.
 
-Opening options and reader/writer contention are now covered by the library's
-file-operation tests. The next application-usability slice is interrupted-process
-recovery and backup/restore. This example verifies ordinary close/reopen and
-transactional rollback; it does not establish a crash-recovery or backup
-contract. Incremental result consumption remains separate work; the eager
+Opening options, reader/writer contention, process-termination recovery, and
+backup/restore are covered by the library's persistence tests; see the
+[recovery contract](semantics.md#backups-and-process-recovery). This example's
+workload verifies ordinary close/reopen and transactional rollback. Incremental
+result consumption is the next application-usability slice; the eager
 correctness snapshots contribute to the reported process RSS.

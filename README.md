@@ -65,6 +65,35 @@ the underlying SQLite error preserved. The default lock timeout is five
 seconds. See [file opening and contention](docs/semantics.md#file-opening-and-contention)
 for migration, concurrency, and retry behavior.
 
+## Backups and recovery
+
+`backup_to` saves a committed snapshot to a **new** path. `restore_from`
+validates that snapshot and atomically replaces the destination graph,
+including its identities and uniqueness constraints:
+
+```rust
+use crabnet::Database;
+
+fn main() -> crabnet::Result<()> {
+    let mut graph = Database::open("graph.sqlite")?;
+    graph.backup_to("graph-backup.sqlite")?;
+    let mut restored = Database::open("restored.sqlite")?;
+    restored.restore_from("graph-backup.sqlite")?;
+    Ok(())
+}
+```
+
+Backups never overwrite existing paths. Both methods support in-memory graphs;
+read-only handles can create backups. These synchronous operations use the
+connection's lock timeout and hold a source read snapshot while checking and
+copying data.
+
+After a process is interrupted during a write, reopen the original file with
+`OpenMode::ReadWrite` so SQLite can recover its journal. Preserve the journal
+alongside the database until recovery finishes. Read-only opening may fail
+while that recovery is needed. See [backup and recovery semantics](docs/semantics.md#backups-and-process-recovery)
+for publication, compatibility, and durability limits.
+
 ## Transactions across queries
 
 Use `Database::transaction()` when a Rust operation needs several queries to

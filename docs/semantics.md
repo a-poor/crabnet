@@ -1128,10 +1128,96 @@ reader blocks commit and verify subsequent connection reuse.
 Query deadlines and cancellation do not interrupt lock sleeping, opening,
 constraint management, or explicit begin/commit/rollback. Choose the connection
 timeout alongside `QueryOptions`; a short query deadline does not shorten a
-longer lock wait. Process interruption, backup/restore, recovery tooling, and
-power-loss durability testing remain the next persistence work. Ordinary
-close/reopen and transaction rollback are covered; file compatibility is still
-experimental.
+longer lock wait. Backup/restore and process interruption follow the contract
+below. File compatibility is still experimental.
+
+## Backups and process recovery
+
+`Database::backup_to(path)` creates a standalone SQLite snapshot at a new
+filesystem path. It works from an in-memory database or a writable/read-only
+file handle. Graph identities, properties, labels, relationships, materialized
+indexes, and uniqueness declarations/keys are preserved. Connection settings
+and temporary query tables are not part of the backup. Another connection's
+uncommitted changes are excluded.
+
+The method validates one pinned source read snapshot, copies SQLite pages into
+a temporary directory beside the destination, closes the SQLite destination,
+syncs the file, and publishes it with a hard link. The destination appears only
+after the complete copy exists. Hard-link publication requires filesystem
+support and never replaces an existing entry, including an empty file,
+hard-link alias, or symlink. An existing destination returns
+`Error::Io` containing `std::io::ErrorKind::AlreadyExists`. Other staging or
+publication failures also preserve the underlying filesystem error. Ordinary
+failure cleans up staging files; process death can leave an unpublished
+`.crabnet-backup-*` directory. Such directories are not completed backups and
+may be removed once no backup operation is using them. A process killed after
+publication can leave a valid final backup even if its caller never received
+success. The file is synced, but its parent directory is not: this is not a
+power-loss guarantee for the new directory entry. Source file permissions and
+ACLs are not copied; the published file retains the temporary file's permissions
+(owner-only on Unix).
+
+`Database::restore_from(path)` opens an existing source read-only, validates it,
+and copies it into this handle's main database using a single SQLite backup
+transaction. It **replaces** all existing graph data and constraints on success.
+The destination may be an in-memory graph or an existing writable file handle.
+Read-only destinations return `Error::ReadOnly`. Prepared statements on the
+destination are flushed; later queries and writes use the restored schema and
+data. Other connections observe the replacement on subsequent reads. Retained
+Rust query results remain their earlier owned snapshots.
+
+Both methods check the application ID/current schema layout, run
+`PRAGMA main.integrity_check` and `foreign_key_check`, and explicitly check the
+stored JSON-container and relationship-type constraints. The explicit checks
+also run for read-only sources, where the bundled SQLite omits CHECK expressions
+from its loaded schema. Validation and copying use the same source snapshot.
+These checks catch storage, index, foreign-key, and persisted CHECK violations;
+they do not authenticate files or verify every semantic invariant of arbitrary
+external SQLite edits (such as deleted triggers or stale derived graph tables).
+
+Restore never creates, migrates, or modifies its source. Missing, uninitialized,
+foreign, future-version, and older-schema sources are rejected before changing
+the destination. To use an older backup, migrate a separate working copy with
+a writable open first. Source and destination must be distinct files; trying
+to restore from the destination itself conflicts with the pinned read lock and
+returns `Error::Busy`. Restoring into memory can also fail if SQLite page sizes
+differ. The destination remains unchanged on validation or ordinary copy
+failure; incomplete copies are rolled back when the backup handle is released.
+This relies on [SQLite's backup transaction contract](https://sqlite.org/c3ref/backup_finish.html).
+
+Backup/restore are synchronous and hold a read snapshot for the validation and
+copy duration. They can delay writers. Restore also needs an exclusive
+destination lock; active readers or another writer can cause `Error::Busy`.
+Source and destination use the calling handle's busy timeout. There is no
+unbounded retry loop, progress callback, cancellation, or `QueryOptions`
+budget for these operations. Retry the whole operation after resolving
+contention. Copying a live database file with an ordinary filesystem copy is
+not this API's backup procedure; SQLite's
+[online backup API](https://sqlite.org/backup.html) supplies the consistent copy.
+
+### Recovery after process termination
+
+For the supported local-file DELETE-journal configuration, reopening read/write
+lets SQLite recover a hot rollback journal before Crabnet reads schema metadata.
+Use `OpenMode::ReadWrite` to require that the original file exists. Keep the
+database and its `-journal` together until recovery finishes; removing the
+journal would discard information needed to roll back incomplete writes.
+A read-only open can return `Error::Sqlite` with SQLite's read-only code while
+journal recovery requires writes. After writable recovery, read-only opens work
+normally. Applications do not replay incomplete queries automatically.
+
+`tests/recovery.rs` kills child processes without running Rust destructors.
+Before the uncommitted kill, it verifies a hot journal header and that dirty
+pages have actually reached the main file. Reopening must recover the exact
+earlier graph and constraints, restore property/label indexes, and permit new
+writes, backup, and restore. A second child is killed after commit; its graph
+and constraint changes must survive. The tests check SQLite integrity and
+foreign keys and recompute property/label index contents.
+
+These are process-termination tests, not simulated power failure or faulty
+storage. Torn writes, disk-full/I/O fault injection, corruption repair,
+network filesystems, and journal/durability tuning remain outside this tested
+contract. Existing atomic migration and failed-migration tests remain in place.
 
 ## Query resource controls
 

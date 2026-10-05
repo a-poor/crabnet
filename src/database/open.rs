@@ -58,16 +58,7 @@ impl Database {
     /// ```
     pub fn open_with_options(path: impl AsRef<Path>, options: &OpenOptions) -> Result<Self> {
         let path = path.as_ref();
-        if path.as_os_str().is_empty()
-            || path == Path::new(":memory:")
-            || path
-                .to_str()
-                .is_some_and(|value| value.starts_with("file:"))
-        {
-            return Err(Error::Argument(
-                "expected a filesystem database path".into(),
-            ));
-        }
+        validate_path(path)?;
         if options.busy_timeout > Duration::from_millis(i32::MAX as u64) {
             return Err(Error::Argument(
                 "busy timeout exceeds i32::MAX milliseconds".into(),
@@ -100,6 +91,20 @@ impl Database {
         }
         Ok(())
     }
+}
+
+pub(super) fn validate_path(path: &Path) -> Result<()> {
+    if path.as_os_str().is_empty()
+        || path == Path::new(":memory:")
+        || path
+            .to_str()
+            .is_some_and(|value| value.starts_with("file:"))
+    {
+        return Err(Error::Argument(
+            "expected a filesystem database path".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
