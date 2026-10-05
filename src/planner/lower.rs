@@ -21,12 +21,12 @@ use crate::{Error, Result};
 
 use super::UnionKind;
 use super::logical::{
-    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
-    ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation, PathCollectionKind,
-    PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline, ReadStage,
-    RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId, SortDirection, SortItem,
-    StoredValue, TraversalId, UnaryOp, UnwindBinding, UnwindStage, ValueExpr, WithBinding,
-    WithStage,
+    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityAccess, EntityKind, Expr, Input,
+    ListQuantifier, ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation,
+    PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline,
+    ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId, SortDirection,
+    SortItem, StoredValue, TraversalId, UnaryOp, UnwindBinding, UnwindStage, ValueExpr,
+    WithBinding, WithStage,
 };
 use super::typecheck;
 
@@ -978,6 +978,13 @@ impl<'source> Lowerer<'source> {
         )?;
         if fresh {
             plan.operators.push(MatchOperator::ScanNode { slot });
+        } else {
+            // An out-of-range index (or OPTIONAL MATCH) can bind a null node.
+            // Even an otherwise unconstrained MATCH (n) must reject that row.
+            plan.operators.push(MatchOperator::Filter(Expr::IsNull {
+                expression: Box::new(Expr::ElementId(slot)),
+                negated: true,
+            }));
         }
         if let Some(label) = &node.labels {
             self.pattern_labels(plan, slot, label)?;
@@ -1619,6 +1626,9 @@ impl<'source> Lowerer<'source> {
     fn computed_stored_value(&self, expression: &AstExpr, map: bool) -> Result<StoredValue> {
         let lowered = match self.output_expression(expression)? {
             Expr::Entity(slot) if map => Expr::EntityProperties(slot),
+            entity @ Expr::EntityValue { .. } if map => {
+                entity_access(entity, EntityAccess::Properties)
+            }
             lowered if contains_graph_value(&lowered) => {
                 return Err(semantic(
                     expression.span,
@@ -1777,24 +1787,21 @@ impl<'source> Lowerer<'source> {
         })
     }
 
-    /// The entity a comparison operand names, if it is a bare node or
-    /// relationship variable.
-    fn entity_operand(
-        &self,
-        expression: &AstExpr,
-        aliases: &HashMap<String, Expr>,
-    ) -> Option<SlotId> {
-        match &expression.kind {
-            ExprKind::Parenthesized(inner) => self.entity_operand(inner, aliases),
-            ExprKind::Variable(variable) => match aliases.get(&variable.kind.text) {
-                Some(Expr::Entity(slot)) => Some(*slot),
-                Some(_) => None,
-                None => match self.symbols.get(&variable.kind.text) {
-                    Some(Symbol::Entity(slot)) => Some(*slot),
-                    _ => None,
-                },
-            },
+    fn expression_entity_kind(&self, expression: &Expr) -> Option<EntityKind> {
+        match expression {
+            Expr::Entity(slot) => Some(self.kind(*slot)),
+            Expr::EntityValue { kind, .. } => Some(*kind),
             _ => None,
+        }
+    }
+
+    fn identity_expression(&self, expression: Expr) -> Expr {
+        match expression {
+            Expr::Entity(slot) => Expr::EntityIdentity(slot),
+            entity @ Expr::EntityValue { kind, .. } => {
+                entity_access(entity, EntityAccess::Identity(kind))
+            }
+            expression => expression,
         }
     }
 
@@ -1839,15 +1846,6 @@ impl<'source> Lowerer<'source> {
     /// A label expression as a boolean over the node's labels.
     fn label_predicate(&self, slot: SlotId, label: &LabelExpression) -> Result<Expr> {
         self.label_expression(label, &|name| Expr::HasLabel(slot, name))
-    }
-
-    /// A label expression as a boolean over the relationship's type.
-    fn relationship_type_predicate(&self, slot: SlotId, label: &LabelExpression) -> Result<Expr> {
-        self.label_expression(label, &|name| Expr::Binary {
-            left: Box::new(Expr::RelationshipType(slot)),
-            operator: BinaryOp::Equal,
-            right: Box::new(Expr::Value(ValueExpr::Literal(Value::String(name)))),
-        })
     }
 
     fn label_expression(
@@ -1934,6 +1932,12 @@ impl<'source> Lowerer<'source> {
             self.symbols.insert(name.clone(), Symbol::Entity(slot));
             UnwindBinding::Entity(slot, kind)
         } else {
+            if matches!(expression, Expr::EntityValue { .. }) {
+                return Err(semantic(
+                    unwind_clause.expression.span,
+                    "UNWIND requires a list",
+                ));
+            }
             let expression =
                 require_scalar_context(expression.clone(), unwind_clause.expression.span)?;
             if matches!(expression, Expr::Entity(_) | Expr::Path(_)) {
@@ -2008,12 +2012,31 @@ impl<'source> Lowerer<'source> {
                 ));
             }
             match expression {
+                Expr::EntityValue { kind, .. } => {
+                    let slot = self.allocate(kind);
+                    bindings.push(WithBinding::Entity {
+                        name: name.clone(),
+                        slot,
+                        kind,
+                        expression: Some(expression.clone()),
+                    });
+                    projected_symbols.insert(name.clone(), Symbol::Entity(slot));
+                    aliases.insert(
+                        name,
+                        if distinct {
+                            Expr::Entity(slot)
+                        } else {
+                            expression
+                        },
+                    );
+                }
                 Expr::Entity(slot) => {
                     let kind = self.kind(slot);
                     bindings.push(WithBinding::Entity {
                         name: name.clone(),
                         slot,
                         kind,
+                        expression: None,
                     });
                     projected_symbols.insert(name.clone(), Symbol::Entity(slot));
                     aliases.insert(name, Expr::Entity(slot));
@@ -2078,7 +2101,9 @@ impl<'source> Lowerer<'source> {
         let binding_expressions = bindings
             .iter()
             .map(|binding| match binding {
-                WithBinding::Entity { slot, .. } => Expr::Entity(*slot),
+                WithBinding::Entity {
+                    slot, expression, ..
+                } => expression.clone().unwrap_or(Expr::Entity(*slot)),
                 WithBinding::Path { path, .. } => Expr::Path(*path),
                 WithBinding::PathCollection { path, kind, .. } => Expr::PathFunction {
                     kind: path_function_kind(*kind),
@@ -2100,15 +2125,16 @@ impl<'source> Lowerer<'source> {
         }
         let mut projected_values = binding_expressions.clone();
         if distinct {
-            let scalar_aliases = bindings
+            let projected_aliases = bindings
                 .iter()
                 .filter_map(|binding| match binding {
                     WithBinding::Scalar { slot, .. } => Some(Expr::Scalar(*slot)),
+                    WithBinding::Entity { slot, .. } => Some(Expr::Entity(*slot)),
                     _ => None,
                 })
                 .collect::<Vec<_>>();
-            projected_values.extend(scalar_aliases.clone());
-            grouping.extend(scalar_aliases);
+            projected_values.extend(projected_aliases.clone());
+            grouping.extend(projected_aliases);
         }
 
         // Cypher permits WITH's WHERE and ORDER BY to refer to projected
@@ -2354,6 +2380,9 @@ impl<'source> Lowerer<'source> {
         }
 
         match &expression.kind {
+            ExprKind::DynamicProperty { .. } | ExprKind::Index { .. } | ExprKind::Slice { .. } => {
+                self.subscript_expression(expression, aliases, expression_depth)
+            }
             ExprKind::Property {
                 expression: base,
                 key,
@@ -2381,6 +2410,76 @@ impl<'source> Lowerer<'source> {
             _ => {
                 self.scalar_expression_with_aliases_at_depth(expression, aliases, expression_depth)
             }
+        }
+    }
+
+    fn subscript_expression(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        match &expression.kind {
+            ExprKind::DynamicProperty {
+                expression: base,
+                key,
+            }
+            | ExprKind::Index {
+                expression: base,
+                index: key,
+            } => {
+                let key = self.scalar_expression_with_aliases_at_depth(
+                    key,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let base = self.output_expression_with_aliases_at_depth(
+                    base,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                match base {
+                    Expr::Entity(slot) => Ok(Expr::DynamicProperty(slot, Box::new(key))),
+                    entity @ Expr::EntityValue { .. } => Ok(entity_access(
+                        entity,
+                        EntityAccess::DynamicProperty(Box::new(key)),
+                    )),
+                    Expr::Path(_) => Err(semantic(expression.span, "paths cannot be indexed")),
+                    base => Ok(index_expression(base, key)),
+                }
+            }
+            ExprKind::Slice {
+                expression: base,
+                lower,
+                upper,
+            } => {
+                let base = self.output_expression_with_aliases_at_depth(
+                    base,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let bound = |bound: &Option<Box<AstExpr>>| -> Result<Option<Box<Expr>>> {
+                    bound
+                        .as_deref()
+                        .map(|bound| {
+                            self.scalar_expression_with_aliases_at_depth(
+                                bound,
+                                aliases,
+                                expression_depth + 1,
+                            )
+                            .map(Box::new)
+                        })
+                        .transpose()
+                };
+                if matches!(
+                    base,
+                    Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
+                ) {
+                    return Err(semantic(expression.span, "slicing requires a list"));
+                }
+                Ok(slice_expression(base, bound(lower)?, bound(upper)?))
+            }
+            _ => unreachable!("only subscripts use this lowering path"),
         }
     }
 
@@ -2498,36 +2597,6 @@ impl<'source> Lowerer<'source> {
                 operator,
                 right,
             } => {
-                // Nodes and relationships compare by identity: `a = b` and
-                // `a <> b` compare typed identities, null when either side is null.
-                if matches!(
-                    operator.kind,
-                    BinaryOperator::Equal | BinaryOperator::NotEqual
-                ) {
-                    let left_entity = self.entity_operand(left, aliases);
-                    let right_entity = self.entity_operand(right, aliases);
-                    if left_entity.is_some() || right_entity.is_some() {
-                        let side = |slot: Option<SlotId>, operand: &AstExpr| -> Result<Expr> {
-                            match slot {
-                                Some(slot) => Ok(Expr::EntityIdentity(slot)),
-                                None => self.scalar_expression_with_aliases_at_depth(
-                                    operand,
-                                    aliases,
-                                    expression_depth + 1,
-                                ),
-                            }
-                        };
-                        return Ok(Expr::Binary {
-                            left: Box::new(side(left_entity, left)?),
-                            operator: if operator.kind == BinaryOperator::Equal {
-                                BinaryOp::Equal
-                            } else {
-                                BinaryOp::NotEqual
-                            },
-                            right: Box::new(side(right_entity, right)?),
-                        });
-                    }
-                }
                 // `a < b < c` compares pairwise: `a < b AND b < c`.
                 if let Some((operands, operators)) = comparison_chain(expression)
                     && operators.len() > 1
@@ -2556,6 +2625,38 @@ impl<'source> Lowerer<'source> {
                             right: Box::new(right),
                         })
                         .expect("a chain has at least two comparisons"));
+                }
+                // Nodes and relationships compare by identity: `a = b` and
+                // `a <> b` compare typed identities, null when either side is null.
+                if matches!(
+                    operator.kind,
+                    BinaryOperator::Equal | BinaryOperator::NotEqual
+                ) {
+                    let left = self.output_expression_with_aliases_at_depth(
+                        left,
+                        aliases,
+                        expression_depth + 1,
+                    )?;
+                    let right = self.output_expression_with_aliases_at_depth(
+                        right,
+                        aliases,
+                        expression_depth + 1,
+                    )?;
+                    return Ok(Expr::Binary {
+                        left: Box::new(require_scalar_context(
+                            self.identity_expression(left),
+                            expression.span,
+                        )?),
+                        operator: if operator.kind == BinaryOperator::Equal {
+                            BinaryOp::Equal
+                        } else {
+                            BinaryOp::NotEqual
+                        },
+                        right: Box::new(require_scalar_context(
+                            self.identity_expression(right),
+                            expression.span,
+                        )?),
+                    });
                 }
                 let operator = match operator.kind {
                     BinaryOperator::Or => BinaryOp::Or,
@@ -2619,13 +2720,16 @@ impl<'source> Lowerer<'source> {
                 predicate: IsPredicate::Null,
             } => {
                 // A node or relationship is null exactly when its id is.
-                let operand = match self.entity_operand(expression, aliases) {
-                    Some(slot) => Expr::ElementId(slot),
-                    None => self.scalar_expression_with_aliases_at_depth(
-                        expression,
-                        aliases,
-                        expression_depth + 1,
-                    )?,
+                let operand = self.output_expression_with_aliases_at_depth(
+                    expression,
+                    aliases,
+                    expression_depth + 1,
+                )?;
+                let operand = match operand {
+                    Expr::EntityList { .. } => operand,
+                    operand => {
+                        require_scalar_context(self.identity_expression(operand), expression.span)?
+                    }
                 };
                 Ok(Expr::IsNull {
                     expression: Box::new(operand),
@@ -2637,16 +2741,27 @@ impl<'source> Lowerer<'source> {
                 negated,
                 predicate: IsPredicate::Label(label),
             } => {
-                let Expr::Entity(slot) = self.output_expression_with_aliases(target, aliases)?
-                else {
+                let entity = self.output_expression_with_aliases(target, aliases)?;
+                let Some(kind) = self.expression_entity_kind(&entity) else {
                     return Err(semantic(
                         target.span,
-                        "a label predicate requires a node or relationship variable",
+                        "a label predicate requires a node or relationship",
                     ));
                 };
-                let predicate = match self.kind(slot) {
-                    EntityKind::Node => self.label_predicate(slot, label)?,
-                    EntityKind::Relationship => self.relationship_type_predicate(slot, label)?,
+                let predicate = match kind {
+                    EntityKind::Node => self.label_expression(label, &|name| {
+                        entity_access(entity.clone(), EntityAccess::HasLabel(name))
+                    })?,
+                    EntityKind::Relationship => {
+                        self.label_expression(label, &|name| Expr::Binary {
+                            left: Box::new(entity_access(
+                                entity.clone(),
+                                EntityAccess::RelationshipType,
+                            )),
+                            operator: BinaryOp::Equal,
+                            right: Box::new(Expr::Value(ValueExpr::Literal(Value::String(name)))),
+                        })?
+                    }
                 };
                 Ok(if *negated {
                     Expr::Unary {
@@ -2668,68 +2783,11 @@ impl<'source> Lowerer<'source> {
             // Name every remaining expression kind so unsupported-feature
             // reports rank real gaps instead of one opaque bucket.
             ExprKind::MapProjection(_) => Err(unsupported(expression.span, "map projection")),
-            ExprKind::DynamicProperty {
-                expression: base,
-                key,
-            }
-            | ExprKind::Index {
-                expression: base,
-                index: key,
-            } => {
-                let key = self.scalar_expression_with_aliases_at_depth(
-                    key,
-                    aliases,
-                    expression_depth + 1,
-                )?;
-                let base = self.output_expression_with_aliases_at_depth(
-                    base,
-                    aliases,
-                    expression_depth + 1,
-                )?;
-                match base {
-                    Expr::Entity(slot) => Ok(Expr::DynamicProperty(slot, Box::new(key))),
-                    Expr::EntityList { .. } => Err(unsupported(
-                        expression.span,
-                        "indexing collected entity lists",
-                    )),
-                    Expr::Path(_) | Expr::PathFunction { .. } => Err(semantic(
-                        expression.span,
-                        "paths and path collections cannot be indexed",
-                    )),
-                    base => Ok(Expr::Index {
-                        base: Box::new(base),
-                        index: Box::new(key),
-                    }),
-                }
-            }
-            ExprKind::Slice {
-                expression: base,
-                lower,
-                upper,
-            } => {
-                let base = self.scalar_expression_with_aliases_at_depth(
-                    base,
-                    aliases,
-                    expression_depth + 1,
-                )?;
-                let bound = |bound: &Option<Box<AstExpr>>| -> Result<Option<Box<Expr>>> {
-                    bound
-                        .as_deref()
-                        .map(|bound| {
-                            self.scalar_expression_with_aliases_at_depth(
-                                bound,
-                                aliases,
-                                expression_depth + 1,
-                            )
-                            .map(Box::new)
-                        })
-                        .transpose()
-                };
-                Ok(Expr::Slice {
-                    base: Box::new(base),
-                    lower: bound(lower)?,
-                    upper: bound(upper)?,
-                })
+            ExprKind::DynamicProperty { .. } | ExprKind::Index { .. } | ExprKind::Slice { .. } => {
+                require_scalar_context(
+                    self.subscript_expression(expression, aliases, expression_depth)?,
+                    expression.span,
+                )
             }
             ExprKind::Case(case) => {
                 let operand = case
@@ -2946,15 +3004,28 @@ impl<'source> Lowerer<'source> {
             return Err(unsupported(span, "quantified scalar function call"));
         }
         match name.as_str() {
-            "elementid" => Ok(Expr::ElementId(
-                self.single_entity_argument(function, span, aliases)?,
-            )),
-            "type" => {
-                let slot = self.single_entity_argument(function, span, aliases)?;
-                match self.kind(slot) {
-                    EntityKind::Relationship => Ok(Expr::RelationshipType(slot)),
-                    EntityKind::Node => Err(semantic(span, "type() requires a relationship")),
-                }
+            "elementid" | "type" | "labels" => {
+                let [argument] = function.arguments.as_slice() else {
+                    return Err(semantic(
+                        span,
+                        "graph function requires exactly one argument",
+                    ));
+                };
+                let entity = self.output_expression_with_aliases(argument, aliases)?;
+                let Some(kind) = self.expression_entity_kind(&entity) else {
+                    return Err(semantic(
+                        span,
+                        "graph function requires a node or relationship",
+                    ));
+                };
+                let access = match name.as_str() {
+                    "type" if kind == EntityKind::Relationship => EntityAccess::RelationshipType,
+                    "labels" if kind == EntityKind::Node => EntityAccess::Labels,
+                    "elementid" => EntityAccess::ElementId,
+                    "type" => return Err(semantic(span, "type() requires a relationship")),
+                    _ => return Err(semantic(span, "labels() requires a node")),
+                };
+                Ok(entity_access(entity, access))
             }
             "exists" => match function.arguments.as_slice() {
                 [argument] if matches!(argument.kind, ExprKind::Pattern(_)) => {
@@ -2969,13 +3040,6 @@ impl<'source> Lowerer<'source> {
                 }),
                 _ => Err(semantic(span, "exists() takes exactly one argument")),
             },
-            "labels" => {
-                let slot = self.single_entity_argument(function, span, aliases)?;
-                match self.kind(slot) {
-                    EntityKind::Node => Ok(Expr::Labels(slot)),
-                    EntityKind::Relationship => Err(semantic(span, "labels() requires a node")),
-                }
-            }
             "length" => {
                 self.path_function_expression(function, PathFunctionKind::Length, span, aliases)
             }
@@ -3006,7 +3070,7 @@ impl<'source> Lowerer<'source> {
                         span,
                         "size() requires a list or string, not a path; use length()",
                     )),
-                    Expr::Entity(_) => Err(semantic(
+                    Expr::Entity(_) | Expr::EntityValue { .. } => Err(semantic(
                         span,
                         "size() requires a list or string, not a graph entity",
                     )),
@@ -3044,6 +3108,14 @@ impl<'source> Lowerer<'source> {
                         Ok(Expr::EntityKeys(slot))
                     }
                     Expr::Entity(slot) => Ok(Expr::EntityProperties(slot)),
+                    entity @ Expr::EntityValue { .. } => Ok(entity_access(
+                        entity,
+                        if function == ScalarFunction::Keys {
+                            EntityAccess::Keys
+                        } else {
+                            EntityAccess::Properties
+                        },
+                    )),
                     Expr::Path(_) | Expr::PathFunction { .. } => Err(semantic(
                         span,
                         format!("{name}() requires a node, relationship, or map, not a path"),
@@ -3062,23 +3134,19 @@ impl<'source> Lowerer<'source> {
                         format!("{name}() requires exactly one argument"),
                     ));
                 };
-                let base = Box::new(self.scalar_expression_with_aliases(argument, aliases)?);
+                let base = self.output_expression_with_aliases(argument, aliases)?;
+                if matches!(
+                    base,
+                    Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
+                ) {
+                    return Err(semantic(span, "list function requires a list"));
+                }
                 let literal =
                     |value: i64| Box::new(Expr::Value(ValueExpr::Literal(Value::from(value))));
                 Ok(match name.as_str() {
-                    "head" => Expr::Index {
-                        base,
-                        index: literal(0),
-                    },
-                    "last" => Expr::Index {
-                        base,
-                        index: literal(-1),
-                    },
-                    _ => Expr::Slice {
-                        base,
-                        lower: Some(literal(1)),
-                        upper: None,
-                    },
+                    "head" => index_expression(base, *literal(0)),
+                    "last" => index_expression(base, *literal(-1)),
+                    _ => slice_expression(base, Some(literal(1)), None),
                 })
             }
             _ => {
@@ -3178,7 +3246,7 @@ impl<'source> Lowerer<'source> {
                     "rand() is not allowed inside an aggregate function",
                 ));
             }
-            if matches!(argument, Expr::Entity(_))
+            if matches!(argument, Expr::Entity(_) | Expr::EntityValue { .. })
                 && !matches!(kind, AggregateKind::Count | AggregateKind::Collect)
             {
                 return Err(unsupported(
@@ -3208,7 +3276,9 @@ impl<'source> Lowerer<'source> {
         };
 
         let entity_kind = match argument.as_deref() {
-            Some(Expr::Entity(slot)) if kind == AggregateKind::Collect => Some(self.kind(*slot)),
+            Some(argument) if kind == AggregateKind::Collect => {
+                self.expression_entity_kind(argument)
+            }
             _ => None,
         };
         let aggregate = Expr::Aggregate {
@@ -3225,64 +3295,6 @@ impl<'source> Lowerer<'source> {
         })
     }
 
-    fn single_entity_argument(
-        &self,
-        function: &FunctionInvocation,
-        span: Span,
-        aliases: &HashMap<String, Expr>,
-    ) -> Result<SlotId> {
-        let [argument] = function.arguments.as_slice() else {
-            return Err(semantic(
-                span,
-                "graph function requires exactly one argument",
-            ));
-        };
-        let ExprKind::Variable(variable) = &argument.kind else {
-            return Err(semantic(
-                argument.span,
-                "graph function argument must be a variable",
-            ));
-        };
-        let symbol = aliases
-            .get(&variable.kind.text)
-            .map(|expression| match expression {
-                Expr::Entity(slot) => Ok(Symbol::Entity(*slot)),
-                _ => Err(semantic(
-                    variable.span,
-                    format!(
-                        "scalar variable `{}` cannot be used as a graph entity",
-                        variable.kind.text
-                    ),
-                )),
-            })
-            .transpose()?
-            .map_or_else(|| self.resolve_symbol(variable), Ok)?;
-        match symbol {
-            Symbol::Entity(slot) => Ok(slot),
-            Symbol::Scalar(_) => Err(semantic(
-                variable.span,
-                format!(
-                    "scalar variable `{}` cannot be used as a graph entity",
-                    variable.kind.text
-                ),
-            )),
-            Symbol::Path(_) => Err(semantic(
-                variable.span,
-                format!(
-                    "path variable `{}` cannot be used as a graph entity",
-                    variable.kind.text
-                ),
-            )),
-            Symbol::PathCollection { .. } => Err(semantic(
-                variable.span,
-                format!(
-                    "path collection variable `{}` cannot be used as a graph entity",
-                    variable.kind.text
-                ),
-            )),
-        }
-    }
-
     /// Lowers `base.key`. Graph entities keep the dedicated `Property`
     /// expression; any other base (a projected or parameter map, a quantified
     /// list element, a nested map, or an arbitrary scalar expression) becomes
@@ -3294,34 +3306,26 @@ impl<'source> Lowerer<'source> {
         aliases: &HashMap<String, Expr>,
         expression_depth: usize,
     ) -> Result<Expr> {
-        let key = key.to_owned();
-        let map_property = |base: Expr| Expr::MapProperty {
-            base: Box::new(base),
-            key: key.clone(),
-        };
-        if let ExprKind::Variable(variable) = &base.kind {
-            return match aliases.get(&variable.kind.text) {
-                Some(Expr::Entity(slot)) => Ok(Expr::Property(*slot, key)),
-                Some(Expr::Path(_) | Expr::PathFunction { .. }) => Err(semantic(
-                    variable.span,
-                    format!(
-                        "path variable `{}` does not have graph properties",
-                        variable.kind.text
-                    ),
-                )),
-                Some(expression) => Ok(map_property(expression.clone())),
-                None => match self.resolve_symbol(variable)? {
-                    Symbol::Entity(slot) => Ok(Expr::Property(slot, key)),
-                    Symbol::Scalar(slot) => Ok(map_property(Expr::Scalar(slot))),
-                    Symbol::Path(_) | Symbol::PathCollection { .. } => self
-                        .resolve_entity_variable(base)
-                        .map(|slot| Expr::Property(slot, key)),
-                },
-            };
+        let lowered =
+            self.output_expression_with_aliases_at_depth(base, aliases, expression_depth + 1)?;
+        match lowered {
+            Expr::Entity(_) | Expr::EntityValue { .. } => Ok(entity_access(
+                lowered,
+                EntityAccess::Property(key.to_owned()),
+            )),
+            Expr::Path(_) | Expr::PathFunction { .. } => Err(semantic(
+                base.span,
+                "path variables and path collections do not have graph properties",
+            )),
+            Expr::EntityList { .. } => Err(semantic(
+                base.span,
+                "property access requires a map, node, or relationship",
+            )),
+            base => Ok(Expr::MapProperty {
+                base: Box::new(base),
+                key: key.to_owned(),
+            }),
         }
-        let base =
-            self.scalar_expression_with_aliases_at_depth(base, aliases, expression_depth + 1)?;
-        Ok(map_property(base))
     }
 
     fn resolve_entity_variable(&self, expression: &AstExpr) -> Result<SlotId> {
@@ -3779,11 +3783,12 @@ fn is_deferred_graph_value(expression: &Expr) -> bool {
 }
 
 fn require_scalar_context(expression: Expr, span: Span) -> Result<Expr> {
-    if matches!(expression, Expr::EntityList { .. }) {
-        Err(unsupported(
-            span,
-            "collected entity lists in scalar expressions",
-        ))
+    if matches!(expression, Expr::Path(_)) {
+        Err(semantic(span, "path values are not scalar expressions"))
+    } else if matches!(expression, Expr::EntityValue { .. }) {
+        Err(unsupported(span, "graph entities in scalar expressions"))
+    } else if matches!(expression, Expr::EntityList { .. }) {
+        Err(unsupported(span, "entity lists in scalar expressions"))
     } else if is_deferred_graph_value(&expression) {
         Err(unsupported(span, "path collections in scalar expressions"))
     } else {
@@ -3942,13 +3947,86 @@ fn semantic(span: Span, message: impl AsRef<str>) -> Error {
 /// Whether an expression mentions a node, relationship, path, or path
 /// collection anywhere, which no stored value may contain.
 fn contains_graph_value(expression: &Expr) -> bool {
+    // An entity access produces a scalar/property value, not its input record.
+    if matches!(expression, Expr::EntityAccess { .. }) {
+        return false;
+    }
     matches!(
         expression,
         Expr::Entity(_)
+            | Expr::EntityValue { .. }
+            | Expr::EntityList { .. }
             | Expr::Path(_)
             | Expr::PathFunction {
                 kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
                 ..
             }
     ) || expression.children().into_iter().any(contains_graph_value)
+}
+
+/// Keep record transport private while sharing the scalar bounds implementation.
+fn entity_list_kind(expression: &Expr) -> Option<EntityKind> {
+    match expression {
+        Expr::EntityList { kind, .. } => Some(*kind),
+        Expr::PathFunction {
+            kind: PathFunctionKind::Nodes,
+            ..
+        } => Some(EntityKind::Node),
+        Expr::PathFunction {
+            kind: PathFunctionKind::Relationships,
+            ..
+        } => Some(EntityKind::Relationship),
+        _ => None,
+    }
+}
+
+fn index_expression(base: Expr, index: Expr) -> Expr {
+    let kind = entity_list_kind(&base);
+    let expression = Expr::Index {
+        base: Box::new(base),
+        index: Box::new(index),
+    };
+    match kind {
+        Some(kind) => Expr::EntityValue {
+            kind,
+            expression: Box::new(expression),
+        },
+        None => expression,
+    }
+}
+
+fn slice_expression(base: Expr, lower: Option<Box<Expr>>, upper: Option<Box<Expr>>) -> Expr {
+    let kind = entity_list_kind(&base);
+    let expression = Expr::Slice {
+        base: Box::new(base),
+        lower,
+        upper,
+    };
+    match kind {
+        Some(kind) => Expr::EntityList {
+            kind,
+            expression: Box::new(expression),
+        },
+        None => expression,
+    }
+}
+
+fn entity_access(entity: Expr, access: EntityAccess) -> Expr {
+    if let Expr::Entity(slot) = entity {
+        return match access {
+            EntityAccess::ElementId => Expr::ElementId(slot),
+            EntityAccess::Identity(_) => Expr::EntityIdentity(slot),
+            EntityAccess::Labels => Expr::Labels(slot),
+            EntityAccess::RelationshipType => Expr::RelationshipType(slot),
+            EntityAccess::Keys => Expr::EntityKeys(slot),
+            EntityAccess::Properties => Expr::EntityProperties(slot),
+            EntityAccess::Property(key) => Expr::Property(slot, key),
+            EntityAccess::DynamicProperty(key) => Expr::DynamicProperty(slot, key),
+            EntityAccess::HasLabel(label) => Expr::HasLabel(slot, label),
+        };
+    }
+    Expr::EntityAccess {
+        entity: Box::new(entity),
+        access,
+    }
 }

@@ -417,11 +417,11 @@ and aggregate arguments. `nodes(path)` and `relationships(path)` return
 `CypherValue::List` values whose members are typed `NodeValue` and
 `RelationshipValue` cells in traversal order; zero-hop relationships are an
 empty list. These graph lists may be returned directly, carried through a
-computed `WITH` alias, or expanded with `UNWIND` into entity bindings for later
-reads and matches. Segment junctions appear once in `nodes(path)`; repeated
-nodes in cycles and self-loops retain their multiplicity. They are not yet
-accepted as predicates, arithmetic operands, ordering/grouping keys, or
-aggregate inputs. Path-fed writes remain unsupported.
+computed `WITH` alias, indexed or sliced, or expanded with `UNWIND` into entity
+bindings for later reads and matches. Segment junctions appear once in `nodes(path)`; repeated
+nodes in cycles and self-loops retain their multiplicity. Bare path lists
+are not yet accepted as predicates, arithmetic operands, ordering/grouping
+keys, or aggregate inputs. Path-fed writes remain unsupported.
 
 A fresh variable on a legacy relationship pattern, for example
 `[rels:NEXT*0..]`, binds the same public relationship-list value shape. Its
@@ -470,8 +470,12 @@ themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
-`DISTINCT`, `size()`, and `UNWIND`; indexing, comprehensions, nested collections,
-and other scalar operations on them remain unsupported.
+`DISTINCT`, `size()`, `UNWIND`, indexing, and slicing. For example,
+`people[0].name` reads the first collected node's name and `people[-2..]`
+returns the last two entities. Indexing and slicing also work on `nodes(path)`
+and `relationships(path)`, preserving graph types, order, and duplicates.
+Comprehensions, nested collections, and general scalar operations on entity
+lists remain unsupported.
 Unaliased computed `WITH` expressions and aggregates nested inside aggregates
 are explicitly rejected, as is an updating clause after `DELETE` in the same
 statement. Among aggregates, `DISTINCT` is supported by `count` and `collect`;

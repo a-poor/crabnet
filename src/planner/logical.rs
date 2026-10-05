@@ -183,10 +183,33 @@ pub(crate) enum AggregateKind {
     Collect,
 }
 
+/// Reads from a computed entity without exposing its transport record as a map.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EntityAccess {
+    ElementId,
+    Identity(EntityKind),
+    Labels,
+    RelationshipType,
+    Properties,
+    Keys,
+    Property(String),
+    DynamicProperty(Box<Expr>),
+    HasLabel(String),
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Expr {
     Value(ValueExpr),
     Entity(SlotId),
+    /// A computed, nullable node or relationship encoded as a record.
+    EntityValue {
+        kind: EntityKind,
+        expression: Box<Self>,
+    },
+    EntityAccess {
+        entity: Box<Self>,
+        access: EntityAccess,
+    },
     Scalar(ScalarSlotId),
     /// A homogeneous list of graph entities, carried as encoded records in
     /// a scalar column but never exposed as ordinary JSON maps.
@@ -498,7 +521,16 @@ impl Expr {
             } => vec![list, predicate],
             Self::MapProperty { base, .. } => vec![base],
             Self::Size(operand) => vec![operand],
-            Self::EntityList { expression, .. } => vec![expression],
+            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
+                vec![expression]
+            }
+            Self::EntityAccess { entity, access } => {
+                let mut children = vec![entity.as_ref()];
+                if let EntityAccess::DynamicProperty(key) = access {
+                    children.push(key);
+                }
+                children
+            }
             Self::List(items) => items.iter().collect(),
             Self::Map(entries) => entries.iter().map(|(_, value)| value).collect(),
             Self::Index { base, index } => vec![base, index],
@@ -543,13 +575,16 @@ impl Expr {
 
     pub(crate) fn contains_aggregate(&self) -> bool {
         match self {
-            Self::EntityList { expression, .. } => expression.contains_aggregate(),
+            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
+                expression.contains_aggregate()
+            }
             Self::Function { arguments, .. } => arguments.iter().any(Self::contains_aggregate),
             Self::Case {
                 operand,
                 alternatives,
                 otherwise,
             } => Self::case_parts(operand, alternatives, otherwise).any(Self::contains_aggregate),
+            Self::EntityAccess { .. } => self.children().into_iter().any(Self::contains_aggregate),
             Self::Aggregate { .. } => true,
             Self::Binary { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
@@ -591,7 +626,10 @@ impl Expr {
 
     pub(crate) fn is_row_dependent(&self) -> bool {
         match self {
-            Self::EntityList { expression, .. } => expression.is_row_dependent(),
+            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
+                expression.is_row_dependent()
+            }
+            Self::EntityAccess { .. } => self.children().into_iter().any(Self::is_row_dependent),
             Self::Value(_) => false,
             Self::Aggregate { .. } => false,
             Self::Binary { left, right, .. } => left.is_row_dependent() || right.is_row_dependent(),
@@ -657,8 +695,14 @@ impl Expr {
             return true;
         }
         match self {
+            Self::EntityAccess { .. } => self
+                .children()
+                .into_iter()
+                .all(|child| child.uses_only_grouped_values(grouping)),
             Self::Value(_) | Self::Aggregate { .. } => true,
-            Self::EntityList { expression, .. } => expression.uses_only_grouped_values(grouping),
+            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
+                expression.uses_only_grouped_values(grouping)
+            }
             Self::Binary { left, right, .. } => {
                 left.uses_only_grouped_values(grouping) && right.uses_only_grouped_values(grouping)
             }
@@ -861,6 +905,8 @@ pub(crate) enum WithBinding {
         name: String,
         slot: SlotId,
         kind: EntityKind,
+        /// None carries an existing entity binding; Some computes a new one.
+        expression: Option<Expr>,
     },
     Path {
         name: String,

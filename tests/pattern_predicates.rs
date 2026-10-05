@@ -119,7 +119,7 @@ fn pattern_predicates_work_as_values_and_in_later_stages() {
 
     let explanation = crabnet::explain("MATCH (n) WHERE (n)-[:R]->(:B) RETURN n").unwrap();
     assert!(
-        explanation.contains("filter exists(scan-relationship %1; has-relationship-type %1 \"R\"; scan-node %2; has-label %2 \"B\"; expand relationship=%1 left=%0 right=%2 direction=right)"),
+        explanation.contains("filter exists(filter is-not-null(element-id(%0)); scan-relationship %1; has-relationship-type %1 \"R\"; scan-node %2; has-label %2 \"B\"; expand relationship=%1 left=%0 right=%2 direction=right)"),
         "{explanation}"
     );
 }

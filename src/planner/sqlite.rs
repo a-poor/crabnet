@@ -7,9 +7,9 @@ use serde_json::Value;
 use crate::{Error, Parameters, Result};
 
 use super::logical::{
-    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityKind, Expr, Input, ListQuantifier,
-    ListVariableId, MatchOperator, MatchPlan, PathCollectionKind, PathFunctionKind, PathId,
-    PathSegment, Projection, ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse,
+    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityAccess, EntityKind, Expr, Input,
+    ListQuantifier, ListVariableId, MatchOperator, MatchPlan, PathCollectionKind, PathFunctionKind,
+    PathId, PathSegment, Projection, ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse,
     ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindBinding,
     UnwindStage, ValueExpr, WithBinding, WithStage,
 };
@@ -1403,7 +1403,7 @@ impl Compiler {
         // incoming values temporarily so WHERE can still inspect dropped
         // variables; aliases already refer to the projected scalar slots.
         let aggregating = stage.bindings.iter().any(|binding| {
-            matches!(binding, WithBinding::Scalar { expression, .. } if expression.contains_aggregate())
+            matches!(binding, WithBinding::Scalar { expression, .. } | WithBinding::Entity { expression: Some(expression), .. } if expression.contains_aggregate())
         });
         let mut projection = WithStage {
             bindings: stage.bindings.clone(),
@@ -1425,6 +1425,7 @@ impl Compiler {
                             name: String::new(),
                             slot: *slot,
                             kind: source.kind(),
+                            expression: None,
                         }),
                 );
             let mut scalars = self.scalars.keys().copied().collect::<Vec<_>>();
@@ -1449,6 +1450,18 @@ impl Compiler {
 
         let mut modifiers = stage.clone();
         for binding in &mut modifiers.bindings {
+            if let WithBinding::Entity {
+                slot,
+                kind,
+                expression,
+                ..
+            } = binding
+                && let Some(expression) = expression.take()
+                && !expression.contains_rand()
+            {
+                self.projected_scalars
+                    .push((expression, self.encoded_entity(*slot, *kind)?));
+            }
             if let WithBinding::Scalar {
                 slot, expression, ..
             } = binding
@@ -1479,7 +1492,7 @@ impl Compiler {
         let aggregating = stage.bindings.iter().any(|binding| {
             matches!(
                 binding,
-                WithBinding::Scalar { expression, .. } if expression.contains_aggregate()
+                WithBinding::Scalar { expression, .. } | WithBinding::Entity { expression: Some(expression), .. } if expression.contains_aggregate()
             )
         });
         if aggregating
@@ -1499,7 +1512,9 @@ impl Compiler {
                 .bindings
                 .iter()
                 .map(|binding| match binding {
-                    WithBinding::Entity { slot, .. } => Expr::Entity(*slot),
+                    WithBinding::Entity {
+                        slot, expression, ..
+                    } => expression.clone().unwrap_or(Expr::Entity(*slot)),
                     WithBinding::Scalar { expression, .. } => expression.clone(),
                     WithBinding::Path { .. } | WithBinding::PathCollection { .. } => unreachable!(),
                 })
@@ -1522,14 +1537,22 @@ impl Compiler {
         let mut scalar_bindings = Vec::new();
         for binding in &stage.bindings {
             match binding {
-                WithBinding::Entity { slot, kind, .. } => {
+                WithBinding::Entity {
+                    slot,
+                    kind,
+                    expression,
+                    ..
+                } => {
                     if !entity_bindings
                         .iter()
                         .any(|(candidate, _)| candidate == slot)
                     {
                         select.push(format!(
                             "{} AS e{}",
-                            self.encoded_entity(*slot, *kind)?,
+                            match expression {
+                                Some(expression) => self.output_expression(expression)?.0,
+                                None => self.encoded_entity(*slot, *kind)?,
+                            },
                             slot.0
                         ));
                         entity_bindings.push((*slot, *kind));
@@ -2056,6 +2079,12 @@ impl Compiler {
     }
 
     fn output_expression(&mut self, expression: &Expr) -> Result<(String, OutputShape)> {
+        if let Expr::EntityValue { kind, .. } = expression {
+            return Ok((
+                self.encoded_expression(expression)?,
+                OutputShape::Entity(*kind),
+            ));
+        }
         if let Expr::EntityList { kind, .. } = expression {
             return Ok((
                 self.encoded_expression(expression)?,
@@ -2087,6 +2116,10 @@ impl Compiler {
     }
 
     fn grouping_terms(&mut self, expression: &Expr) -> Result<Vec<String>> {
+        if let Expr::EntityValue { .. } = expression {
+            let record = self.encoded_expression(expression)?;
+            return Ok(vec![format!("json_extract({record}, '$.id')")]);
+        }
         if let Expr::Entity(slot) = expression {
             return Ok(vec![self.entity_field(*slot, "id")?]);
         }
@@ -2284,6 +2317,106 @@ impl Compiler {
         self.compile_scalar(expression).map(Scalar::into_parts)
     }
 
+    /// Materialize ordered path members only when an expression needs entity
+    /// records. Bare path-list outputs still use batch hydration.
+    fn path_entity_list(&mut self, path: PathId, kind: PathFunctionKind) -> Result<Scalar> {
+        let source = self.path_source(path)?.to_owned();
+        let scope = self.scopes;
+        self.scopes += 1;
+        let segment = format!("pes{scope}");
+        let member = format!("pem{scope}");
+        let entity = format!("pee{scope}");
+        let (field, table, record, filter) = match kind {
+            PathFunctionKind::Nodes => (
+                "nodes",
+                "nodes",
+                format!(
+                    "json_object('id', {entity}.id, 'labels', json({entity}.labels), 'props', json({entity}.props))"
+                ),
+                format!("AND ({segment}.key = 0 OR {member}.key > 0)"),
+            ),
+            PathFunctionKind::Relationships => (
+                "relationships",
+                "edges",
+                format!(
+                    "json_object('id', {entity}.id, 'type', {entity}.edge_type, 'from', {entity}.from_node, 'to', {entity}.to_node, 'props', json({entity}.props))"
+                ),
+                String::new(),
+            ),
+            PathFunctionKind::Length => unreachable!("length is scalar"),
+        };
+        Ok(Scalar::nullable(
+            format!(
+                "CASE WHEN ({source}) IS NULL OR json_type(({source}), '$') = 'null' THEN NULL ELSE \
+             (SELECT json_group_array(json({record}) ORDER BY {segment}.key, {member}.key) \
+              FROM json_each(({source}), '$.segments') AS {segment}, \
+                   json_each({segment}.value, '$.{field}') AS {member} \
+              JOIN {table} AS {entity} ON {entity}.id = {member}.value {filter}) END"
+            ),
+            "array",
+        ))
+    }
+
+    fn computed_entity_access(&mut self, entity: &Expr, access: &EntityAccess) -> Result<Scalar> {
+        let entity_scalar = self.compile_scalar(entity)?;
+        if let EntityAccess::Property(key) = access {
+            let encoded = self.scoped_scalars(vec![(entity_scalar, false)], |_, parts| {
+                Ok(format!("json_extract({}, '$.props')", parts[0].0))
+            })?;
+            return Ok(Scalar::from(self.json_property_parts(encoded, key)));
+        }
+        if let EntityAccess::DynamicProperty(key) = access {
+            let key_scalar = self.compile_scalar(key)?;
+            let operands = vec![(entity_scalar, false), (key_scalar, is_inline_operand(key))];
+            let read = |function: &str, parts: &[(String, String)]| {
+                let (key, key_type) = &parts[1];
+                format!(
+                    "{function}(json_extract({}, '$.props'), CASE WHEN ({key_type}) = 'text' THEN '$.' || json_quote({key}) END)",
+                    parts[0].0
+                )
+            };
+            let value =
+                self.scoped_scalars(operands.clone(), |_, parts| Ok(read("json_extract", parts)))?;
+            let kind = self.scoped_scalars(operands, |_, parts| Ok(read("json_type", parts)))?;
+            return Ok(Scalar::sql(value, kind));
+        }
+        let value = self.scoped_scalars(vec![(entity_scalar, false)], |this, parts| {
+            let entity = &parts[0].0;
+            let id = format!("json_extract({entity}, '$.id')");
+            let field = |name: &str| format!("json_extract({entity}, '$.{name}')");
+            Ok(match access {
+                EntityAccess::ElementId | EntityAccess::Identity(_) => id,
+                EntityAccess::Labels => field("labels"),
+                EntityAccess::RelationshipType => field("type"),
+                EntityAccess::Properties | EntityAccess::Keys => {
+                    let alias = format!("cep{}", this.scopes);
+                    this.scopes += 1;
+                    let aggregate = if matches!(access, EntityAccess::Keys) {
+                        format!("json_group_array({alias}.key)")
+                    } else {
+                        format!("json_group_object({alias}.key, json({}))", element_json(&alias))
+                    };
+                    format!("CASE WHEN {id} IS NOT NULL THEN (SELECT {aggregate} FROM json_each({}) AS {alias} WHERE {alias}.type <> 'null') END", field("props"))
+                }
+                EntityAccess::HasLabel(label) => {
+                    let label = this.push_binding(SqlParameter::Text(label.clone()));
+                    format!("CASE WHEN {id} IS NOT NULL THEN EXISTS (SELECT 1 FROM json_each({}) WHERE value = {label}) END", field("labels"))
+                }
+                EntityAccess::Property(_) | EntityAccess::DynamicProperty(_) => unreachable!(),
+            })
+        })?;
+        Ok(match access {
+            EntityAccess::Identity(EntityKind::Node) => Scalar::nullable(value, "node"),
+            EntityAccess::Identity(EntityKind::Relationship) => {
+                Scalar::nullable(value, "relationship")
+            }
+            EntityAccess::Labels | EntityAccess::Keys => Scalar::nullable(value, "array"),
+            EntityAccess::Properties => Scalar::nullable(value, "object"),
+            EntityAccess::HasLabel(_) => Scalar::boolean(value),
+            _ => Scalar::nullable(value, "text"),
+        })
+    }
+
     fn compile_scalar(&mut self, expression: &Expr) -> Result<Scalar> {
         if let Some((_, encoded)) = self
             .projected_scalars
@@ -2296,7 +2429,10 @@ impl Compiler {
             ));
         }
         match expression {
-            Expr::EntityList { expression, .. } => self.compile_scalar(expression),
+            Expr::EntityList { expression, .. } | Expr::EntityValue { expression, .. } => {
+                self.compile_scalar(expression)
+            }
+            Expr::EntityAccess { entity, access } => self.computed_entity_access(entity, access),
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),
             )),
@@ -2319,9 +2455,9 @@ impl Compiler {
                         "'integer'",
                     ))
                 }
-                PathFunctionKind::Nodes | PathFunctionKind::Relationships => Err(
-                    Error::Unsupported("typed path collections in scalar expressions".to_owned()),
-                ),
+                PathFunctionKind::Nodes | PathFunctionKind::Relationships => {
+                    self.path_entity_list(*path, *kind)
+                }
             },
             Expr::Scalar(slot) => {
                 let source = self.scalars.get(slot).cloned().ok_or_else(|| {
@@ -3335,6 +3471,19 @@ impl Compiler {
         let argument = argument.ok_or_else(|| {
             Error::Data("logical aggregate other than count() is missing its argument".into())
         })?;
+
+        if let Expr::EntityValue { .. } = argument {
+            let encoded = self.encoded_expression(argument)?;
+            let key = format!("json_extract(({encoded}), '$.id')");
+            return match kind {
+                AggregateKind::Collect => Ok(self.collect_scalar(encoded, key, distinct)),
+                AggregateKind::Count => Ok(Scalar::sql(
+                    format!("COUNT({}{key})", if distinct { "DISTINCT " } else { "" }),
+                    "'integer'",
+                )),
+                _ => Err(Error::Data("unsupported computed entity aggregate".into())),
+            };
+        }
 
         if let Expr::Entity(slot) = argument {
             if kind == AggregateKind::Collect {

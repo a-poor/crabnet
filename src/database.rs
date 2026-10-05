@@ -2128,7 +2128,7 @@ fn decode_pending_output(encoded: &str, shape: OutputShape) -> Result<PendingVal
             })?;
             CypherValue::try_from(value).map(PendingValue::Materialized)
         }
-        OutputShape::Entity(_) if encoded == "null" => {
+        OutputShape::Entity(_) | OutputShape::EntityList(_) if encoded == "null" => {
             Ok(PendingValue::Materialized(CypherValue::Null))
         }
         OutputShape::Entity(kind) => decode_entity(encoded, kind)
@@ -2292,6 +2292,9 @@ fn register_functions(connection: &Connection) -> Result<()> {
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |context| {
             let value = json_argument(context, 0)?;
+            if value.is_null() {
+                return Ok(semantic_json_key(&value));
+            }
             let ids = value
                 .as_array()
                 .ok_or_else(|| {

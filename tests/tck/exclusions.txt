@@ -63,8 +63,8 @@ clauses/delete/Delete5.feature::[1] Delete node from a list	semantic-error: DELE
 clauses/delete/Delete5.feature::[2] Delete relationship from a list	semantic-error: DELETE target must be a node or relationship variable
 clauses/delete/Delete5.feature::[3] Delete nodes from a map	semantic-error: graph variable `u` is not a scalar expression
 clauses/delete/Delete5.feature::[4] Delete relationships from a map	semantic-error: graph variable `r` is not a scalar expression
-clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: collected entity lists in scalar expressions
-clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: collected entity lists in scalar expressions
+clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	unsupported: entity lists in scalar expressions
+clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	unsupported: entity lists in scalar expressions
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
@@ -90,7 +90,6 @@ clauses/match/Match7.feature::[18] Named paths inside optional matches with node
 clauses/match/Match7.feature::[19] Optionally matching named paths with single and variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[20] Variable length optional relationships with bound nodes, no matches	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[22] MATCH after OPTIONAL MATCH	semantic-error: graph variable `b` is not a scalar expression
-clauses/match/Match9.feature::[1] Variable length relationship variables are lists of relationships	unsupported: path collections in scalar expressions
 clauses/match/Match9.feature::[5] Variable length pattern with label predicate on both sides	unsupported: path values or path collections in aggregate functions
 clauses/match/Match9.feature::[6] Matching relationships into a list and matching variable length using the list, with bound nodes	semantic-error: graph variable `r1` is not a scalar expression
 clauses/match/Match9.feature::[7] Matching relationships into a list and matching variable length using the list, with bound nodes, wrong direction	semantic-error: graph variable `r1` is not a scalar expression
@@ -219,7 +218,7 @@ expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on 
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 2	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 3	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	wrong-error-kind: unsupported: pattern comprehension
-expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path variable `p1` is not a scalar expression
+expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path values are not scalar expressions
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 3	result-mismatch: row values differ
@@ -242,14 +241,14 @@ expressions/existentialSubqueries/ExistentialSubquery3.feature::[1] Nested simpl
 expressions/existentialSubqueries/ExistentialSubquery3.feature::[2] Nested full existential subquery	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery3.feature::[3] Nested full existential subquery with pattern predicate	unsupported: subquery expression
 expressions/graph/Graph3.feature::[6] `labels()` should accept type Any	semantic-error: graph variable `a` is not a scalar expression
-expressions/graph/Graph3.feature::[7] `labels()` on null node	semantic-error: graph function argument must be a variable
-expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-error: graph function argument must be a variable
+expressions/graph/Graph3.feature::[7] `labels()` on null node	semantic-error: graph function requires a node or relationship
+expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-error: graph function requires a node or relationship
 expressions/graph/Graph4.feature::[5] `type()` handling Any type	semantic-error: graph variable `r` is not a scalar expression
 expressions/graph/Graph6.feature::[4] Statically access a property of a node resulting from an expression	semantic-error: graph variable `n` is not a scalar expression
 expressions/graph/Graph6.feature::[8] Statically access a property of a relationship resulting from an expression	semantic-error: graph variable `r` is not a scalar expression
-expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: collected entity lists in scalar expressions
-expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: collected entity lists in scalar expressions
-expressions/list/List12.feature::[3] Size of list comprehension	unsupported: collected entity lists in scalar expressions
+expressions/list/List12.feature::[1] Collect and extract using a list comprehension	unsupported: entity lists in scalar expressions
+expressions/list/List12.feature::[2] Collect and filter using a list comprehension	unsupported: entity lists in scalar expressions
+expressions/list/List12.feature::[3] Size of list comprehension	unsupported: entity lists in scalar expressions
 expressions/list/List12.feature::[4] Returning a list comprehension	unsupported: path values or path collections in aggregate functions
 expressions/list/List12.feature::[5] Using a list comprehension in a WITH	unsupported: path values or path collections in aggregate functions
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
@@ -297,14 +296,14 @@ expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence 
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 1	unsupported: `^`
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 2	unsupported: `^`
 expressions/precedence/Precedence2.feature::[4] Numeric unary negative takes precedence over exponentiation	unsupported: `^`
-expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes	unsupported: path collections in scalar expressions
-expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships	unsupported: path collections in scalar expressions
+expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes	unsupported: entity lists in scalar expressions
+expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships	unsupported: entity lists in scalar expressions
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 1	unsupported: function `datetime`
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 10	unsupported: function `datetime`
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 11	unsupported: function `datetime`

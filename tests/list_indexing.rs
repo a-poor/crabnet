@@ -152,10 +152,6 @@ fn dynamic_property_access_names_entity_properties_at_runtime() {
         .execute("MATCH p = (a)-->() RETURN p[0]")
         .unwrap_err();
     assert!(matches!(error, Error::Semantic(_)), "{error:?}");
-    let error = database
-        .execute("MATCH p = (a)-->() RETURN nodes(p)[0]")
-        .unwrap_err();
-    assert!(matches!(error, Error::Semantic(_)), "{error:?}");
 }
 
 #[test]

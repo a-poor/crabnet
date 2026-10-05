@@ -23,6 +23,7 @@ pub(crate) enum Kind {
     String,
     List(Option<Box<Kind>>),
     EntityList(EntityKind),
+    Entity(EntityKind),
     Map,
 }
 
@@ -35,6 +36,7 @@ impl Kind {
             Self::Float => "a float",
             Self::String => "a string",
             Self::List(_) => "a list",
+            Self::Entity(_) => "a graph entity",
             Self::EntityList(_) => "a list of graph entities",
             Self::Map => "a map",
         }
@@ -66,6 +68,10 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
         Expr::Value(value) => value_kind(value),
         Expr::HasLabel(..) | Expr::Exists { .. } => Some(Kind::Boolean),
         Expr::Scalar(slot) => kinds.scalars.get(slot).cloned(),
+        Expr::EntityValue { kind, expression } => {
+            check(expression, kinds)?;
+            Some(Kind::Entity(*kind))
+        }
         Expr::EntityList { kind, expression } => {
             check(expression, kinds)?;
             Some(Kind::EntityList(*kind))

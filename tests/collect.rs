@@ -288,7 +288,6 @@ fn collection_composes_with_optional_matches_hybrid_traversals_and_union() {
 fn entity_lists_cannot_silently_become_json_maps_or_stored_properties() {
     let mut db = Database::in_memory().unwrap();
     for query in [
-        "MATCH (n) WITH collect(n) AS ns RETURN ns[0]",
         "MATCH (n) WITH collect(n) AS ns RETURN [ns]",
         "MATCH (n) WITH collect(n) AS ns RETURN collect(ns)",
         "MATCH (n) WITH collect(n) AS ns CREATE (:Bad {nodes:ns})",

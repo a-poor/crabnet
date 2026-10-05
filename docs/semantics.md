@@ -15,8 +15,8 @@ duplicates at their respective projection boundaries.
 Read-only `RETURN DISTINCT` deduplicates the complete projected pending row
 after SQL cursor materialization and before graph-value hydration. Scalar,
 ordinary collection, and directly projected entity cells already have typed
-`CypherValue` representations. Whole paths, path-function entity lists, and
-bounded relationship-list pattern bindings remain compact ordered identities.
+`CypherValue` representations. Whole paths, bare path-function entity lists,
+and bounded relationship-list pattern bindings remain compact ordered identities.
 This is a Rust execution stage, not SQLite text or JSON equality. Its semantic
 equivalence rules are:
 
@@ -64,9 +64,9 @@ typed scalar values. A bare variable keeps its name, while `AS` may give any
 of these values a new name. A path may cross directly or feed an aliased
 `length(path)`, `nodes(path)`, or `relationships(path)` projection. Length uses
 a normal scalar slot. The two entity-list results retain ordered path identity
-and element kind across later direct aliases and projections, but cannot yet be
-used as predicates, scalar operands, ordering/grouping keys, aggregate inputs,
-or `UNWIND` inputs. After the boundary, only projected names remain in scope:
+and element kind across later direct aliases and projections. They support
+`UNWIND`, indexing, and slicing. Bare path lists cannot be predicates,
+general scalar operands, ordering/grouping keys, or aggregate inputs. After the boundary, only projected names remain in scope:
 a binding that was not projected cannot be referenced by a later `MATCH`,
 `WITH`, or `RETURN`.
 
@@ -172,9 +172,9 @@ Collected entities can feed `UNWIND`, property reads, later matches, and
 writes. Property and label changes refresh all retained copies in collected
 lists as well as direct entity bindings; deletion retains the same pre-delete
 snapshots as direct entity returns. Lists do not become ordinary JSON maps
-or storable properties. Indexing, slicing, comprehensions, nested collections,
-other scalar operations, and further aggregation of entity lists remain
-unsupported; expand with `UNWIND` before operating on their entities.
+or storable properties. Indexing and slicing preserve these graph types;
+comprehensions, nested collections, general scalar operations, and further
+aggregation of entity lists remain unsupported.
 
 Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
 behavior as an omitted aggregate quantifier. The parser currently rejects
@@ -510,13 +510,44 @@ null; Cypher raises a type error for the latter.
 negative, and `map[k]` reads the string key `k`. `entity[k]` reads the property
 named by a runtime string. An out-of-range index, a missing key, or a null base
 or index reads as null. A non-integer list index, a non-string map key, or a
-base that is neither list nor map is a type error. Indexing a path or path collection is a semantic error.
+base that is neither list nor map is a type error. A graph entity indexed by
+a non-string property key yields null. Indexing a whole path is a semantic
+error; index `nodes(path)` or `relationships(path)` instead.
 
 `list[lower..upper]` copies the elements from `lower` (inclusive, default 0)
 to `upper` (exclusive, default the length). Negative bounds count from the
 end and both bounds are clamped, so an inverted or exceeding range yields a
 shorter list rather than an error. A null bound, a non-integer bound, or a
 non-list base produces null.
+
+These bounds rules also apply to `collect(n)`, `collect(r)`, `nodes(path)`,
+`relationships(path)`, their aliases, and legacy relationship-list bindings.
+An index returns a typed node or relationship (or null); a slice returns a
+list of the same entity kind (or null). Order, repeated identities, labels,
+properties, relationship types, and stored endpoint direction are preserved.
+Shared path-segment endpoints appear once, while cycles and self-loops retain
+each visit. For example:
+
+```cypher
+MATCH (person:Person)
+WITH person ORDER BY person.name
+WITH collect(person) AS people
+RETURN people[0].name AS first, people[-2..] AS lastTwo
+```
+
+Indexed entities support property access, `elementId`, `labels`, `type`,
+`keys`, `properties`, label/type predicates, null tests, identity comparisons,
+and `count`/`collect`. `WITH list[i] AS entity` binds an entity for later
+matches and, for collected entities, writes. Slices retain their entity kind
+through aliases, `UNWIND`, grouping, `DISTINCT`, unions, and write boundaries.
+Null slices stay null rather than becoming empty lists. Entity values cannot
+be nested in ordinary scalar lists/maps or stored as properties. Existing
+restrictions on path-fed writes and optional named paths still apply.
+
+For path lists, indexed/sliced expressions materialize ordered entity records
+inside SQLite; bare path-list outputs retain batch hydration. An index or
+small slice can therefore build the entire source list. Eager reads and read
+cursors share these semantics, including the existing cursor buffering rules.
 
 `range(start, end)` and `range(start, end, step)` build the inclusive integer
 sequence; a step pointing away from `end` gives an empty list and a null

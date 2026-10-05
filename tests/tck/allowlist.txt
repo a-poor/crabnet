@@ -487,6 +487,7 @@ clauses/match/Match7.feature::[9] Longer pattern with bound nodes
 clauses/match/Match8.feature::[1] Pattern independent of bound variables results in cross product
 clauses/match/Match8.feature::[2] Counting rows after MATCH, MERGE, OPTIONAL MATCH
 clauses/match/Match8.feature::[3] Matching and disregarding output, then matching again
+clauses/match/Match9.feature::[1] Variable length relationship variables are lists of relationships
 clauses/match/Match9.feature::[2] Return relationships by collecting them as a list - directed, one way
 clauses/match/Match9.feature::[3] Return relationships by collecting them as a list - undirected, starting from two extremes
 clauses/match/Match9.feature::[4] Return relationships by collecting them as a list - undirected, starting from one extreme

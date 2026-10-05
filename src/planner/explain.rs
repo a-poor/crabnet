@@ -169,14 +169,23 @@ fn render_with_stage(renderer: &mut Renderer, stage: &WithStage) {
     for binding in &stage.bindings {
         match binding {
             WithBinding::Entity {
-                name, slot, kind, ..
+                name,
+                slot,
+                kind,
+                expression,
             } => renderer.line(
                 5,
                 format!(
-                    "{} = entity({}) kind={}",
+                    "{} = entity({}) kind={}{}",
                     quote(name),
                     slot_name(*slot),
-                    entity_kind_name(*kind)
+                    entity_kind_name(*kind),
+                    expression
+                        .as_ref()
+                        .map_or_else(String::new, |expression| format!(
+                            " <- {}",
+                            render_expr(expression)
+                        ))
                 ),
             ),
             WithBinding::Scalar {
@@ -610,6 +619,12 @@ fn render_expr(expression: &Expr) -> String {
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
         Expr::EntityIdentity(slot) => format!("entity-identity({})", slot_name(*slot)),
         Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
+        Expr::EntityValue { kind, expression } => {
+            format!("entity-value({kind:?}, {})", render_expr(expression))
+        }
+        Expr::EntityAccess { entity, access } => {
+            format!("entity-access({access:?}, {})", render_expr(entity))
+        }
         Expr::EntityList { kind, expression } => {
             format!("entity-list({kind:?}, {})", render_expr(expression))
         }
