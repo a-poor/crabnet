@@ -1975,6 +1975,8 @@ expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal 
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 7
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 8
 expressions/quantifier/Quantifier1.feature::[7] None quantifier on list literal containing maps::example 9
+expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes
+expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships
 expressions/quantifier/Quantifier10.feature::[1] Single quantifier is always false if the predicate is statically false and the list is not empty
 expressions/quantifier/Quantifier10.feature::[2] Single quantifier is always false if the predicate is statically true and the list has more than one element
 expressions/quantifier/Quantifier10.feature::[3] Single quantifier is always true if the predicate is statically true and the list has exactly one non-null element
@@ -2126,6 +2128,8 @@ expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list litera
 expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 7
 expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 8
 expressions/quantifier/Quantifier2.feature::[7] Single quantifier on list literal containing maps::example 9
+expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes
+expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships
 expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 1
 expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 2
 expressions/quantifier/Quantifier3.feature::[10] Any quantifier on lists containing nulls::example 3
@@ -2229,6 +2233,8 @@ expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal c
 expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 7
 expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 8
 expressions/quantifier/Quantifier3.feature::[7] Any quantifier on list literal containing maps::example 9
+expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes
+expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships
 expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 1
 expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 2
 expressions/quantifier/Quantifier4.feature::[10] All quantifier on lists containing nulls::example 3
@@ -2332,6 +2338,8 @@ expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal c
 expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 7
 expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 8
 expressions/quantifier/Quantifier4.feature::[7] All quantifier on list literal containing maps::example 9
+expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes
+expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships
 expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 1
 expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 2
 expressions/quantifier/Quantifier5.feature::[1] None quantifier can nest itself and other quantifiers on nested lists::example 3

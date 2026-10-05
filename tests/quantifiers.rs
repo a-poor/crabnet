@@ -226,8 +226,8 @@ fn quantifier_rejections_and_plan_rendering_are_explicit() {
     let error = database
         .execute("MATCH (n) RETURN any(x IN [n] WHERE x.name = 'a') AS value")
         .unwrap_err();
-    // Entity lists are not scalar values, so the element list itself is
-    // rejected before the predicate is examined.
+    // Literal lists containing graph entities remain unsupported; use a
+    // typed source such as collect(n) or nodes(path) instead.
     assert!(
         matches!(&error, Error::Semantic(message) if message.contains("not a scalar")),
         "{error:?}"

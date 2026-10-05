@@ -520,7 +520,12 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   members, order/duplicates, aliases, nested scalar projections, grouping,
   distinctness/unions, mutation refresh, deleted snapshots, rollback, and
   eager/cursor parity including partial errors. Three additional TCK scenarios
-  pass. Entity-list quantifiers and nested graph collections remain follow-up work.
+  pass. Entity-list quantifiers (`all`, `any`, `none`, and `single`) are also
+  complete for these inputs, with typed member access, scoped patterns,
+  null/empty truth tables, duplicate-sensitive `single`, nested bindings,
+  parameters, aggregate composition, stored results, mutation refresh/deletion
+  snapshots, rollback, and eager/cursor parity. Eight additional TCK scenarios
+  pass. Nested graph collections remain follow-up work.
 - [x] **Application uniqueness constraints.** `Database` and `Transaction`
   expose create/list/drop methods for a node label/property pair such as
   `:Person.email`. Installation rejects conflicting existing data atomically;
@@ -596,8 +601,8 @@ are complete for local files with rollback journaling, as are process-terminatio
 recovery and backup/restore. The first incremental read slice is complete for
 single SQLite fragments, with explicit buffering and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
-Entity-list indexing, slicing, and comprehensions are also complete. Next address
-entity-list quantifiers and nested graph collections, or extend cursors through measured
+Entity-list indexing, slicing, comprehensions, and quantifiers are also complete.
+Next address nested graph collections, or extend cursors through measured
 buffering bottlenecks.
 Performance work should start with the measured node-upsert cost and
 shortest-path scaling. Track completion in milestone 10 rather than a separate
@@ -621,7 +626,7 @@ accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
 the pinned openCypher TCK run is in place, and its seven remaining
 `result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,575 passing and 1,307 excluded scenarios, including 13
+record 2,583 passing and 1,299 excluded scenarios, including 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.

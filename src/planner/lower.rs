@@ -2986,17 +2986,31 @@ impl<'source> Lowerer<'source> {
                 // The list is evaluated in the enclosing scope; only the
                 // predicate sees the bound variable, which shadows any outer
                 // binding of the same name.
-                let list = self.scalar_expression_with_aliases_at_depth(
+                let list = self.output_expression_with_aliases_at_depth(
                     &quantified.list,
                     aliases,
                     expression_depth + 1,
                 )?;
+                if matches!(
+                    list,
+                    Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
+                ) {
+                    return Err(semantic(
+                        quantified.list.span,
+                        "a list quantifier requires a list",
+                    ));
+                }
                 let variable = self.allocate_list_variable();
+                let element = Expr::ListElement(variable);
+                let element = match entity_list_kind(&list) {
+                    Some(kind) => Expr::EntityValue {
+                        kind,
+                        expression: Box::new(element),
+                    },
+                    None => element,
+                };
                 let mut inner = aliases.clone();
-                inner.insert(
-                    quantified.variable.kind.text.clone(),
-                    Expr::ListElement(variable),
-                );
+                inner.insert(quantified.variable.kind.text.clone(), element);
                 let predicate = self.scalar_expression_with_aliases_at_depth(
                     &quantified.predicate,
                     &inner,
@@ -4039,7 +4053,11 @@ fn contains_graph_value(expression: &Expr) -> bool {
     // These operations return scalar/property values, not their input records.
     if matches!(
         expression,
-        Expr::EntityAccess { .. } | Expr::Exists { .. } | Expr::Size(_) | Expr::IsNull { .. }
+        Expr::EntityAccess { .. }
+            | Expr::Exists { .. }
+            | Expr::Size(_)
+            | Expr::IsNull { .. }
+            | Expr::Quantified { .. }
     ) {
         return false;
     }

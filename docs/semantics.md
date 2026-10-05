@@ -65,8 +65,9 @@ of these values a new name. A path may cross directly or feed an aliased
 `length(path)`, `nodes(path)`, or `relationships(path)` projection. Length uses
 a normal scalar slot. The two entity-list results retain ordered path identity
 and element kind across later direct aliases and projections. They support
-`UNWIND`, indexing, slicing, and comprehensions. Bare path lists cannot be predicates,
-general scalar operands, ordering/grouping keys, or aggregate inputs. After the boundary, only projected names remain in scope:
+`UNWIND`, indexing, slicing, comprehensions, and quantifiers. Bare path lists
+cannot be predicates, general scalar operands, ordering/grouping keys, or
+aggregate inputs. After the boundary, only projected names remain in scope:
 a binding that was not projected cannot be referenced by a later `MATCH`,
 `WITH`, or `RETURN`.
 
@@ -174,9 +175,9 @@ lists as well as direct entity bindings; deletion retains the same pre-delete
 snapshots as direct entity returns. Lists do not become ordinary JSON maps
 or storable properties. Indexing, slicing, and list comprehensions preserve
 these graph types. Comprehensions can also project scalar properties or maps,
-which produce ordinary lists. Nested graph collections, entity-list
-quantifiers, general scalar operations, and further aggregation of entity
-lists remain unsupported.
+which produce ordinary lists. List quantifiers also accept these typed lists.
+Nested graph collections, general scalar operations, and further aggregation
+of entity lists remain unsupported.
 
 Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
 behavior as an omitted aggregate quantifier. The parser currently rejects
@@ -398,8 +399,8 @@ Labels, relationship types, inline property maps, and several pattern parts
 are allowed, and relationships within one predicate are distinct from each
 other as in `MATCH`. The predicate compiles to a correlated `EXISTS`
 subquery, so it works in `WHERE`, `WITH ... WHERE`, projections, list
-comprehensions, and the filters of updating statements, where it sees the
-graph before the statement's writes. `exists(pattern)` is the same test and
+comprehensions, list quantifiers, and the filters of updating statements,
+where it sees the graph before the statement's writes. `exists(pattern)` is the same test and
 `exists(n.prop)` is `n.prop IS NOT NULL`. A pattern without a relationship, a
 pattern that introduces a new variable, a path binding, a variable-length
 relationship, and relationship-type alternatives are rejected.
@@ -454,6 +455,26 @@ Aggregates are rejected inside the predicate. A null or non-list operand
 produces null; Cypher raises a type error for a non-list. Predicates that
 apply an operator to an element of the wrong kind follow the operator's type
 checks; non-boolean predicate results are type errors.
+
+Quantifiers also accept collected node/relationship lists, `nodes(path)`,
+`relationships(path)`, legacy relationship-list bindings, and their aliases,
+slices, and typed comprehension results. Members retain property access,
+entity functions, identity comparisons, label/type tests, and supported
+fixed-length pattern predicates. Local names shadow outer entity bindings in
+patterns too. Duplicate members are evaluated separately: two occurrences of
+the same matching entity make `single` false. Null members and missing
+properties follow the truth table above; a null whole list returns null.
+
+An aggregate can supply the input directly, as in
+`any(n IN collect(n) WHERE n.age >= 18)`. For pattern predicates over an
+aggregate-produced list, bind the collection in an earlier `WITH`; the
+existing aggregate grouping checks reject pattern predicates in mixed
+aggregate expressions. Boolean/null results may be stored as properties and
+composed inside scalar lists or maps. Retained entities observe property and
+label updates and preserve deletion snapshots. Whole entities and paths are
+rejected as list operands. Nested graph collections and the existing
+restrictions on path-fed writes remain unchanged; path-list inputs may
+materialize the full source entity list internally.
 
 ## Map key access
 

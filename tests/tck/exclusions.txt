@@ -293,14 +293,6 @@ expressions/precedence/Precedence2.feature::[2] Exponentiation takes precedence 
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 1	unsupported: `^`
 expressions/precedence/Precedence2.feature::[3] Exponentiation takes precedence over numeric additive operations::example 2	unsupported: `^`
 expressions/precedence/Precedence2.feature::[4] Numeric unary negative takes precedence over exponentiation	unsupported: `^`
-expressions/quantifier/Quantifier1.feature::[8] None quantifier on list containing nodes	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier1.feature::[9] None quantifier on list containing relationships	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier2.feature::[8] Single quantifier on list containing nodes	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier2.feature::[9] Single quantifier on list containing relationships	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier3.feature::[8] Any quantifier on list containing nodes	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier3.feature::[9] Any quantifier on list containing relationships	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier4.feature::[8] All quantifier on list containing nodes	unsupported: entity lists in scalar expressions
-expressions/quantifier/Quantifier4.feature::[9] All quantifier on list containing relationships	unsupported: entity lists in scalar expressions
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 1	unsupported: function `datetime`
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 10	unsupported: function `datetime`
 expressions/temporal/Temporal1.feature::[10] Should construct date time with named time zone::example 11	unsupported: function `datetime`
