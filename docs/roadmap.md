@@ -531,8 +531,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   grouping/distinctness/unions, and mutation refresh/deletion snapshots.
   Eleven integration tests cover these contracts, forged-record isolation,
   depth limits, errors/rollback, and cursor parity. Six additional TCK scenarios
-  pass. General scalar functions/concatenation and ordering on graph values,
-  direct path aggregation, and expression mutation targets remain follow-ups.
+  pass. Graph-list concatenation with `+` is also complete: entity, path, and
+  mixed lists can be joined, and individual values appended or prepended,
+  with typed selection/rebinding, order, duplicates, nulls, aggregation,
+  recursive identity, and mutation refresh/deletion snapshots preserved.
+  Ten integration tests cover these contracts across every traversal
+  transport, including parameters, writes/rollback, cursor parity/partial
+  errors, scalar addition parity, depth limits, and bounded SQL growth.
+  One additional TCK scenario passes. General scalar functions and ordering
+  on graph values, direct path aggregation, and expression mutation targets
+  remain follow-ups.
 - [x] **Application uniqueness constraints.** `Database` and `Transaction`
   expose create/list/drop methods for a node label/property pair such as
   `:Person.email`. Installation rejects conflicting existing data atomically;
@@ -608,9 +616,10 @@ are complete for local files with rollback journaling, as are process-terminatio
 recovery and backup/restore. The first incremental read slice is complete for
 single SQLite fragments, with explicit buffering and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
-Entity-list indexing, slicing, comprehensions, quantifiers, and nested graph
-collections are also complete. Next extend cursors through measured buffering
-bottlenecks, or add graph-value scalar operations and expression mutation targets.
+Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
+collections, and graph-list concatenation are also complete. Next extend cursors
+through measured buffering bottlenecks, or add graph-value scalar operations
+and expression mutation targets.
 Performance work should start with the measured node-upsert cost and
 shortest-path scaling. Track completion in milestone 10 rather than a separate
 TODO file.
@@ -633,7 +642,7 @@ accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
 the pinned openCypher TCK run is in place, and its seven remaining
 `result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,589 passing and 1,293 excluded scenarios, including 13
+record 2,590 passing and 1,292 excluded scenarios, including 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.

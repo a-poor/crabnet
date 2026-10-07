@@ -461,7 +461,34 @@ path-function lists are materialized inside nested collections, so a small
 selection can still construct the complete source. Existing path-fed write
 restrictions apply.
 
-General scalar functions, concatenation, ordering, numeric/extremum aggregates,
+`+` joins graph lists and mixed nested lists, or appends/prepends an individual
+node, relationship, path, map, or scalar when the other operand is a list:
+
+```cypher
+MATCH (person:Person)-[:KNOWS]->(friend)
+WITH person, collect(friend) AS friends
+RETURN [person] + friends AS people
+```
+
+Only the outer list level is joined; `[node] + [[edge]]` retains the nested
+relationship list. Order, duplicates, and null members are preserved. A null
+operand makes the complete result null, so `[node] + null` differs from
+`[node] + [null]`. Empty lists are neutral. This applies to collected entities,
+path-function lists, and legacy relationship-list bindings across all traversal
+transports. The result supports the same selection, iteration, aggregation,
+identity, and mutation snapshot behavior described above.
+
+Known homogeneous node/relationship members retain their kind for later
+matches and writes; unknown parameters or heterogeneous selections keep
+runtime tags and require a statically known kind before binding a graph
+pattern. Known positions in literal concatenations retain their individual
+types. Adding graph values without a list operand is a semantic error when
+known during planning, or `Error::Type` when discovered at runtime. Scalar
+members selected from mixed collections retain ordinary numeric, string, and
+list `+` behavior. Concatenation materializes its inputs and applies the same
+100-container result-depth guard, including rollback on failure.
+
+General scalar functions, ordering, numeric/extremum aggregates,
 and `CASE` over graph collections remain unsupported. Direct whole-path
 aggregation and arbitrary expressions as `DELETE` targets also remain
 unsupported; nesting a path in a map permits collecting that map. A literal
@@ -598,7 +625,9 @@ never coerces it to a number.
 `+` is also concatenation: two strings join, two lists join, and a list beside
 a non-list value appends or prepends that value as one element. A null on
 either side, or any other pairing such as a string with a number, produces
-null; Cypher raises a type error for the latter.
+null; Cypher raises a type error for the latter. Graph values also participate
+in list concatenation, as described under [nested graph collections](#nested-graph-collections);
+graph values without a list operand are rejected.
 
 ## List indexing, slicing, and `range()`
 

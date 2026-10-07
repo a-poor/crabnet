@@ -2475,6 +2475,9 @@ impl<'source> Lowerer<'source> {
         }
 
         match &expression.kind {
+            ExprKind::Binary { operator, .. } if operator.kind == BinaryOperator::Add => {
+                self.add_expression(expression, aliases, expression_depth)
+            }
             ExprKind::ListComprehension(comprehension) => {
                 self.list_comprehension(comprehension, aliases, expression_depth)
             }
@@ -3153,6 +3156,87 @@ impl<'source> Lowerer<'source> {
         }
     }
 
+    fn add_expression(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        let ExprKind::Binary { left, right, .. } = &expression.kind else {
+            unreachable!("addition is a binary expression");
+        };
+        let left =
+            self.output_expression_with_aliases_at_depth(left, aliases, expression_depth + 1)?;
+        let right =
+            self.output_expression_with_aliases_at_depth(right, aliases, expression_depth + 1)?;
+        if !self.nested_shape(&left).contains_graph() && !self.nested_shape(&right).contains_graph()
+        {
+            return Ok(Expr::Binary {
+                left: Box::new(left),
+                operator: BinaryOp::Add,
+                right: Box::new(right),
+            });
+        }
+        let shape = self
+            .add_operand_shape(&left, expression.span)?
+            .concatenate(self.add_operand_shape(&right, expression.span)?)
+            .ok_or_else(|| {
+                semantic(
+                    expression.span,
+                    "adding graph values requires a list operand",
+                )
+            })?;
+        Ok(nested::restore(
+            shape,
+            nested::call(
+                NestedOp::Add,
+                vec![self.pack_nested(left), self.pack_nested(right)],
+            ),
+        ))
+    }
+
+    fn add_operand_shape(&self, expression: &Expr, span: Span) -> Result<NestedShape> {
+        let shape = self.nested_shape(expression);
+        if shape != NestedShape::Json {
+            return Ok(shape);
+        }
+        Ok(match expression {
+            Expr::Value(ValueExpr::List(items)) => NestedShape::Tuple(
+                items
+                    .iter()
+                    .map(|value| {
+                        if matches!(value, ValueExpr::Literal(Value::Null)) {
+                            NestedShape::Null
+                        } else {
+                            NestedShape::Json
+                        }
+                    })
+                    .collect(),
+            ),
+            Expr::Value(ValueExpr::Literal(Value::Array(items))) => NestedShape::Tuple(
+                items
+                    .iter()
+                    .map(|value| {
+                        if value.is_null() {
+                            NestedShape::Null
+                        } else {
+                            NestedShape::Json
+                        }
+                    })
+                    .collect(),
+            ),
+            Expr::List(items) => {
+                NestedShape::Tuple(items.iter().map(|value| self.nested_shape(value)).collect())
+            }
+            _ => match self.check_kinds(expression, span)? {
+                Some(typecheck::Kind::List(_)) => NestedShape::List(Box::new(NestedShape::Json)),
+                Some(typecheck::Kind::Null) => NestedShape::Null,
+                Some(_) => NestedShape::Json,
+                None => NestedShape::Mixed,
+            },
+        })
+    }
+
     // Keep binary branches out of the recursive unary-expression frame so the
     // syntax-depth guard remains reachable on a normal debug thread stack.
     fn scalar_binary_expression(
@@ -3169,6 +3253,12 @@ impl<'source> Lowerer<'source> {
         else {
             unreachable!("a binary expression was matched");
         };
+        if operator.kind == BinaryOperator::Add {
+            return require_scalar_context(
+                self.add_expression(expression, aliases, expression_depth)?,
+                expression.span,
+            );
+        }
         // `a < b < c` compares pairwise: `a < b AND b < c`.
         if let Some((operands, operators)) = comparison_chain(expression)
             && operators.len() > 1

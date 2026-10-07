@@ -1084,7 +1084,7 @@ fn typed_graph_lists_remain_rejected_in_scalar_and_aggregate_contexts() {
             ),
             format!(
                 "MATCH path = (:PathNode)-[:NEXT]->(:PathNode) \
-                 RETURN {function}(path) + []"
+                 RETURN {function}(path) * 2"
             ),
             format!(
                 "MATCH path = (:PathNode)-[:NEXT]->(:PathNode) \

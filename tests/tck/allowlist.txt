@@ -338,6 +338,7 @@ clauses/match/Match4.feature::[10] Fail on negative bound
 clauses/match/Match4.feature::[1] Handling fixed-length variable length pattern
 clauses/match/Match4.feature::[2] Simple variable length pattern
 clauses/match/Match4.feature::[3] Zero-length variable length pattern in the middle of the pattern
+clauses/match/Match4.feature::[4] Matching longer variable length paths
 clauses/match/Match4.feature::[5] Matching variable length pattern with property predicate
 clauses/match/Match4.feature::[6] Matching variable length patterns from a bound node
 clauses/match/Match4.feature::[9] Fail when asterisk operator is missing

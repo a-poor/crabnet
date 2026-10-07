@@ -408,7 +408,6 @@ fn parameters_and_invalid_indexes_preserve_error_and_rollback_contracts() {
     }
     for query in [
         "MATCH (n:Step) WITH collect(n) AS ns RETURN ns[0] + 1",
-        "MATCH (n:Step) WITH collect(n) AS ns RETURN ns[0..1] + []",
         "MATCH (n:Step) WITH collect(n) AS ns RETURN ns.id",
         "MATCH (n:Step) WITH collect(n) AS ns RETURN size(ns[0])",
     ] {

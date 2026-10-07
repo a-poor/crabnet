@@ -360,6 +360,48 @@ fn elements(value: &Value) -> Result<Value> {
     }
 }
 
+/// Use the ordinary `+` rules for scalar members selected from mixed
+/// collections, and preserve tags when either operand is a list.
+fn add(left: &Value, right: &Value) -> Result<Value> {
+    if left.is_null() || right.is_null() {
+        return Ok(Value::Null);
+    }
+    let left_items = elements(left)?;
+    let right_items = elements(right)?;
+    if left_items.is_array() || right_items.is_array() {
+        let mut items = match left_items {
+            Value::Array(items) => items,
+            _ => vec![left.clone()],
+        };
+        match right_items {
+            Value::Array(right) => items.extend(right),
+            _ => items.push(right.clone()),
+        }
+        return Ok(tagged("l", Value::Array(items)));
+    }
+    let (left_tag, left) = parts(left)?;
+    let (right_tag, right) = parts(right)?;
+    if left_tag != "v" || right_tag != "v" {
+        return Err(Error::Type(
+            "adding graph values requires a list operand".into(),
+        ));
+    }
+    let result = match (left, right) {
+        (Value::String(left), Value::String(right)) => Value::String(format!("{left}{right}")),
+        (Value::Number(left), Value::Number(right)) => {
+            if let (Some(left), Some(right)) = (left.as_i64(), right.as_i64())
+                && let Some(sum) = left.checked_add(right)
+            {
+                json!(sum)
+            } else {
+                json!(left.as_f64().unwrap() + right.as_f64().unwrap())
+            }
+        }
+        _ => Value::Null,
+    };
+    Ok(tagged("v", result))
+}
+
 fn get(value: &Value, index: &Value, property: bool) -> Result<Value> {
     if value.is_null() || index.is_null() {
         return Ok(Value::Null);
@@ -408,6 +450,7 @@ fn evaluate(op: &str, args: &[Value]) -> Result<Value> {
             return Ok(comparison::equals(&identity(value)?, &identity(&args[1])?)
                 .map_or(Value::Null, Value::Bool));
         }
+        "add" => return add(value, &args[1]),
         "get" | "property" => return get(value, &args[1], op == "property"),
         "to_json" => return to_json(value),
         "elements" => return elements(value),
@@ -540,6 +583,7 @@ pub(super) fn register(connection: &Connection) -> Result<()> {
                             | "path"
                             | "nodes"
                             | "relationships"
+                            | "add"
                             | "get"
                             | "property"
                             | "properties"

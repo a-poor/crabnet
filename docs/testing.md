@@ -73,6 +73,11 @@ end-to-end result test for user-visible semantics.
   iteration, aggregation, identity-based grouping/distinctness, writes and
   rollback, mutation snapshots, depth guards, and eager/cursor parity. Depth
   tests exercise explanation and execution on the default thread stack.
+- `tests/graph_list_concatenation.rs` covers graph-list joins and appending or
+  prepending members, typed rebinding, mixed values, nulls and duplicates,
+  all path transports, aggregation and identity, parameters, mutation refresh
+  and deletion snapshots, write bags and rollback, scalar addition parity,
+  eager/cursor results and partial errors, depth limits, and SQL growth.
 - `tests/entity_list_quantifiers.rs` covers `all`, `any`, `none`, and `single`
   over collected entities and every path-list transport: typed member access,
   null/empty truth tables, duplicates, scoped patterns and nested bindings,

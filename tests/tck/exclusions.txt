@@ -73,7 +73,6 @@ clauses/match/Match2.feature::[6] Match relationships with multiple types	unsupp
 clauses/match/Match2.feature::[8] Fail when using parameter as relationship predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/match/Match3.feature::[19] Two bound nodes pointing to the same node	unsupported: bidirectional relationship patterns
 clauses/match/Match3.feature::[8] Matching using relationship predicate with multiples of the same type	unsupported: multiple or boolean relationship types
-clauses/match/Match4.feature::[4] Matching longer variable length paths	setup-failed: unsupported: graph collections in scalar expressions
 clauses/match/Match4.feature::[7] Matching variable length patterns including a bound relationship	unsupported: path values or path collections in aggregate functions
 clauses/match/Match4.feature::[8] Matching relationships into a list and matching variable length using the list	semantic-error: variable `rs` is already bound as a non-relationship-list value
 clauses/match/Match5.feature::[26] Handling mixed relationship patterns and directions 1	setup-failed: unsupported: mutation clause after DELETE

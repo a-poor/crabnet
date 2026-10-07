@@ -269,7 +269,7 @@ Within those shapes, the first iteration supports:
   lists and strings, and list and map literals with computed elements such as
   `[n.a, n.b + 1]` or `{key: n.a}`
 - `list[i]`, `map[k]`, `entity[k]`, `list[a..b]`, `range()`, and string and
-  list concatenation with `+`
+  list concatenation with `+`, including entity lists and mixed graph collections
 - `CASE` expressions in the simple and generic forms
 - scalar functions: `coalesce`, `keys`, `properties`, `head`, `last`, `tail`,
   `reverse`, `toInteger`, `toFloat`, `toString`, `toBoolean`, `toLower`,
@@ -474,10 +474,13 @@ keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
 `DISTINCT`, `size()`, `UNWIND`, indexing, slicing, comprehensions, and list
-quantifiers. For example,
+quantifiers, and concatenation with `+`. For example,
 `people[0].name` reads the first collected node's name and `people[-2..]`
 returns the last two entities. Indexing and slicing also work on `nodes(path)`
 and `relationships(path)`, preserving graph types, order, and duplicates.
+Concatenation supports `[person] + friends`, `friends + person`, and joins
+between typed lists; a null operand produces null, while `[null]` retains a
+null member. Paths may also be appended or prepended to lists.
 Comprehensions such as `[n IN people WHERE n.active]`,
 `[n IN nodes(path) | n.name]`, and `[r IN relationships(path) | r.weight]`
 filter typed entities or project ordinary values while keeping list order,

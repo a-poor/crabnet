@@ -18,6 +18,43 @@ pub(crate) enum Shape {
 }
 
 impl Shape {
+    /// Concatenation flattens one list level. Unknown operands may themselves
+    /// be lists, so their positions and member kinds cannot be fixed yet.
+    pub(crate) fn concatenate(self, right: Self) -> Option<Self> {
+        if self == Self::Null || right == Self::Null {
+            return Some(Self::Null);
+        }
+        match (self, right) {
+            (Self::Tuple(mut left), Self::Tuple(right)) => {
+                left.extend(right);
+                Some(Self::Tuple(left))
+            }
+            (Self::Tuple(mut left), right) if !matches!(right, Self::List(_) | Self::Mixed) => {
+                left.push(right);
+                Some(Self::Tuple(left))
+            }
+            (left, Self::Tuple(mut right)) if !matches!(left, Self::List(_) | Self::Mixed) => {
+                right.insert(0, left);
+                Some(Self::Tuple(right))
+            }
+            (left, right)
+                if matches!(left, Self::List(_) | Self::Tuple(_))
+                    || matches!(right, Self::List(_) | Self::Tuple(_)) =>
+            {
+                let members = |shape| match shape {
+                    Self::List(element) => vec![*element],
+                    Self::Tuple(elements) => elements,
+                    other => vec![other],
+                };
+                let mut shapes = members(left);
+                shapes.extend(members(right));
+                Some(Self::List(Box::new(Self::merge(shapes.iter()))))
+            }
+            (Self::Mixed, _) | (_, Self::Mixed) => Some(Self::Mixed),
+            _ => None,
+        }
+    }
+
     pub(crate) fn contains_graph(&self) -> bool {
         match self {
             Self::Json | Self::Null => false,
@@ -67,6 +104,7 @@ pub(crate) enum Op {
     Size,
     Equal,
     In,
+    Add,
     ElementId,
     Labels,
     RelationshipType,
@@ -98,6 +136,7 @@ impl Op {
             Self::Size => "size",
             Self::Equal => "equal",
             Self::In => "in",
+            Self::Add => "add",
             Self::ElementId => "element_id",
             Self::Labels => "labels",
             Self::RelationshipType => "relationship_type",
