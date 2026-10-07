@@ -180,6 +180,12 @@ end-to-end result test for user-visible semantics.
   later matches, collection composition, unions/pagination, parameter
   isolation and preflight, cursor parity and terminal errors, resource/depth
   guards, SQL growth, and retained numeric/scope/write restrictions.
+- `tests/path_predicates.rs` covers direct path and graph-list equality,
+  inequality, membership, and null predicates across every traversal transport;
+  aliases/selections, chained comparisons, identity/direction/parallel edges,
+  bags, nulls and zero hops, grouping/quantifiers/unions, parameter isolation
+  and preflight, eager/cursor parity and terminal errors, scalar predicate
+  writes and rollback, retained restrictions, resource limits, and SQL growth.
 - `tests/collect.rs` covers node/relationship collections and typed distinct
   collection: identity, duplicates, null/empty inputs, order, aliases, grouping,
   typed `UNWIND`, later matches and writes, property/label refreshes, delete

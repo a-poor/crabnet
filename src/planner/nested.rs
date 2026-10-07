@@ -172,8 +172,8 @@ pub(crate) fn restore(shape: Shape, expression: Expr) -> Expr {
     }
 }
 
-/// Aggregate boundaries need complete graph values rather than deferred path
-/// identities. Ordinary projections keep their batch-hydrated transport.
+/// Aggregate boundaries and null predicates use complete graph values rather
+/// than deferred path identities. Ordinary projections keep batch hydration.
 pub(crate) fn materialize_path_value(expression: Expr) -> Expr {
     let (shape, op) = match &expression {
         Expr::Path(_) => (Shape::Path, Op::Path),

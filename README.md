@@ -444,10 +444,12 @@ MATCH p = (:Person)-[:KNOWS*1..3]->(:Person)
 RETURN count(DISTINCT p) AS routeCount, collect(p) AS routes
 ```
 
-Grouping and distinctness compare ordered graph identities, preserving
-traversal direction and distinguishing parallel edges. Aggregation materializes
-the complete path or list. General scalar operations, ordering by whole paths
-or graph lists, and path-fed writes remain unsupported.
+Paths and path lists also support `=`, `<>`, `IN`, `IS NULL`, and `IS NOT NULL`:
+for example, `p = q`, `p IN routes`, and `n IN nodes(p)`. Comparisons, grouping,
+and distinctness use ordered graph identities and distinguish parallel edges.
+Opposite traversals of a self-loop compare equal. Aggregation and these
+predicates materialize the complete path or list. Other general scalar operations,
+ordering by whole paths or graph lists, and path-fed writes remain unsupported.
 
 A fresh variable on a legacy relationship pattern, for example
 `[rels:NEXT*0..]`, binds the same public relationship-list value shape. Its
@@ -496,8 +498,9 @@ general scalar operands or ordering keys;
 use `length(path)` where an integer scalar is required. Typed graph lists from
 `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
-`DISTINCT`, `size()`, `UNWIND`, indexing, slicing, comprehensions, list
-quantifiers, concatenation with `+`, and `head`, `last`, `tail`, and `reverse`.
+`DISTINCT`, equality/membership/null predicates, `size()`, `UNWIND`, indexing,
+slicing, comprehensions, list quantifiers, concatenation with `+`, and
+`head`, `last`, `tail`, and `reverse`.
 For example,
 `people[0].name` reads the first collected node's name and `people[-2..]`
 returns the last two entities. Indexing and slicing also work on `nodes(path)`

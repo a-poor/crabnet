@@ -563,6 +563,13 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   later matches, unions, parameters, cursor errors, resource/depth guards,
   bounded SQL growth, and retained write restrictions. Seven additional TCK
   scenarios pass; one exclusion now reaches the whole-path DELETE restriction.
+  Direct path and graph-list predicates are complete: equality/inequality,
+  membership, and null tests share typed identity across deferred and materialized
+  values. Eleven integration tests cover all traversal transports, aliases,
+  chained comparisons, ordered identity/direction/parallel edges, nulls/zero hops,
+  clause composition, parameters, cursor parity/errors, predicate writes and
+  rollback, resource limits, SQL growth, and retained restrictions. One additional
+  TCK scenario passes; another exclusion now reaches the optional-path restriction.
   Other general scalar functions and ordering on graph values, and other
   expression mutation targets remain follow-ups.
 - [x] **Application uniqueness constraints.** `Database` and `Transaction`
@@ -642,8 +649,8 @@ single SQLite fragments, with explicit buffering and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
 Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
-`coalesce` and `CASE`, direct path aggregation/grouping, and expression DELETE
-targets are also complete.
+`coalesce` and `CASE`, direct path aggregation/grouping and predicates, and
+expression DELETE targets are also complete.
 Next extend cursors through measured buffering bottlenecks, or add graph-value
 scalar operations and
 expression targets for other mutations.
@@ -669,7 +676,7 @@ accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
 the pinned openCypher TCK run is in place, and its seven remaining
 `result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,604 passing and 1,278 excluded scenarios, including 13
+record 2,605 passing and 1,277 excluded scenarios, including 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.

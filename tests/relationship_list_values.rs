@@ -705,8 +705,6 @@ fn relationship_lists_remain_rejected_in_unimplemented_value_contexts() {
 
     for query in [
         "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
-         RETURN rels = [] AS same",
-        "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
          RETURN rels AS links ORDER BY links",
         "OPTIONAL MATCH (:RelListNode)-[rels:NEXT*1]->(:RelListNode) \
          RETURN rels",

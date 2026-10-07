@@ -83,7 +83,7 @@ clauses/match/Match7.feature::[19] Optionally matching named paths with single a
 clauses/match/Match7.feature::[20] Variable length optional relationships with bound nodes, no matches	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match9.feature::[6] Matching relationships into a list and matching variable length using the list, with bound nodes	semantic-error: variable `rs` is already bound as a non-relationship-list value
 clauses/match/Match9.feature::[7] Matching relationships into a list and matching variable length using the list, with bound nodes, wrong direction	semantic-error: variable `rs` is already bound as a non-relationship-list value
-clauses/match/Match9.feature::[8] Variable length relationship in OPTIONAL MATCH	unsupported: path collections in scalar expressions
+clauses/match/Match9.feature::[8] Variable length relationship in OPTIONAL MATCH	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match9.feature::[9] Optionally matching named paths with variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/merge/Merge1.feature::[13] Merge should bind a path	unsupported: path bindings and selectors in MERGE
 clauses/merge/Merge1.feature::[14] Merges should not be able to match on deleted nodes	unsupported: mutation clause after DELETE
@@ -203,7 +203,6 @@ expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on 
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 2	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 3	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	wrong-error-kind: unsupported: pattern comprehension
-expressions/comparison/Comparison1.feature::[14] Direction of traversed relationship is not significant for path equality, simple	semantic-error: path values are not scalar expressions
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 1	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	result-mismatch: row values differ
 expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 3	result-mismatch: row values differ

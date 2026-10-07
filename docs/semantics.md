@@ -459,6 +459,40 @@ Entities can be collected and then expanded with `UNWIND`. They still cannot
 be ordered directly. Literal lists and maps may contain graph entities as
 described below.
 
+### Path and graph-list predicates
+
+Direct paths, `nodes(p)`, `relationships(p)`, legacy relationship-list
+bindings, and collected entity lists support `=`, `<>`, `IN`, `IS NULL`,
+and `IS NOT NULL`. Aliases and selected or nested values use the same rules.
+For example, `p = q` compares two paths, `p IN routes` searches a path list,
+and `n IN nodes(p)` tests whether that node occurs along the route. These
+predicates work across fixed, bounded, deep/open-ended, and shortest-path
+transports and compose with filters, projections, conditionals, quantifiers,
+aggregation, and grouping. Existing clause restrictions still apply; a
+shortest-path predicate belongs after a `WITH` boundary.
+
+Paths compare their ordered node and relationship identities, independent of
+properties and internal segment boundaries. Reversing a route changes equality
+only if that identity sequence changes: opposite traversals of the same
+self-loop are equal. Parallel relationships remain distinct. Lists compare
+ordered members by typed identity, retaining duplicates; node and relationship
+identities are different kinds. These are the same identity rules used for
+grouping and distinctness, with the ordinary three-valued equality rules for
+null members. Chained equality comparisons compare adjacent pairs.
+
+A null operand makes equality or inequality null. `IS NULL` tests the value
+itself, so a zero-hop path and its empty relationship list are non-null.
+`IN` requires a list on the right: an empty list returns false, even for a
+null left operand; a definite match returns true; otherwise an unknown member
+comparison makes the result null, and all definite non-matches return false.
+A null right operand returns null; a non-null non-list raises `Error::Type`.
+Ordinary JSON parameters cannot impersonate graph entities or paths.
+
+These predicates materialize complete paths or graph lists internally, even
+when the output is only a boolean. Ordinary direct projections retain deferred
+hydration. Query resource limits apply. Whole graph-value ordering and writes
+fed by named paths or traversal remain unsupported.
+
 ## Nested graph collections
 
 Lists and maps may mix nodes, relationships, paths, ordinary values, nulls,
@@ -1066,8 +1100,10 @@ Each function requires exactly one in-scope path argument; bad arity, unknown
 variables, and wrong variable kinds fail during planning. Property access and
 selectors on a path, plus raw path use as a general scalar or ordering
 expression, remain planning-time rejections. Paths and path lists support
-`count`, `collect`, and grouping (see [path aggregation](#path-aggregation-and-grouping)). The typed lists from
-`nodes` and `relationships` retain the expression-context restrictions above.
+the [graph predicates](#path-and-graph-list-predicates), `count`, `collect`,
+and grouping (see [path aggregation](#path-aggregation-and-grouping)). The typed
+lists from `nodes` and `relationships` retain the expression-context restrictions
+above.
 A fresh legacy relationship variable in `[rels:TYPE*min..]` is a
 relationship-list binding, not a stored relationship or a first-class path. It
 returns a public `CypherValue::List` of typed relationships in traversal order;

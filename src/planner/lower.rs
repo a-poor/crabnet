@@ -3051,8 +3051,8 @@ impl<'source> Lowerer<'source> {
                     aliases,
                     expression_depth + 1,
                 )?;
-                let operand = match operand {
-                    Expr::EntityList { .. } | Expr::Nested { .. } => operand,
+                let operand = match nested::materialize_path_value(operand) {
+                    operand @ (Expr::EntityList { .. } | Expr::Nested { .. }) => operand,
                     operand => {
                         require_scalar_context(self.identity_expression(operand), expression.span)?
                     }
@@ -3313,6 +3313,25 @@ impl<'source> Lowerer<'source> {
         {
             let mut conjuncts = Vec::with_capacity(operators.len());
             for (index, operator) in operators.into_iter().enumerate() {
+                if matches!(operator, BinaryOp::Equal | BinaryOp::NotEqual) {
+                    let left = self.output_expression_with_aliases_at_depth(
+                        operands[index],
+                        aliases,
+                        expression_depth + 1,
+                    )?;
+                    let right = self.output_expression_with_aliases_at_depth(
+                        operands[index + 1],
+                        aliases,
+                        expression_depth + 1,
+                    )?;
+                    conjuncts.push(self.equality_expression(
+                        left,
+                        right,
+                        operator,
+                        expression.span,
+                    )?);
+                    continue;
+                }
                 conjuncts.push(Expr::Binary {
                     left: Box::new(self.scalar_expression_with_aliases_at_depth(
                         operands[index],
@@ -3336,8 +3355,6 @@ impl<'source> Lowerer<'source> {
                 })
                 .expect("a chain has at least two comparisons"));
         }
-        // Nodes and relationships compare by identity: `a = b` and
-        // `a <> b` compare typed identities, null when either side is null.
         if matches!(
             operator.kind,
             BinaryOperator::Equal | BinaryOperator::NotEqual
@@ -3346,42 +3363,23 @@ impl<'source> Lowerer<'source> {
                 self.output_expression_with_aliases_at_depth(left, aliases, expression_depth + 1)?;
             let right =
                 self.output_expression_with_aliases_at_depth(right, aliases, expression_depth + 1)?;
-            if matches!(left, Expr::Nested { .. }) || matches!(right, Expr::Nested { .. }) {
-                let equal = nested::call(
-                    NestedOp::Equal,
-                    vec![self.pack_nested(left), self.pack_nested(right)],
-                );
-                return Ok(if operator.kind == BinaryOperator::Equal {
-                    equal
-                } else {
-                    Expr::Unary {
-                        operator: UnaryOp::Not,
-                        operand: Box::new(equal),
-                    }
-                });
-            }
-            return Ok(Expr::Binary {
-                left: Box::new(require_scalar_context(
-                    self.identity_expression(left),
-                    expression.span,
-                )?),
-                operator: if operator.kind == BinaryOperator::Equal {
+            return self.equality_expression(
+                left,
+                right,
+                if operator.kind == BinaryOperator::Equal {
                     BinaryOp::Equal
                 } else {
                     BinaryOp::NotEqual
                 },
-                right: Box::new(require_scalar_context(
-                    self.identity_expression(right),
-                    expression.span,
-                )?),
-            });
+                expression.span,
+            );
         }
         if operator.kind == BinaryOperator::In {
             let left =
                 self.output_expression_with_aliases_at_depth(left, aliases, expression_depth + 1)?;
             let right =
                 self.output_expression_with_aliases_at_depth(right, aliases, expression_depth + 1)?;
-            if matches!(left, Expr::Nested { .. }) || matches!(right, Expr::Nested { .. }) {
+            if uses_nested_predicate(&left) || uses_nested_predicate(&right) {
                 return Ok(nested::call(
                     NestedOp::In,
                     vec![self.pack_nested(left), self.pack_nested(right)],
@@ -3430,6 +3428,42 @@ impl<'source> Lowerer<'source> {
                 right,
                 aliases,
                 expression_depth + 1,
+            )?),
+        })
+    }
+
+    /// Graph collections compare recursively by typed identity, using the
+    /// same representation for deferred paths and materialized selections.
+    fn equality_expression(
+        &self,
+        left: Expr,
+        right: Expr,
+        operator: BinaryOp,
+        span: Span,
+    ) -> Result<Expr> {
+        if uses_nested_predicate(&left) || uses_nested_predicate(&right) {
+            let equal = nested::call(
+                NestedOp::Equal,
+                vec![self.pack_nested(left), self.pack_nested(right)],
+            );
+            return Ok(if operator == BinaryOp::Equal {
+                equal
+            } else {
+                Expr::Unary {
+                    operator: UnaryOp::Not,
+                    operand: Box::new(equal),
+                }
+            });
+        }
+        Ok(Expr::Binary {
+            left: Box::new(require_scalar_context(
+                self.identity_expression(left),
+                span,
+            )?),
+            operator,
+            right: Box::new(require_scalar_context(
+                self.identity_expression(right),
+                span,
             )?),
         })
     }
@@ -4446,6 +4480,11 @@ fn is_deferred_graph_value(expression: &Expr) -> bool {
                 ..
             }
     )
+}
+
+fn uses_nested_predicate(expression: &Expr) -> bool {
+    is_deferred_graph_value(expression)
+        || matches!(expression, Expr::Nested { .. } | Expr::EntityList { .. })
 }
 
 fn require_scalar_context(expression: Expr, span: Span) -> Result<Expr> {
