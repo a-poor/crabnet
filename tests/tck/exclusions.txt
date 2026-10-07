@@ -56,15 +56,9 @@ clauses/create/Create2.feature::[20] Fail when creating a relationship with two 
 clauses/create/Create2.feature::[21] Fail when creating a relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/create/Create2.feature::[22] Fail when creating a variable-length relationship	wrong-error-kind: unsupported: quantified or filtered relationships in CREATE
 clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional matching	unsupported: writes fed by named paths or relationship-list bindings
-clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: path variable `p` is not a graph entity
-clauses/delete/Delete3.feature::[2] Delete on null path	semantic-error: path variable `p` is not a graph entity
+clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: DELETE target must evaluate to a node, relationship, or null
+clauses/delete/Delete3.feature::[2] Delete on null path	semantic-error: DELETE target must evaluate to a node, relationship, or null
 clauses/delete/Delete4.feature::[2] Undirected variable length expand followed by delete and count	unsupported: writes fed by variable-length traversal
-clauses/delete/Delete5.feature::[1] Delete node from a list	semantic-error: DELETE target must be a node or relationship variable
-clauses/delete/Delete5.feature::[2] Delete relationship from a list	semantic-error: DELETE target must be a node or relationship variable
-clauses/delete/Delete5.feature::[3] Delete nodes from a map	semantic-error: DELETE target must be a node or relationship variable
-clauses/delete/Delete5.feature::[4] Delete relationships from a map	semantic-error: DELETE target must be a node or relationship variable
-clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list	semantic-error: DELETE target must be a node or relationship variable
-clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list	semantic-error: DELETE target must be a node or relationship variable
 clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates

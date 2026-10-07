@@ -557,6 +557,7 @@ fn delete_entities(
     transaction: &Transaction<'_>,
     rows: &[ExecutionRow],
     targets: &[(SlotId, EntityKind)],
+    computed_targets: Vec<Vec<CypherValue>>,
     detach: bool,
     summary: &mut QuerySummary,
     context: &ExecutionContext,
@@ -583,6 +584,28 @@ fn delete_entities(
                 }
                 EntityKind::Relationship => {
                     relationship_ids.insert(id);
+                }
+            }
+        }
+    }
+
+    // Validate every computed target before deleting anything. Only decoded
+    // graph values convey identity; property maps cannot impersonate entities.
+    for row in computed_targets {
+        for value in row {
+            context.check()?;
+            match value {
+                CypherValue::Null => {}
+                CypherValue::Node(node) => {
+                    node_ids.insert(node.element_id);
+                }
+                CypherValue::Relationship(relationship) => {
+                    relationship_ids.insert(relationship.element_id);
+                }
+                _ => {
+                    return Err(crate::Error::Type(
+                        "DELETE target must evaluate to a node, relationship, or null".into(),
+                    ));
                 }
             }
         }
@@ -1178,8 +1201,39 @@ fn apply_mutation(
             summary.labels_removed +=
                 update_labels(transaction, rows, *slot, labels, false, context)?;
         }
-        ResolvedMutation::Delete { targets, detach } => {
-            delete_entities(transaction, rows, targets, *detach, summary, context)?;
+        ResolvedMutation::Delete {
+            targets,
+            computed_targets,
+            detach,
+        } => {
+            let values = match computed_targets {
+                Some(plan) => {
+                    let result = read_materialized_rows(
+                        transaction,
+                        layout,
+                        rows,
+                        plan.clone(),
+                        false,
+                        context,
+                    )?;
+                    if result.rows.len() != rows.len() {
+                        return Err(crate::Error::Data(
+                            "computed DELETE targets did not yield one result per row".into(),
+                        ));
+                    }
+                    result.rows
+                }
+                None => Vec::new(),
+            };
+            delete_entities(
+                transaction,
+                rows,
+                targets,
+                values,
+                *detach,
+                summary,
+                context,
+            )?;
         }
         ResolvedMutation::Merge {
             matcher,

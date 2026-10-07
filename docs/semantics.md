@@ -490,8 +490,9 @@ list `+` behavior. Concatenation materializes its inputs and applies the same
 
 General scalar functions, ordering, numeric/extremum aggregates,
 and `CASE` over graph collections remain unsupported. Direct whole-path
-aggregation and arbitrary expressions as `DELETE` targets also remain
-unsupported; nesting a path in a map permits collecting that map. A literal
+aggregation remains unsupported; nesting a path in a map permits collecting
+that map. Node and relationship expressions, including dynamically selected
+members, may be used directly as `DELETE` targets. A literal
 relationship list does not become a legacy pre-bound relationship-list
 pattern. These boundaries are independent of the typed collection transport.
 
@@ -1079,10 +1080,31 @@ MERGE (:Person {name: name})` creates each distinct name once. The merge and
 its actions run in the statement's write transaction like every other
 mutation.
 
-Matched `DELETE` accepts node and relationship variables. Targets are gathered
-and deduplicated across the complete materialized match bag, then explicitly
-targeted relationships are deleted before nodes regardless of target spelling
-order. Plain deletion of a node that still has an incident relationship fails
+`DELETE` and `DETACH DELETE` accept node and relationship variables and
+expressions such as `people[0]`, `box.node`, and `box[$key][$index]`.
+Selections from slices, comprehensions, concatenated lists, and nested maps
+retain their graph identity. A heterogeneous selection may resolve to either
+a node or a relationship at runtime. Null targets, including missing map
+members, out-of-range indexes, and null optional bindings, are skipped.
+
+Target expressions run over the current materialized rows after preceding
+mutations, so they see earlier property and label updates. Every expression
+is evaluated for every input row and all targets are validated before any
+deletion begins. Aggregate calls directly inside a target are rejected; use
+an earlier `WITH` to collect entities. Whole lists, maps, paths, and non-null
+property values are not deletion targets. A known invalid target fails with
+`Error::Semantic` during planning; an invalid runtime value fails with
+`Error::Type` and rolls back the statement, including earlier writes. For
+example, `DELETE n.property` skips a missing/null property but rejects a
+non-null value. Parameters contain property JSON and cannot impersonate graph
+entities, even if they contain a real element ID or resemble an internal
+record. Target parameters are checked before mutation execution, including
+when the input has no rows. Path-fed writes remain unsupported.
+
+Targets are gathered and deduplicated across the complete materialized match
+bag, including duplicates shared by variable and expression targets, then
+explicitly targeted relationships are deleted before nodes regardless of
+target spelling order. Plain deletion of a node that still has an incident relationship fails
 with `Error::Constraint` and rolls the entire statement back.
 `DETACH DELETE` first removes all incoming, outgoing, and self-loop
 relationships incident to its node targets; relationships shared by multiple

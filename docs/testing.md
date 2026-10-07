@@ -152,6 +152,11 @@ end-to-end result test for user-visible semantics.
 - `tests/delete_mutations.rs` covers node/relationship deletion, detach edge
   cleanup, input-bag target deduplication, pre-delete return snapshots,
   counters, constraint failures, and rollback.
+- `tests/delete_expressions.rs` covers node/relationship expression targets:
+  indexing, nested and dynamic selections, mixed values, nulls, deduplication
+  across columns and rows, evaluation before deletion, refreshed snapshots,
+  parameter preflight, forged-record isolation, error and transaction rollback,
+  and the separation of internal target values from result budgets.
 - `tests/aggregation.rs` and `tests/aggregation_edges.rs` cover implicit
   grouping, typed aggregate behavior, empty inputs, aggregate scope, aliases,
   and structured rejection boundaries.

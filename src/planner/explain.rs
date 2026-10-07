@@ -1,9 +1,9 @@
 use serde_json::Value;
 
 use super::logical::{
-    AggregateKind, BinaryOp, Direction, EntityKind, Expr, Input, ListQuantifier, MatchOperator,
-    Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
-    ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, StoredValue, UnaryOp,
+    AggregateKind, BinaryOp, DeleteTarget, Direction, EntityKind, Expr, Input, ListQuantifier,
+    MatchOperator, Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection,
+    Query, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, StoredValue, UnaryOp,
     UnwindBinding, ValueExpr, WithBinding, WithStage,
 };
 
@@ -555,7 +555,12 @@ fn render_mutation(mutation: &Mutation) -> String {
             if *detach { "detach-delete" } else { "delete" },
             targets
                 .iter()
-                .map(|(slot, kind)| format!("{}:{}", slot_name(*slot), entity_kind_name(*kind)))
+                .map(|target| match target {
+                    DeleteTarget::Bound(slot, kind) =>
+                        format!("{}:{}", slot_name(*slot), entity_kind_name(*kind)),
+                    DeleteTarget::Computed(expression) =>
+                        format!("computed({})", render_expr(expression)),
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -1123,6 +1128,10 @@ mod tests {
             Err(crate::Error::Unsupported(message))
                 if message.contains("physical explanations for mutation pipelines")
         ));
+        let computed =
+            explain_logical("MATCH (n) WITH collect(n) AS ns DETACH DELETE ns[$index]").unwrap();
+        assert!(computed.contains("detach-delete targets=[computed(entity-value(Node,"));
+        assert!(computed.contains("parameter(\"index\")"));
     }
 
     #[test]

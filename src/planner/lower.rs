@@ -21,12 +21,12 @@ use crate::{Error, Result};
 
 use super::UnionKind;
 use super::logical::{
-    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityAccess, EntityKind, Expr, Input,
-    ListQuantifier, ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan, Mutation,
-    PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query, ReadPipeline,
-    ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId, SortDirection,
-    SortItem, StoredValue, TraversalId, UnaryOp, UnwindBinding, UnwindStage, ValueExpr,
-    WithBinding, WithStage,
+    AggregateKind, BinaryOp, CaseAlternative, DeleteTarget, Direction, EntityAccess, EntityKind,
+    Expr, Input, ListQuantifier, ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan,
+    Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
+    ReadPipeline, ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId,
+    SortDirection, SortItem, StoredValue, TraversalId, UnaryOp, UnwindBinding, UnwindStage,
+    ValueExpr, WithBinding, WithStage,
 };
 use super::nested::{self, Op as NestedOp, Shape as NestedShape};
 use super::typecheck;
@@ -1696,18 +1696,31 @@ impl<'source> Lowerer<'source> {
             .expressions
             .iter()
             .map(|expression| {
-                let mut target = expression;
-                while let ExprKind::Parenthesized(inner) = &target.kind {
-                    target = inner;
-                }
-                let ExprKind::Variable(variable) = &target.kind else {
+                let lowered = self.output_expression(expression)?;
+                if lowered.contains_aggregate() {
                     return Err(semantic(
-                        target.span,
-                        "DELETE target must be a node or relationship variable",
+                        expression.span,
+                        "aggregate calls are not allowed in a DELETE target",
                     ));
+                }
+                if let Expr::Entity(slot) = lowered {
+                    return Ok(DeleteTarget::Bound(slot, self.kind(slot)));
+                }
+                let valid = match self.nested_shape(&lowered) {
+                    NestedShape::Entity(_) | NestedShape::Mixed | NestedShape::Null => true,
+                    NestedShape::Json => matches!(
+                        self.check_kinds(&lowered, expression.span)?,
+                        None | Some(typecheck::Kind::Null)
+                    ),
+                    _ => false,
                 };
-                let slot = self.resolve_entity_name(variable)?;
-                Ok((slot, self.kind(slot)))
+                if !valid {
+                    return Err(semantic(
+                        expression.span,
+                        "DELETE target must evaluate to a node, relationship, or null",
+                    ));
+                }
+                Ok(DeleteTarget::Computed(lowered))
             })
             .collect::<Result<Vec<_>>>()?;
         self.mutations.push(Mutation::Delete { targets, detach });

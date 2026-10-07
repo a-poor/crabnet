@@ -463,11 +463,14 @@ fn delete_rejects_unknown_and_non_entity_targets_before_mutating() {
 
     for query in [
         "MATCH (item:Item) DELETE missing",
-        "MATCH (item:Item) DELETE item.name",
         "MATCH (item:Item) DELETE 1",
     ] {
         assert!(matches!(database.execute(query), Err(Error::Semantic(_))));
     }
+    assert!(matches!(
+        database.execute("MATCH (item:Item) DELETE item.name"),
+        Err(Error::Type(_))
+    ));
 
     let stored = database
         .execute("MATCH (item:Item) RETURN item.name")

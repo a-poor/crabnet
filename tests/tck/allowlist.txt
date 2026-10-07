@@ -89,6 +89,12 @@ clauses/delete/Delete2.feature::[4] Ignore null when deleting relationship
 clauses/delete/Delete2.feature::[5] Failing when deleting a relationship type
 clauses/delete/Delete4.feature::[1] Undirected expand followed by delete and count
 clauses/delete/Delete4.feature::[3] Create and delete in same query
+clauses/delete/Delete5.feature::[1] Delete node from a list
+clauses/delete/Delete5.feature::[2] Delete relationship from a list
+clauses/delete/Delete5.feature::[3] Delete nodes from a map
+clauses/delete/Delete5.feature::[4] Delete relationships from a map
+clauses/delete/Delete5.feature::[5] Detach delete nodes from nested map/list
+clauses/delete/Delete5.feature::[6] Delete relationships from nested map/list
 clauses/delete/Delete5.feature::[8] Failing when using undefined variable in DELETE
 clauses/delete/Delete5.feature::[9] Failing when deleting an integer expression
 clauses/delete/Delete6.feature::[10] Skipping and limiting to a few results after deleting relationships affects the result set but not the side effects

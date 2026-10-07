@@ -350,9 +350,21 @@ documented Crabnet extension. `properties_set` counts top-level keys whose
 stored value actually changed or was removed, so assigning the same value or
 removing an absent key contributes zero.
 
-Deletion targets are deduplicated across the complete matched bag. Explicitly
-targeted relationships are removed before nodes, independent of their spelling
-order in `DELETE`. Plain deletion of a connected node fails SQLite's foreign-key
+`DELETE` and `DETACH DELETE` accept expressions that select a node or
+relationship, including `people[0]` and `box.node`; null targets are skipped.
+For example:
+
+```cypher
+MATCH (n:Person)
+WITH n ORDER BY n.name
+WITH collect(n) AS people
+DETACH DELETE people[0]
+```
+
+Targets are evaluated before deletion and deduplicated across the complete
+matched bag. Explicitly targeted relationships are removed before nodes,
+independent of their spelling order in `DELETE`. Plain deletion of a connected
+node fails SQLite's foreign-key
 check and rolls the statement back; `DETACH DELETE` first removes every incident
 relationship. The deletion counters report actual stored rows removed. A
 post-delete `RETURN` reads the materialized pre-delete entity snapshots and

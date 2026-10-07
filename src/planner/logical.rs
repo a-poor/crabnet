@@ -1028,6 +1028,14 @@ pub(crate) enum StoredValue {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) enum DeleteTarget {
+    /// Direct bindings avoid an extra read over the materialized rows.
+    Bound(SlotId, EntityKind),
+    /// Evaluated and checked before any target in the clause is removed.
+    Computed(Expr),
+}
+
+#[derive(Clone, Debug)]
 pub(crate) enum Mutation {
     CreateNode {
         slot: SlotId,
@@ -1069,7 +1077,7 @@ pub(crate) enum Mutation {
         labels: Vec<String>,
     },
     Delete {
-        targets: Vec<(SlotId, EntityKind)>,
+        targets: Vec<DeleteTarget>,
         detach: bool,
     },
     /// `MERGE pattern [ON CREATE SET ...] [ON MATCH SET ...]`. `pattern`
