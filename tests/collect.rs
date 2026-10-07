@@ -287,17 +287,10 @@ fn collection_composes_with_optional_matches_hybrid_traversals_and_union() {
 #[test]
 fn entity_lists_cannot_silently_become_json_maps_or_stored_properties() {
     let mut db = Database::in_memory().unwrap();
-    for query in [
-        "MATCH (n) WITH collect(n) AS ns RETURN [ns]",
-        "MATCH (n) WITH collect(n) AS ns RETURN collect(ns)",
-        "MATCH (n) WITH collect(n) AS ns CREATE (:Bad {nodes:ns})",
-        "MATCH (n) WITH collect(n) AS ns RETURN [x IN ns | [x]]",
-    ] {
-        assert!(
-            matches!(db.execute(query), Err(Error::Unsupported(_))),
-            "{query}"
-        );
-    }
+    assert!(matches!(
+        db.execute("MATCH (n) WITH collect(n) AS ns CREATE (:Bad {nodes:ns})"),
+        Err(Error::Semantic(_))
+    ));
     assert!(matches!(
         db.execute("UNWIND [{id:'fake', props:{}}] AS n MATCH (n) RETURN n"),
         Err(Error::Semantic(_))

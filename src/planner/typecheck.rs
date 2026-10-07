@@ -23,6 +23,7 @@ pub(crate) enum Kind {
     String,
     List(Option<Box<Kind>>),
     EntityList(EntityKind),
+    Nested(Box<super::nested::Shape>),
     Entity(EntityKind),
     Map,
 }
@@ -38,6 +39,7 @@ impl Kind {
             Self::List(_) => "a list",
             Self::Entity(_) => "a graph entity",
             Self::EntityList(_) => "a list of graph entities",
+            Self::Nested(_) => "a graph collection",
             Self::Map => "a map",
         }
     }
@@ -66,6 +68,10 @@ pub(crate) struct Kinds {
 /// message for a semantic error at the expression's span.
 pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>, String> {
     Ok(match expression {
+        Expr::Nested { shape, expression } => {
+            check(expression, kinds)?;
+            Some(Kind::Nested(shape.clone()))
+        }
         Expr::Value(value) => value_kind(value),
         Expr::HasLabel(..) => Some(Kind::Boolean),
         Expr::Exists { bindings, .. } => {

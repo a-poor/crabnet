@@ -271,6 +271,7 @@ impl FragmentArgument {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OutputShape {
+    Nested,
     Json,
     Entity(EntityKind),
     EntityList(EntityKind),

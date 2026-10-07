@@ -28,6 +28,7 @@ use super::logical::{
     SortItem, StoredValue, TraversalId, UnaryOp, UnwindBinding, UnwindStage, ValueExpr,
     WithBinding, WithStage,
 };
+use super::nested::{self, Op as NestedOp, Shape as NestedShape};
 use super::typecheck;
 
 pub(super) const MAX_SQLITE_VARIABLE_LENGTH_DEPTH: usize = 32;
@@ -328,9 +329,17 @@ fn lower_clause_sequence(source: &str, clauses: &[open_cypher::ast::Clause]) -> 
         })
     };
 
+    let nested_slots = lowerer
+        .kinds
+        .borrow()
+        .scalars
+        .iter()
+        .filter_map(|(slot, kind)| matches!(kind, typecheck::Kind::Nested(_)).then_some(*slot))
+        .collect();
     Ok(Query {
         slots: lowerer.slots.into_inner(),
         scalar_slots: lowerer.scalar_slots,
+        nested_slots,
         entity_lists: lowerer
             .kinds
             .into_inner()
@@ -393,9 +402,17 @@ fn lower_read_pipeline(source: &str, clauses: &[open_cypher::ast::Clause]) -> Re
         )
     })?;
 
+    let nested_slots = lowerer
+        .kinds
+        .borrow()
+        .scalars
+        .iter()
+        .filter_map(|(slot, kind)| matches!(kind, typecheck::Kind::Nested(_)).then_some(*slot))
+        .collect();
     Ok(Query {
         slots: lowerer.slots.into_inner(),
         scalar_slots: lowerer.scalar_slots,
+        nested_slots,
         entity_lists: lowerer
             .kinds
             .into_inner()
@@ -495,6 +512,9 @@ impl<'source> Lowerer<'source> {
                     kind: *kind,
                     expression: Box::new(Expr::Scalar(slot)),
                 },
+                Some(typecheck::Kind::Nested(shape)) => {
+                    nested::restore(*shape.clone(), Expr::Scalar(slot))
+                }
                 _ => Expr::Scalar(slot),
             },
             Symbol::Path(path) => Expr::Path(path),
@@ -1958,7 +1978,7 @@ impl<'source> Lowerer<'source> {
                 ),
             ));
         }
-        let expression = self.output_expression(&unwind_clause.expression)?;
+        let mut expression = self.output_expression(&unwind_clause.expression)?;
         if expression.contains_aggregate() {
             return Err(semantic(
                 unwind_clause.expression.span,
@@ -1966,6 +1986,33 @@ impl<'source> Lowerer<'source> {
             ));
         }
         let name = unwind_clause.variable.kind.text.clone();
+        if let Expr::Nested { shape, .. } = &expression {
+            if **shape == NestedShape::Path {
+                return Err(semantic(
+                    unwind_clause.expression.span,
+                    "UNWIND requires a list",
+                ));
+            }
+            let element = shape.element();
+            if let NestedShape::Entity(kind) = element {
+                expression = Expr::EntityList {
+                    kind,
+                    expression: Box::new(nested::call(NestedOp::EntityList, vec![expression])),
+                };
+            } else {
+                let slot = self.allocate_scalar();
+                self.kinds
+                    .borrow_mut()
+                    .scalars
+                    .insert(slot, typecheck::Kind::Nested(Box::new(element)));
+                self.symbols.insert(name.clone(), Symbol::Scalar(slot));
+                return Ok(UnwindStage {
+                    name,
+                    binding: UnwindBinding::Scalar(slot),
+                    expression: nested::call(NestedOp::Elements, vec![expression]),
+                });
+            }
+        }
         let entity_kind = match &expression {
             Expr::EntityList { kind, .. } => Some(*kind),
             Expr::PathFunction { kind, .. } => match kind {
@@ -2431,6 +2478,9 @@ impl<'source> Lowerer<'source> {
             ExprKind::ListComprehension(comprehension) => {
                 self.list_comprehension(comprehension, aliases, expression_depth)
             }
+            ExprKind::List(_) | ExprKind::Map(_) => {
+                self.collection_expression(expression, aliases, expression_depth)
+            }
             ExprKind::DynamicProperty { .. } | ExprKind::Index { .. } | ExprKind::Slice { .. } => {
                 self.subscript_expression(expression, aliases, expression_depth)
             }
@@ -2464,6 +2514,182 @@ impl<'source> Lowerer<'source> {
         }
     }
 
+    fn collection_expression(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        match input_value(expression) {
+            Ok(value) => return Ok(Expr::Value(value)),
+            Err(Error::Unsupported(_)) => {}
+            Err(error) => return Err(error),
+        }
+        enum Work<'a> {
+            Value(&'a AstExpr, usize),
+            List(usize),
+            Map(Vec<String>),
+        }
+        let mut work = vec![Work::Value(expression, expression_depth)];
+        let mut values = Vec::new();
+        while let Some(item) = work.pop() {
+            match item {
+                Work::Value(value, depth) => {
+                    if depth > MAX_EXPRESSION_NESTING
+                        || depth - expression_depth > MAX_USER_VALUE_NESTING
+                    {
+                        return Err(semantic(
+                            value.span,
+                            "collection nesting exceeds the supported maximum",
+                        ));
+                    }
+                    match &value.kind {
+                        ExprKind::List(items) => {
+                            work.push(Work::List(items.len()));
+                            work.extend(
+                                items.iter().rev().map(|item| Work::Value(item, depth + 1)),
+                            );
+                        }
+                        ExprKind::Map(entries) => {
+                            let mut names = HashSet::new();
+                            for entry in entries {
+                                if !names.insert(&entry.key.kind.text) {
+                                    return Err(semantic(value.span, "duplicate map key"));
+                                }
+                            }
+                            work.push(Work::Map(
+                                entries
+                                    .iter()
+                                    .map(|entry| entry.key.kind.text.clone())
+                                    .collect(),
+                            ));
+                            work.extend(
+                                entries
+                                    .iter()
+                                    .rev()
+                                    .map(|entry| Work::Value(&entry.value, depth + 1)),
+                            );
+                        }
+                        _ => values.push(
+                            self.output_expression_with_aliases_at_depth(value, aliases, depth)?,
+                        ),
+                    }
+                }
+                Work::List(count) => {
+                    let items = values.split_off(values.len() - count);
+                    values.push(self.nested_collection(Expr::List(items)));
+                }
+                Work::Map(keys) => {
+                    let items = values.split_off(values.len() - keys.len());
+                    values.push(
+                        self.nested_collection(Expr::Map(keys.into_iter().zip(items).collect())),
+                    );
+                }
+            }
+        }
+        Ok(values.pop().expect("collection expression result"))
+    }
+
+    fn nested_shape(&self, expression: &Expr) -> NestedShape {
+        match expression {
+            Expr::Value(ValueExpr::Literal(Value::Null)) => NestedShape::Null,
+            Expr::Nested { shape, .. } => *shape.clone(),
+            Expr::Entity(slot) => NestedShape::Entity(self.kind(*slot)),
+            Expr::EntityValue { kind, .. } => NestedShape::Entity(*kind),
+            Expr::Path(_) => NestedShape::Path,
+            value => match entity_list_kind(value) {
+                Some(kind) => NestedShape::List(Box::new(NestedShape::Entity(kind))),
+                None => NestedShape::Json,
+            },
+        }
+    }
+
+    fn pack_nested(&self, expression: Expr) -> Expr {
+        let op = match self.nested_shape(&expression) {
+            _ if matches!(expression, Expr::Nested { .. }) => return expression,
+            NestedShape::Entity(EntityKind::Node) => NestedOp::Node,
+            NestedShape::Entity(EntityKind::Relationship) => NestedOp::Relationship,
+            NestedShape::Path => NestedOp::Path,
+            NestedShape::List(element) if *element == NestedShape::Entity(EntityKind::Node) => {
+                NestedOp::Nodes
+            }
+            NestedShape::List(_) => NestedOp::Relationships,
+            _ => NestedOp::Json,
+        };
+        nested::call(op, vec![expression])
+    }
+
+    fn nested_collection(&self, expression: Expr) -> Expr {
+        if !expression
+            .children()
+            .iter()
+            .any(|value| self.nested_shape(value).contains_graph())
+        {
+            return expression;
+        }
+        let (shape, op, expression) = match expression {
+            Expr::List(items) => {
+                let shape = NestedShape::Tuple(
+                    items.iter().map(|value| self.nested_shape(value)).collect(),
+                );
+                (
+                    shape,
+                    NestedOp::List,
+                    Expr::List(
+                        items
+                            .into_iter()
+                            .map(|value| self.pack_nested(value))
+                            .collect(),
+                    ),
+                )
+            }
+            Expr::Map(entries) => {
+                let shape = NestedShape::Map(
+                    entries
+                        .iter()
+                        .map(|(key, value)| (key.clone(), self.nested_shape(value)))
+                        .collect(),
+                );
+                (
+                    shape,
+                    NestedOp::Map,
+                    Expr::Map(
+                        entries
+                            .into_iter()
+                            .map(|(key, value)| (key, self.pack_nested(value)))
+                            .collect(),
+                    ),
+                )
+            }
+            _ => unreachable!(),
+        };
+        nested::restore(shape, nested::call(op, vec![expression]))
+    }
+
+    fn list_member(
+        &self,
+        list: Expr,
+        variable: ListVariableId,
+    ) -> (Expr, Expr, Option<NestedShape>) {
+        let member = Expr::ListElement(variable);
+        if let Expr::Nested { shape, .. } = &list {
+            let shape = shape.element();
+            return (
+                nested::call(NestedOp::Elements, vec![list]),
+                nested::restore(shape.clone(), member),
+                Some(shape),
+            );
+        }
+        let member = match entity_list_kind(&list) {
+            Some(kind) => Expr::EntityValue {
+                kind,
+                expression: Box::new(member),
+            },
+            None => member,
+        };
+        (list, member, None)
+    }
+
     /// The input uses the outer scope; the element shadows its name only in
     /// the predicate and projection. A graph-valued projection retains its
     /// kind so downstream clauses never mistake entity records for maps.
@@ -2478,10 +2704,7 @@ impl<'source> Lowerer<'source> {
             aliases,
             expression_depth + 1,
         )?;
-        if matches!(
-            list,
-            Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
-        ) {
+        if is_non_list_graph_value(&list) {
             return Err(semantic(
                 comprehension.list.span,
                 "a list comprehension requires a list",
@@ -2489,14 +2712,7 @@ impl<'source> Lowerer<'source> {
         }
         let input_kind = entity_list_kind(&list);
         let variable = self.allocate_list_variable();
-        let element = Expr::ListElement(variable);
-        let element = match input_kind {
-            Some(kind) => Expr::EntityValue {
-                kind,
-                expression: Box::new(element),
-            },
-            None => element,
-        };
+        let (list, element, nested_input) = self.list_member(list, variable);
         let mut inner = aliases.clone();
         inner.insert(comprehension.variable.kind.text.clone(), element);
         let lower_inner = |part: &Option<Box<AstExpr>>,
@@ -2514,13 +2730,28 @@ impl<'source> Lowerer<'source> {
                     "aggregate calls are not allowed inside a list comprehension",
                 ));
             }
-            if matches!(lowered, Expr::Path(_)) || entity_list_kind(&lowered).is_some() {
-                return Err(unsupported(part.span, "nested graph collections"));
-            }
             Ok(Some(Box::new(lowered)))
         };
         let predicate = lower_inner(&comprehension.predicate, false)?;
         let projection = lower_inner(&comprehension.projection, true)?;
+        let projected_shape = projection.as_deref().map(|value| self.nested_shape(value));
+        if (nested_input.is_some() && projection.is_none())
+            || projected_shape.as_ref().is_some_and(|shape| {
+                shape.contains_graph() && !matches!(shape, NestedShape::Entity(_))
+            })
+        {
+            let shape = NestedShape::List(Box::new(projected_shape.or(nested_input).unwrap()));
+            let expression = Expr::ListComprehension {
+                variable,
+                list: Box::new(list),
+                predicate,
+                projection: projection.map(|value| Box::new(self.pack_nested(*value))),
+            };
+            return Ok(nested::restore(
+                shape,
+                nested::call(NestedOp::List, vec![expression]),
+            ));
+        }
         let output_kind = match &projection {
             Some(projection) => self.expression_entity_kind(projection),
             None => input_kind,
@@ -2571,7 +2802,9 @@ impl<'source> Lowerer<'source> {
                         entity,
                         EntityAccess::DynamicProperty(Box::new(key)),
                     )),
-                    Expr::Path(_) => Err(semantic(expression.span, "paths cannot be indexed")),
+                    base if is_path_value(&base) => {
+                        Err(semantic(expression.span, "paths cannot be indexed"))
+                    }
                     base => Ok(index_expression(base, key)),
                 }
             }
@@ -2598,10 +2831,7 @@ impl<'source> Lowerer<'source> {
                         })
                         .transpose()
                 };
-                if matches!(
-                    base,
-                    Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
-                ) {
+                if is_non_list_graph_value(&base) {
                     return Err(semantic(expression.span, "slicing requires a list"));
                 }
                 Ok(slice_expression(base, bound(lower)?, bound(upper)?))
@@ -2681,149 +2911,20 @@ impl<'source> Lowerer<'source> {
             ExprKind::Literal(_) | ExprKind::Parameter(_) => {
                 input_value(expression).map(Expr::Value)
             }
-            ExprKind::List(items) => match input_value(expression) {
-                Ok(value) => Ok(Expr::Value(value)),
-                // A computed element makes the whole list a runtime value.
-                Err(Error::Unsupported(_)) => items
-                    .iter()
-                    .map(|item| {
-                        self.scalar_expression_with_aliases_at_depth(
-                            item,
-                            aliases,
-                            expression_depth + 1,
-                        )
-                    })
-                    .collect::<Result<Vec<_>>>()
-                    .map(Expr::List),
-                Err(error) => Err(error),
-            },
-            ExprKind::Map(entries) => match input_value(expression) {
-                Ok(value) => Ok(Expr::Value(value)),
-                Err(Error::Unsupported(_)) => entries
-                    .iter()
-                    .map(|entry| {
-                        Ok((
-                            entry.key.kind.text.clone(),
-                            self.scalar_expression_with_aliases_at_depth(
-                                &entry.value,
-                                aliases,
-                                expression_depth + 1,
-                            )?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>>>()
-                    .map(Expr::Map),
-                Err(error) => Err(error),
-            },
+            ExprKind::List(_) | ExprKind::Map(_) => {
+                let value = self.collection_expression(expression, aliases, expression_depth)?;
+                require_scalar_context(value, expression.span)
+            }
             ExprKind::Property {
                 expression: base,
                 key,
-            } => self.property_expression(base, &key.kind.text, aliases, expression_depth),
-            ExprKind::Binary {
-                left,
-                operator,
-                right,
             } => {
-                // `a < b < c` compares pairwise: `a < b AND b < c`.
-                if let Some((operands, operators)) = comparison_chain(expression)
-                    && operators.len() > 1
-                {
-                    let mut conjuncts = Vec::with_capacity(operators.len());
-                    for (index, operator) in operators.into_iter().enumerate() {
-                        conjuncts.push(Expr::Binary {
-                            left: Box::new(self.scalar_expression_with_aliases_at_depth(
-                                operands[index],
-                                aliases,
-                                expression_depth + 1,
-                            )?),
-                            operator,
-                            right: Box::new(self.scalar_expression_with_aliases_at_depth(
-                                operands[index + 1],
-                                aliases,
-                                expression_depth + 1,
-                            )?),
-                        });
-                    }
-                    return Ok(conjuncts
-                        .into_iter()
-                        .reduce(|left, right| Expr::Binary {
-                            left: Box::new(left),
-                            operator: BinaryOp::And,
-                            right: Box::new(right),
-                        })
-                        .expect("a chain has at least two comparisons"));
-                }
-                // Nodes and relationships compare by identity: `a = b` and
-                // `a <> b` compare typed identities, null when either side is null.
-                if matches!(
-                    operator.kind,
-                    BinaryOperator::Equal | BinaryOperator::NotEqual
-                ) {
-                    let left = self.output_expression_with_aliases_at_depth(
-                        left,
-                        aliases,
-                        expression_depth + 1,
-                    )?;
-                    let right = self.output_expression_with_aliases_at_depth(
-                        right,
-                        aliases,
-                        expression_depth + 1,
-                    )?;
-                    return Ok(Expr::Binary {
-                        left: Box::new(require_scalar_context(
-                            self.identity_expression(left),
-                            expression.span,
-                        )?),
-                        operator: if operator.kind == BinaryOperator::Equal {
-                            BinaryOp::Equal
-                        } else {
-                            BinaryOp::NotEqual
-                        },
-                        right: Box::new(require_scalar_context(
-                            self.identity_expression(right),
-                            expression.span,
-                        )?),
-                    });
-                }
-                let operator = match operator.kind {
-                    BinaryOperator::Or => BinaryOp::Or,
-                    BinaryOperator::And => BinaryOp::And,
-                    BinaryOperator::Equal => BinaryOp::Equal,
-                    BinaryOperator::NotEqual => BinaryOp::NotEqual,
-                    BinaryOperator::Less => BinaryOp::Less,
-                    BinaryOperator::LessEqual => BinaryOp::LessEqual,
-                    BinaryOperator::Greater => BinaryOp::Greater,
-                    BinaryOperator::GreaterEqual => BinaryOp::GreaterEqual,
-                    BinaryOperator::In => BinaryOp::In,
-                    BinaryOperator::StartsWith => BinaryOp::StartsWith,
-                    BinaryOperator::EndsWith => BinaryOp::EndsWith,
-                    BinaryOperator::Contains => BinaryOp::Contains,
-                    BinaryOperator::Add => BinaryOp::Add,
-                    BinaryOperator::Subtract => BinaryOp::Subtract,
-                    BinaryOperator::Multiply => BinaryOp::Multiply,
-                    BinaryOperator::Divide => BinaryOp::Divide,
-                    BinaryOperator::Remainder => BinaryOp::Remainder,
-                    BinaryOperator::Xor => BinaryOp::Xor,
-                    BinaryOperator::RegexMatch => {
-                        return Err(unsupported(operator.span, "regular-expression match `=~`"));
-                    }
-                    BinaryOperator::Power => return Err(unsupported(operator.span, "`^`")),
-                    BinaryOperator::Concat => return Err(unsupported(operator.span, "`||`")),
-                    _ => return Err(unsupported(operator.span, "binary operator")),
-                };
-                Ok(Expr::Binary {
-                    left: Box::new(self.scalar_expression_with_aliases_at_depth(
-                        left,
-                        aliases,
-                        expression_depth + 1,
-                    )?),
-                    operator,
-                    right: Box::new(self.scalar_expression_with_aliases_at_depth(
-                        right,
-                        aliases,
-                        expression_depth + 1,
-                    )?),
-                })
+                let value =
+                    self.property_expression(base, &key.kind.text, aliases, expression_depth)?;
+                require_scalar_context(value, expression.span)
+            }
+            ExprKind::Binary { .. } => {
+                self.scalar_binary_expression(expression, aliases, expression_depth)
             }
             ExprKind::Unary { operator, operand } => {
                 let operator = match operator.kind {
@@ -2853,7 +2954,7 @@ impl<'source> Lowerer<'source> {
                     expression_depth + 1,
                 )?;
                 let operand = match operand {
-                    Expr::EntityList { .. } => operand,
+                    Expr::EntityList { .. } | Expr::Nested { .. } => operand,
                     operand => {
                         require_scalar_context(self.identity_expression(operand), expression.span)?
                     }
@@ -2869,6 +2970,31 @@ impl<'source> Lowerer<'source> {
                 predicate: IsPredicate::Label(label),
             } => {
                 let entity = self.output_expression_with_aliases(target, aliases)?;
+                if let Expr::Nested { shape, .. } = &entity {
+                    if **shape != NestedShape::Mixed {
+                        return Err(semantic(
+                            target.span,
+                            "a label predicate requires a node or relationship",
+                        ));
+                    }
+                    let predicate = self.label_expression(label, &|name| {
+                        nested::call(
+                            NestedOp::HasLabel,
+                            vec![
+                                entity.clone(),
+                                Expr::Value(ValueExpr::Literal(Value::String(name))),
+                            ],
+                        )
+                    })?;
+                    return Ok(if *negated {
+                        Expr::Unary {
+                            operator: UnaryOp::Not,
+                            operand: Box::new(predicate),
+                        }
+                    } else {
+                        predicate
+                    });
+                }
                 let Some(kind) = self.expression_entity_kind(&entity) else {
                     return Err(semantic(
                         target.span,
@@ -2991,24 +3117,14 @@ impl<'source> Lowerer<'source> {
                     aliases,
                     expression_depth + 1,
                 )?;
-                if matches!(
-                    list,
-                    Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
-                ) {
+                if is_non_list_graph_value(&list) {
                     return Err(semantic(
                         quantified.list.span,
                         "a list quantifier requires a list",
                     ));
                 }
                 let variable = self.allocate_list_variable();
-                let element = Expr::ListElement(variable);
-                let element = match entity_list_kind(&list) {
-                    Some(kind) => Expr::EntityValue {
-                        kind,
-                        expression: Box::new(element),
-                    },
-                    None => element,
-                };
+                let (list, element, _) = self.list_member(list, variable);
                 let mut inner = aliases.clone();
                 inner.insert(quantified.variable.kind.text.clone(), element);
                 let predicate = self.scalar_expression_with_aliases_at_depth(
@@ -3035,6 +3151,149 @@ impl<'source> Lowerer<'source> {
             ExprKind::Error(_) => Err(unsupported(expression.span, "malformed expression")),
             _ => Err(unsupported(expression.span, "expression")),
         }
+    }
+
+    // Keep binary branches out of the recursive unary-expression frame so the
+    // syntax-depth guard remains reachable on a normal debug thread stack.
+    fn scalar_binary_expression(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        let ExprKind::Binary {
+            left,
+            operator,
+            right,
+        } = &expression.kind
+        else {
+            unreachable!("a binary expression was matched");
+        };
+        // `a < b < c` compares pairwise: `a < b AND b < c`.
+        if let Some((operands, operators)) = comparison_chain(expression)
+            && operators.len() > 1
+        {
+            let mut conjuncts = Vec::with_capacity(operators.len());
+            for (index, operator) in operators.into_iter().enumerate() {
+                conjuncts.push(Expr::Binary {
+                    left: Box::new(self.scalar_expression_with_aliases_at_depth(
+                        operands[index],
+                        aliases,
+                        expression_depth + 1,
+                    )?),
+                    operator,
+                    right: Box::new(self.scalar_expression_with_aliases_at_depth(
+                        operands[index + 1],
+                        aliases,
+                        expression_depth + 1,
+                    )?),
+                });
+            }
+            return Ok(conjuncts
+                .into_iter()
+                .reduce(|left, right| Expr::Binary {
+                    left: Box::new(left),
+                    operator: BinaryOp::And,
+                    right: Box::new(right),
+                })
+                .expect("a chain has at least two comparisons"));
+        }
+        // Nodes and relationships compare by identity: `a = b` and
+        // `a <> b` compare typed identities, null when either side is null.
+        if matches!(
+            operator.kind,
+            BinaryOperator::Equal | BinaryOperator::NotEqual
+        ) {
+            let left =
+                self.output_expression_with_aliases_at_depth(left, aliases, expression_depth + 1)?;
+            let right =
+                self.output_expression_with_aliases_at_depth(right, aliases, expression_depth + 1)?;
+            if matches!(left, Expr::Nested { .. }) || matches!(right, Expr::Nested { .. }) {
+                let equal = nested::call(
+                    NestedOp::Equal,
+                    vec![self.pack_nested(left), self.pack_nested(right)],
+                );
+                return Ok(if operator.kind == BinaryOperator::Equal {
+                    equal
+                } else {
+                    Expr::Unary {
+                        operator: UnaryOp::Not,
+                        operand: Box::new(equal),
+                    }
+                });
+            }
+            return Ok(Expr::Binary {
+                left: Box::new(require_scalar_context(
+                    self.identity_expression(left),
+                    expression.span,
+                )?),
+                operator: if operator.kind == BinaryOperator::Equal {
+                    BinaryOp::Equal
+                } else {
+                    BinaryOp::NotEqual
+                },
+                right: Box::new(require_scalar_context(
+                    self.identity_expression(right),
+                    expression.span,
+                )?),
+            });
+        }
+        if operator.kind == BinaryOperator::In {
+            let left =
+                self.output_expression_with_aliases_at_depth(left, aliases, expression_depth + 1)?;
+            let right =
+                self.output_expression_with_aliases_at_depth(right, aliases, expression_depth + 1)?;
+            if matches!(left, Expr::Nested { .. }) || matches!(right, Expr::Nested { .. }) {
+                return Ok(nested::call(
+                    NestedOp::In,
+                    vec![self.pack_nested(left), self.pack_nested(right)],
+                ));
+            }
+            return Ok(Expr::Binary {
+                left: Box::new(require_scalar_context(left, expression.span)?),
+                operator: BinaryOp::In,
+                right: Box::new(require_scalar_context(right, expression.span)?),
+            });
+        }
+        let operator = match operator.kind {
+            BinaryOperator::Or => BinaryOp::Or,
+            BinaryOperator::And => BinaryOp::And,
+            BinaryOperator::Equal => BinaryOp::Equal,
+            BinaryOperator::NotEqual => BinaryOp::NotEqual,
+            BinaryOperator::Less => BinaryOp::Less,
+            BinaryOperator::LessEqual => BinaryOp::LessEqual,
+            BinaryOperator::Greater => BinaryOp::Greater,
+            BinaryOperator::GreaterEqual => BinaryOp::GreaterEqual,
+            BinaryOperator::In => BinaryOp::In,
+            BinaryOperator::StartsWith => BinaryOp::StartsWith,
+            BinaryOperator::EndsWith => BinaryOp::EndsWith,
+            BinaryOperator::Contains => BinaryOp::Contains,
+            BinaryOperator::Add => BinaryOp::Add,
+            BinaryOperator::Subtract => BinaryOp::Subtract,
+            BinaryOperator::Multiply => BinaryOp::Multiply,
+            BinaryOperator::Divide => BinaryOp::Divide,
+            BinaryOperator::Remainder => BinaryOp::Remainder,
+            BinaryOperator::Xor => BinaryOp::Xor,
+            BinaryOperator::RegexMatch => {
+                return Err(unsupported(operator.span, "regular-expression match `=~`"));
+            }
+            BinaryOperator::Power => return Err(unsupported(operator.span, "`^`")),
+            BinaryOperator::Concat => return Err(unsupported(operator.span, "`||`")),
+            _ => return Err(unsupported(operator.span, "binary operator")),
+        };
+        Ok(Expr::Binary {
+            left: Box::new(self.scalar_expression_with_aliases_at_depth(
+                left,
+                aliases,
+                expression_depth + 1,
+            )?),
+            operator,
+            right: Box::new(self.scalar_expression_with_aliases_at_depth(
+                right,
+                aliases,
+                expression_depth + 1,
+            )?),
+        })
     }
 
     // Keep variable/type resolution out of the recursive scalar-expression
@@ -3107,6 +3366,80 @@ impl<'source> Lowerer<'source> {
         if function.quantifier.is_some() {
             return Err(unsupported(span, "quantified scalar function call"));
         }
+        let mut lowered_one = None;
+        if let [argument] = function.arguments.as_slice()
+            && matches!(
+                name.as_str(),
+                "elementid"
+                    | "labels"
+                    | "type"
+                    | "properties"
+                    | "keys"
+                    | "size"
+                    | "length"
+                    | "nodes"
+                    | "relationships"
+            )
+        {
+            let value = self.output_expression_with_aliases(argument, aliases)?;
+            if let Expr::Nested { shape, .. } = &value {
+                let shape = *shape.clone();
+                let valid = match name.as_str() {
+                    "elementid" | "labels" | "type" => shape == NestedShape::Mixed,
+                    "properties" | "keys" => {
+                        matches!(shape, NestedShape::Map(_) | NestedShape::Mixed)
+                    }
+                    "length" | "nodes" | "relationships" => {
+                        matches!(shape, NestedShape::Path | NestedShape::Mixed)
+                    }
+                    "size" => shape != NestedShape::Path,
+                    _ => unreachable!(),
+                };
+                if !valid {
+                    return Err(semantic(
+                        span,
+                        format!("{name}() received an incompatible graph value"),
+                    ));
+                }
+                let op = match name.as_str() {
+                    "elementid" => NestedOp::ElementId,
+                    "labels" => NestedOp::Labels,
+                    "type" => NestedOp::RelationshipType,
+                    "properties" => NestedOp::Properties,
+                    "keys" => NestedOp::Keys,
+                    "size" => NestedOp::Size,
+                    "length" => NestedOp::Length,
+                    "nodes" => NestedOp::PathNodes,
+                    "relationships" => NestedOp::PathRelationships,
+                    _ => unreachable!(),
+                };
+                let call = nested::call(op, vec![value]);
+                return Ok(match op {
+                    NestedOp::PathNodes => nested::restore(
+                        NestedShape::List(Box::new(NestedShape::Entity(EntityKind::Node))),
+                        call,
+                    ),
+                    NestedOp::PathRelationships => nested::restore(
+                        NestedShape::List(Box::new(NestedShape::Entity(EntityKind::Relationship))),
+                        call,
+                    ),
+                    NestedOp::Properties => nested::restore(
+                        if matches!(shape, NestedShape::Map(_) | NestedShape::Mixed) {
+                            shape
+                        } else {
+                            NestedShape::Json
+                        },
+                        call,
+                    ),
+                    _ => call,
+                });
+            }
+            lowered_one = Some(value);
+        }
+        let lower_one = |argument: &AstExpr| match &lowered_one {
+            Some(value) => Ok(value.clone()),
+            None => self.output_expression_with_aliases(argument, aliases),
+        };
         match name.as_str() {
             "elementid" | "type" | "labels" => {
                 let [argument] = function.arguments.as_slice() else {
@@ -3115,7 +3448,7 @@ impl<'source> Lowerer<'source> {
                         "graph function requires exactly one argument",
                     ));
                 };
-                let entity = self.output_expression_with_aliases(argument, aliases)?;
+                let entity = lower_one(argument)?;
                 let Some(kind) = self.expression_entity_kind(&entity) else {
                     return Err(semantic(
                         span,
@@ -3144,9 +3477,13 @@ impl<'source> Lowerer<'source> {
                 }),
                 _ => Err(semantic(span, "exists() takes exactly one argument")),
             },
-            "length" => {
-                self.path_function_expression(function, PathFunctionKind::Length, span, aliases)
-            }
+            "length" => self.path_function_expression(
+                function,
+                PathFunctionKind::Length,
+                span,
+                aliases,
+                lowered_one.as_ref(),
+            ),
             "range" => {
                 let (start, end, step) = match function.arguments.as_slice() {
                     [start, end] => (start, end, None),
@@ -3168,7 +3505,7 @@ impl<'source> Lowerer<'source> {
                 let [argument] = function.arguments.as_slice() else {
                     return Err(semantic(span, "size() requires exactly one argument"));
                 };
-                let argument = self.output_expression_with_aliases(argument, aliases)?;
+                let argument = lower_one(argument)?;
                 match argument {
                     Expr::Path(_) => Err(semantic(
                         span,
@@ -3185,14 +3522,19 @@ impl<'source> Lowerer<'source> {
                     argument => Ok(Expr::Size(Box::new(argument))),
                 }
             }
-            "nodes" => {
-                self.path_function_expression(function, PathFunctionKind::Nodes, span, aliases)
-            }
+            "nodes" => self.path_function_expression(
+                function,
+                PathFunctionKind::Nodes,
+                span,
+                aliases,
+                lowered_one.as_ref(),
+            ),
             "relationships" => self.path_function_expression(
                 function,
                 PathFunctionKind::Relationships,
                 span,
                 aliases,
+                lowered_one.as_ref(),
             ),
             "keys" | "properties" => {
                 let [argument] = function.arguments.as_slice() else {
@@ -3201,7 +3543,7 @@ impl<'source> Lowerer<'source> {
                         format!("{name}() requires exactly one argument"),
                     ));
                 };
-                let argument = self.output_expression_with_aliases(argument, aliases)?;
+                let argument = lower_one(argument)?;
                 let function = if name == "keys" {
                     ScalarFunction::Keys
                 } else {
@@ -3238,11 +3580,8 @@ impl<'source> Lowerer<'source> {
                         format!("{name}() requires exactly one argument"),
                     ));
                 };
-                let base = self.output_expression_with_aliases(argument, aliases)?;
-                if matches!(
-                    base,
-                    Expr::Entity(_) | Expr::EntityValue { .. } | Expr::Path(_)
-                ) {
+                let base = lower_one(argument)?;
+                if is_non_list_graph_value(&base) {
                     return Err(semantic(span, "list function requires a list"));
                 }
                 let literal =
@@ -3292,6 +3631,7 @@ impl<'source> Lowerer<'source> {
         kind: PathFunctionKind,
         span: Span,
         aliases: &HashMap<String, Expr>,
+        lowered: Option<&Expr>,
     ) -> Result<Expr> {
         let [argument] = function.arguments.as_slice() else {
             return Err(semantic(
@@ -3302,7 +3642,10 @@ impl<'source> Lowerer<'source> {
                 ),
             ));
         };
-        let argument = self.output_expression_with_aliases(argument, aliases)?;
+        let argument = match lowered {
+            Some(value) => value.clone(),
+            None => self.output_expression_with_aliases(argument, aliases)?,
+        };
         let Expr::Path(path) = argument else {
             return Err(semantic(
                 span,
@@ -3340,7 +3683,7 @@ impl<'source> Lowerer<'source> {
             }
             None
         } else {
-            let argument = self.output_expression_with_aliases(argument, aliases)?;
+            let mut argument = self.output_expression_with_aliases(argument, aliases)?;
             if argument.contains_aggregate() {
                 return Err(semantic(span, "aggregate functions cannot be nested"));
             }
@@ -3357,6 +3700,16 @@ impl<'source> Lowerer<'source> {
                     span,
                     "whole entities in aggregates other than count()",
                 ));
+            }
+            if matches!(argument, Expr::Nested { .. } | Expr::EntityList { .. }) {
+                if !matches!(kind, AggregateKind::Count | AggregateKind::Collect) {
+                    return Err(unsupported(
+                        span,
+                        "graph collections in numeric or extremum aggregates",
+                    ));
+                }
+                let shape = self.nested_shape(&argument);
+                argument = nested::restore(shape, self.pack_nested(argument));
             }
             if is_deferred_graph_value(&argument) {
                 return Err(unsupported(
@@ -3385,11 +3738,25 @@ impl<'source> Lowerer<'source> {
             }
             _ => None,
         };
+        let nested_shape = if kind == AggregateKind::Collect {
+            argument.as_deref().and_then(|argument| match argument {
+                Expr::Nested { shape, .. } => Some(NestedShape::List(shape.clone())),
+                _ => None,
+            })
+        } else {
+            None
+        };
         let aggregate = Expr::Aggregate {
             kind,
             argument,
             distinct,
         };
+        if let Some(shape) = nested_shape {
+            return Ok(nested::restore(
+                shape,
+                nested::call(NestedOp::List, vec![aggregate]),
+            ));
+        }
         Ok(match entity_kind {
             Some(kind) => Expr::EntityList {
                 kind,
@@ -3413,6 +3780,28 @@ impl<'source> Lowerer<'source> {
         let lowered =
             self.output_expression_with_aliases_at_depth(base, aliases, expression_depth + 1)?;
         match lowered {
+            value if is_path_value(&value) => Err(semantic(
+                base.span,
+                "path variables and path collections do not have graph properties",
+            )),
+            base @ Expr::Nested { .. } => {
+                let shape = match self.nested_shape(&base) {
+                    NestedShape::Map(fields) => {
+                        fields.get(key).cloned().unwrap_or(NestedShape::Null)
+                    }
+                    _ => NestedShape::Mixed,
+                };
+                Ok(nested::restore(
+                    shape,
+                    nested::call(
+                        NestedOp::Property,
+                        vec![
+                            base,
+                            Expr::Value(ValueExpr::Literal(Value::String(key.to_owned()))),
+                        ],
+                    ),
+                ))
+            }
             Expr::Entity(_) | Expr::EntityValue { .. } => Ok(entity_access(
                 lowered,
                 EntityAccess::Property(key.to_owned()),
@@ -3887,6 +4276,13 @@ fn is_deferred_graph_value(expression: &Expr) -> bool {
 }
 
 fn require_scalar_context(expression: Expr, span: Span) -> Result<Expr> {
+    if let Expr::Nested { shape, .. } = &expression {
+        return if matches!(shape.as_ref(), NestedShape::Mixed) {
+            Ok(nested::call(NestedOp::ToJson, vec![expression]))
+        } else {
+            Err(unsupported(span, "graph collections in scalar expressions"))
+        };
+    }
     if matches!(expression, Expr::Path(_)) {
         Err(semantic(span, "path values are not scalar expressions"))
     } else if matches!(expression, Expr::EntityValue { .. }) {
@@ -3926,7 +4322,9 @@ fn validate_aggregate_scope(expressions: &[Expr], grouping: &[Expr], span: Span)
             Expr::Entity(_) | Expr::Scalar(_) | Expr::Property(_, _) | Expr::MapProperty { .. } => {
                 true
             }
-            Expr::EntityList { expression, .. } => matches!(expression.as_ref(), Expr::Scalar(_)),
+            Expr::EntityList { expression, .. } | Expr::Nested { expression, .. } => {
+                matches!(expression.as_ref(), Expr::Scalar(_))
+            }
             _ => false,
         })
         .cloned()
@@ -4050,6 +4448,21 @@ fn semantic(span: Span, message: impl AsRef<str>) -> Error {
 
 /// Whether the resulting value can contain graph values, which cannot be stored.
 fn contains_graph_value(expression: &Expr) -> bool {
+    if let Expr::NestedCall { op, .. } = expression {
+        return !matches!(
+            op,
+            NestedOp::ToJson
+                | NestedOp::Size
+                | NestedOp::Equal
+                | NestedOp::In
+                | NestedOp::ElementId
+                | NestedOp::Labels
+                | NestedOp::RelationshipType
+                | NestedOp::Keys
+                | NestedOp::HasLabel
+                | NestedOp::Length
+        );
+    }
     // These operations return scalar/property values, not their input records.
     if matches!(
         expression,
@@ -4072,6 +4485,7 @@ fn contains_graph_value(expression: &Expr) -> bool {
         Expr::Entity(_)
             | Expr::EntityValue { .. }
             | Expr::EntityList { .. }
+            | Expr::Nested { .. }
             | Expr::Path(_)
             | Expr::PathFunction {
                 kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
@@ -4080,7 +4494,15 @@ fn contains_graph_value(expression: &Expr) -> bool {
     ) || expression.children().into_iter().any(contains_graph_value)
 }
 
-/// Keep record transport private while sharing the scalar bounds implementation.
+fn is_path_value(expression: &Expr) -> bool {
+    matches!(expression, Expr::Path(_))
+        || matches!(expression, Expr::Nested { shape, .. } if **shape == NestedShape::Path)
+}
+
+fn is_non_list_graph_value(expression: &Expr) -> bool {
+    matches!(expression, Expr::Entity(_) | Expr::EntityValue { .. }) || is_path_value(expression)
+}
+
 fn entity_list_kind(expression: &Expr) -> Option<EntityKind> {
     match expression {
         Expr::EntityList { kind, .. } => Some(*kind),
@@ -4096,7 +4518,29 @@ fn entity_list_kind(expression: &Expr) -> Option<EntityKind> {
     }
 }
 
+/// Keep record transport private while sharing the scalar bounds implementation.
 fn index_expression(base: Expr, index: Expr) -> Expr {
+    if let Expr::Nested { shape, .. } = &base {
+        let selected = match (shape.as_ref(), &index) {
+            (NestedShape::Map(fields), Expr::Value(ValueExpr::Literal(Value::String(key)))) => {
+                fields.get(key).cloned().unwrap_or(NestedShape::Null)
+            }
+            (NestedShape::Tuple(items), Expr::Value(ValueExpr::Literal(Value::Number(index))))
+                if index.as_i64().is_some() =>
+            {
+                let i = index.as_i64().unwrap() as i128;
+                let i = if i < 0 { items.len() as i128 + i } else { i };
+                usize::try_from(i)
+                    .ok()
+                    .and_then(|i| items.get(i))
+                    .cloned()
+                    .unwrap_or(NestedShape::Null)
+            }
+            (NestedShape::Map(fields), _) => NestedShape::merge(fields.values()),
+            (shape, _) => shape.element(),
+        };
+        return nested::restore(selected, nested::call(NestedOp::Get, vec![base, index]));
+    }
     let kind = entity_list_kind(&base);
     let expression = Expr::Index {
         base: Box::new(base),
@@ -4112,6 +4556,15 @@ fn index_expression(base: Expr, index: Expr) -> Expr {
 }
 
 fn slice_expression(base: Expr, lower: Option<Box<Expr>>, upper: Option<Box<Expr>>) -> Expr {
+    if let Expr::Nested { shape, .. } = &base {
+        let shape = NestedShape::List(Box::new(shape.element()));
+        let slice = Expr::Slice {
+            base: Box::new(nested::call(NestedOp::Elements, vec![base])),
+            lower,
+            upper,
+        };
+        return nested::restore(shape, nested::call(NestedOp::List, vec![slice]));
+    }
     let kind = entity_list_kind(&base);
     let expression = Expr::Slice {
         base: Box::new(base),

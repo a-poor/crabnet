@@ -293,6 +293,9 @@ Within those shapes, the first iteration supports:
   bag-preserving `UNION ALL`
 - `RETURN DISTINCT`, `ORDER BY`, `SKIP`/`OFFSET`, and `LIMIT` on read-only
   returns
+- nested lists and maps containing nodes, relationships, paths, ordinary values,
+  and other collections, including `collect({node:n})`, typed selection,
+  comprehensions, `UNWIND`, and recursive identity-based distinctness
 - typed `CypherValue` result cells for null, booleans, integers, floats,
   strings, lists, maps, nodes, relationships, and paths
 
@@ -481,7 +484,10 @@ filter typed entities or project ordinary values while keeping list order,
 duplicates, and null members. Quantifiers (`all`, `any`, `none`, and `single`)
 accept these same typed lists, as in `any(n IN people WHERE n.age >= 18)` or
 `all(r IN relationships(path) WHERE r.weight > 0)`. Nested graph collections
-and general scalar operations on entity lists remain unsupported.
+such as `{person:n, friends:collect(friend)}` preserve graph types through
+selection, iteration, grouping, and writes. Graph values cannot be stored as
+properties; general scalar operations and ordering on graph collections
+remain unsupported. See [nested collection semantics](docs/semantics.md#nested-graph-collections).
 Unaliased computed `WITH` expressions and aggregates nested inside aggregates
 are explicitly rejected, as is an updating clause after `DELETE` in the same
 statement. Among aggregates, `DISTINCT` is supported by `count` and `collect`;

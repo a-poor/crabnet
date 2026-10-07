@@ -199,6 +199,15 @@ pub(crate) enum EntityAccess {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Expr {
+    /// A tagged, recursively typed graph collection or selected member.
+    Nested {
+        shape: Box<super::nested::Shape>,
+        expression: Box<Self>,
+    },
+    NestedCall {
+        op: super::nested::Op,
+        arguments: Vec<Self>,
+    },
     Value(ValueExpr),
     Entity(SlotId),
     /// A computed, nullable node or relationship encoded as a record.
@@ -526,7 +535,9 @@ impl Expr {
             } => vec![list, predicate],
             Self::MapProperty { base, .. } => vec![base],
             Self::Size(operand) => vec![operand],
-            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
+            Self::EntityList { expression, .. }
+            | Self::EntityValue { expression, .. }
+            | Self::Nested { expression, .. } => {
                 vec![expression]
             }
             Self::EntityAccess { entity, access } => {
@@ -563,7 +574,9 @@ impl Expr {
                 alternatives,
                 otherwise,
             } => Self::case_parts(operand, alternatives, otherwise).collect(),
-            Self::Function { arguments, .. } => arguments.iter().collect(),
+            Self::Function { arguments, .. } | Self::NestedCall { arguments, .. } => {
+                arguments.iter().collect()
+            }
         }
     }
 
@@ -580,10 +593,12 @@ impl Expr {
 
     pub(crate) fn contains_aggregate(&self) -> bool {
         match self {
-            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
-                expression.contains_aggregate()
+            Self::EntityList { expression, .. }
+            | Self::EntityValue { expression, .. }
+            | Self::Nested { expression, .. } => expression.contains_aggregate(),
+            Self::Function { arguments, .. } | Self::NestedCall { arguments, .. } => {
+                arguments.iter().any(Self::contains_aggregate)
             }
-            Self::Function { arguments, .. } => arguments.iter().any(Self::contains_aggregate),
             Self::Case {
                 operand,
                 alternatives,
@@ -633,9 +648,9 @@ impl Expr {
 
     pub(crate) fn is_row_dependent(&self) -> bool {
         match self {
-            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
-                expression.is_row_dependent()
-            }
+            Self::EntityList { expression, .. }
+            | Self::EntityValue { expression, .. }
+            | Self::Nested { expression, .. } => expression.is_row_dependent(),
             Self::EntityAccess { .. } => self.children().into_iter().any(Self::is_row_dependent),
             Self::Value(_) => false,
             Self::Aggregate { .. } => false,
@@ -681,7 +696,9 @@ impl Expr {
             } => Self::case_parts(operand, alternatives, otherwise).any(Self::is_row_dependent),
             // `rand()` is a fresh value per evaluation, not a row attribute,
             // so it never becomes an implicit grouping key on its own.
-            Self::Function { arguments, .. } => arguments.iter().any(Self::is_row_dependent),
+            Self::Function { arguments, .. } | Self::NestedCall { arguments, .. } => {
+                arguments.iter().any(Self::is_row_dependent)
+            }
             Self::EntityKeys(_) | Self::EntityProperties(_) => true,
             Self::Entity(_)
             | Self::Scalar(_)
@@ -707,9 +724,9 @@ impl Expr {
                 .into_iter()
                 .all(|child| child.uses_only_grouped_values(grouping)),
             Self::Value(_) | Self::Aggregate { .. } => true,
-            Self::EntityList { expression, .. } | Self::EntityValue { expression, .. } => {
-                expression.uses_only_grouped_values(grouping)
-            }
+            Self::EntityList { expression, .. }
+            | Self::EntityValue { expression, .. }
+            | Self::Nested { expression, .. } => expression.uses_only_grouped_values(grouping),
             Self::Binary { left, right, .. } => {
                 left.uses_only_grouped_values(grouping) && right.uses_only_grouped_values(grouping)
             }
@@ -775,7 +792,7 @@ impl Expr {
                 otherwise,
             } => Self::case_parts(operand, alternatives, otherwise)
                 .all(|part| part.uses_only_grouped_values(grouping)),
-            Self::Function { arguments, .. } => arguments
+            Self::Function { arguments, .. } | Self::NestedCall { arguments, .. } => arguments
                 .iter()
                 .all(|argument| argument.uses_only_grouped_values(grouping)),
             Self::EntityKeys(slot) | Self::EntityProperties(slot) => grouping
@@ -1095,6 +1112,7 @@ pub(crate) struct Query {
     pub(crate) slots: Vec<EntityKind>,
     pub(crate) scalar_slots: usize,
     pub(crate) entity_lists: Vec<(ScalarSlotId, EntityKind)>,
+    pub(crate) nested_slots: Vec<ScalarSlotId>,
     pub(crate) path_slots: usize,
     pub(crate) input: Input,
     pub(crate) mutations: Vec<Mutation>,

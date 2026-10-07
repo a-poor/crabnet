@@ -25,6 +25,7 @@ use crate::{
 mod backup;
 mod comparison;
 pub(crate) mod cursor;
+mod nested;
 mod resources;
 use resources::ExecutionContext;
 pub(crate) mod constraints;
@@ -919,6 +920,7 @@ struct ExecutionRow {
     // Typed collection slots live here during writes, so identity-based
     // property/label refreshes also reach entities retained inside a list.
     entity_lists: Vec<Option<Vec<Option<EntityValue>>>>,
+    nested_values: Vec<Option<nested::NestedValue>>,
 }
 
 impl ExecutionRow {
@@ -927,6 +929,7 @@ impl ExecutionRow {
             entities: vec![None; layout.slots.len()],
             scalars: vec![None; layout.scalar_slots],
             entity_lists: vec![None; layout.scalar_slots],
+            nested_values: vec![None; layout.scalar_slots],
         }
     }
 
@@ -935,6 +938,12 @@ impl ExecutionRow {
             .iter_mut()
             .flatten()
             .chain(self.entity_lists.iter_mut().flatten().flatten().flatten())
+            .chain(
+                self.nested_values
+                    .iter_mut()
+                    .flatten()
+                    .flat_map(nested::NestedValue::entities_mut),
+            )
     }
 
     fn set(&mut self, slots: &[EntityKind], slot: SlotId, entity: EntityValue) -> Result<()> {
@@ -1524,29 +1533,31 @@ fn with_rows_table<T>(
             context.check()?;
             // Unbound slots hold JSON `null` text, exactly as an OPTIONAL
             // MATCH leaves them in a read pipeline's intermediate rows.
-            let records =
-                std::iter::once(index.to_string())
-                    .chain(row.entities.iter().map(|entity| {
-                        entity
-                            .as_ref()
-                            .map_or_else(|| "null".to_owned(), encode_entity)
-                    }))
-                    .chain(row.scalars.iter().enumerate().map(|(slot, scalar)| {
-                        match &row.entity_lists[slot] {
-                            Some(entities) => format!(
-                                "[{}]",
-                                entities
-                                    .iter()
-                                    .map(|entity| entity
-                                        .as_ref()
-                                        .map_or_else(|| "null".to_owned(), encode_entity))
-                                    .collect::<Vec<_>>()
-                                    .join(",")
-                            ),
-                            None => scalar.clone().unwrap_or_else(|| "null".to_owned()),
-                        }
-                    }))
-                    .collect::<Vec<_>>();
+            let records = std::iter::once(index.to_string())
+                .chain(row.entities.iter().map(|entity| {
+                    entity
+                        .as_ref()
+                        .map_or_else(|| "null".to_owned(), encode_entity)
+                }))
+                .chain(row.scalars.iter().enumerate().map(|(slot, scalar)| {
+                    if let Some(value) = &row.nested_values[slot] {
+                        return value.encode().to_string();
+                    }
+                    match &row.entity_lists[slot] {
+                        Some(entities) => format!(
+                            "[{}]",
+                            entities
+                                .iter()
+                                .map(|entity| entity
+                                    .as_ref()
+                                    .map_or_else(|| "null".to_owned(), encode_entity))
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        ),
+                        None => scalar.clone().unwrap_or_else(|| "null".to_owned()),
+                    }
+                }))
+                .collect::<Vec<_>>();
             insert.execute(params_from_iter(records.iter()))?;
         }
     }
@@ -1644,6 +1655,12 @@ fn read_row_source(
                 .get_mut(slot.0)
                 .ok_or_else(|| crate::Error::Data(format!("unknown scalar slot {}", slot.0)))?;
             *destination = row.get::<_, Option<String>>(column)?;
+            if layout.nested_slots.contains(slot)
+                && let Some(encoded) = destination.as_deref()
+            {
+                execution_row.nested_values[slot.0] = Some(nested::NestedValue::decode(encoded)?);
+                *destination = None;
+            }
             if let Some((_, kind)) = layout
                 .entity_lists
                 .iter()
@@ -2128,6 +2145,8 @@ fn hydrate_pending_rows(
 
 fn decode_pending_output(encoded: &str, shape: OutputShape) -> Result<PendingValue> {
     match shape {
+        OutputShape::Nested => nested::NestedValue::decode(encoded)
+            .map(|value| PendingValue::Materialized(value.value())),
         OutputShape::Json => {
             let value = serde_json::from_str::<serde_json::Value>(encoded).map_err(|error| {
                 crate::Error::Data(format!(
@@ -2288,6 +2307,7 @@ fn upgrade_schema(connection: &mut Connection, mode: OpenMode) -> Result<()> {
 }
 
 fn register_functions(connection: &Connection) -> Result<()> {
+    nested::register(connection)?;
     connection.create_aggregate_function(
         "crabnet_collect_distinct",
         2,
@@ -2533,7 +2553,7 @@ fn register_functions(connection: &Connection) -> Result<()> {
 
 fn json_argument(context: &Context<'_>, index: usize) -> rusqlite::Result<serde_json::Value> {
     let encoded = context.get::<String>(index)?;
-    serde_json::from_str(&encoded)
+    nested::parse_json(&encoded)
         .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))
 }
 

@@ -106,7 +106,8 @@ path-derived lists compare only their own node or relationship sequence.
 derived from them, including properties of projected entities, but cannot
 use a dropped value or an unprojected aggregate. Scope violations are semantic
 errors. These keys and modifiers execute in SQLite over materialized CTEs;
-graph values remain compact identities until final hydration.
+direct path values remain compact identities until final hydration. Nested
+graph collections carry materialized entity records.
 
 `WITH DISTINCT *` deduplicates all names in scope. Over an empty scope it keeps
 at most one input row; over empty input it produces no rows. Computed `WITH`
@@ -176,8 +177,10 @@ snapshots as direct entity returns. Lists do not become ordinary JSON maps
 or storable properties. Indexing, slicing, and list comprehensions preserve
 these graph types. Comprehensions can also project scalar properties or maps,
 which produce ordinary lists. List quantifiers also accept these typed lists.
-Nested graph collections, general scalar operations, and further aggregation
-of entity lists remain unsupported.
+Lists and maps may contain entities, paths, and other graph collections.
+`count` and `collect` also accept these containers, including entity lists
+from an earlier `WITH`. General scalar operations on graph collections remain
+unsupported; see the nested collection contract below.
 
 Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
 behavior as an omitted aggregate quantifier. The parser currently rejects
@@ -411,7 +414,59 @@ is null, and `r IS NULL` tests an entity the same way. An entity compared
 with a non-entity value is not equal, including its own `elementId()` string.
 Node and relationship identities remain distinct even when their IDs match.
 Entities can be collected and then expanded with `UNWIND`. They still cannot
-be ordered directly or placed in literal lists.
+be ordered directly. Literal lists and maps may contain graph entities as
+described below.
+
+## Nested graph collections
+
+Lists and maps may mix nodes, relationships, paths, ordinary values, nulls,
+and other lists or maps. For example:
+
+```cypher
+MATCH (person:Person)-[edge:KNOWS]->(friend)
+WITH person, collect({friend: friend, edge: edge}) AS connections
+RETURN {person: person, connections: connections} AS result
+```
+
+These values retain their public `CypherValue` kinds across projections,
+`WITH`, indexing, slicing, `head`/`last`/`tail`, comprehensions, quantifiers,
+and `UNWIND`. Maps support literal and dynamic keys; absent keys and
+out-of-range indexes return null. Lists keep order, duplicates, and null
+positions. Homogeneous node or relationship members can become entity
+bindings for later matches and supported writes. A heterogeneous member can
+be projected or read with property and graph functions; it cannot become a
+pattern or mutation target until its entity kind is statically known. Rebind
+an entity with `WITH box.node AS node` before using it as a write target.
+
+`count`, `collect`, and their `DISTINCT` forms accept nested collections.
+Grouping, `WITH DISTINCT`, result distinctness, and unions compare containers
+recursively, graph entities by kind and identity, and paths by their ordered
+identities. Equality and `IN` over nested collections preserve three-valued
+null semantics; grouping treats corresponding nulls as equivalent. Ordinary
+JSON maps or lists with entity-like fields remain ordinary values.
+
+Property and label updates refresh every retained entity copy in a nested
+collection; deleted entities preserve the same snapshots as direct bindings.
+Graph values cannot be stored as properties. Known scalar fields and scalar
+projections may be stored. Unknown heterogeneous selections remain graph
+values until a scalar operation validates them. Wrong-kind dynamic graph
+access raises `Error::Type`; a failure after writes rolls back the statement.
+Eager reads and read cursors share the same value and error behavior.
+
+Collections allow at most 100 nested list/map containers. Literal depth is
+checked during planning; excess depth assembled across clauses is checked at
+runtime with rollback. Graph entities and paths count as leaves, with their
+properties governed by the separate property-value depth limit. Paths and
+path-function lists are materialized inside nested collections, so a small
+selection can still construct the complete source. Existing path-fed write
+restrictions apply.
+
+General scalar functions, concatenation, ordering, numeric/extremum aggregates,
+and `CASE` over graph collections remain unsupported. Direct whole-path
+aggregation and arbitrary expressions as `DELETE` targets also remain
+unsupported; nesting a path in a map permits collecting that map. A literal
+relationship list does not become a legacy pre-bound relationship-list
+pattern. These boundaries are independent of the typed collection transport.
 
 ## Membership and string predicates
 
@@ -472,9 +527,9 @@ existing aggregate grouping checks reject pattern predicates in mixed
 aggregate expressions. Boolean/null results may be stored as properties and
 composed inside scalar lists or maps. Retained entities observe property and
 label updates and preserve deletion snapshots. Whole entities and paths are
-rejected as list operands. Nested graph collections and the existing
-restrictions on path-fed writes remain unchanged; path-list inputs may
-materialize the full source entity list internally.
+rejected as list operands. Nested graph lists are accepted with the same
+scoping and truth rules. The restrictions on path-fed writes still apply;
+path-list inputs may materialize the full source entity list internally.
 
 ## Map key access
 
@@ -513,11 +568,11 @@ slicing, grouping, distinctness, unions, and supported writes. Null members
 count toward `size`, unlike `collect`, which omits null input values. Mutation
 refreshes and deletion snapshots also apply to entities in these lists.
 
-Nesting scalar results is supported, as is iterating the typed result of another
-comprehension. Placing graph entities inside nested lists or maps remains
-unsupported. Scalar projections can be stored as properties; entity-valued
-results cannot. Path-derived inputs retain the existing restrictions on
-path-fed writes and may materialize the full source entity list internally.
+Comprehensions may return nested lists or maps containing entities, paths,
+and other graph collections, or iterate the result of another comprehension.
+Scalar projections can be stored as properties; graph-valued results cannot.
+Path-derived inputs retain the existing restrictions on path-fed writes and
+may materialize the full source entity list internally.
 
 `size(list)` is the element count and `size(string)` the character count.
 `size(null)` is null, and so is `size` of any other kind of value, where Cypher
@@ -581,9 +636,9 @@ Indexed entities support property access, `elementId`, `labels`, `type`,
 and `count`/`collect`. `WITH list[i] AS entity` binds an entity for later
 matches and, for collected entities, writes. Slices retain their entity kind
 through aliases, `UNWIND`, grouping, `DISTINCT`, unions, and write boundaries.
-Null slices stay null rather than becoming empty lists. Entity values cannot
-be nested in ordinary scalar lists/maps or stored as properties. Existing
-restrictions on path-fed writes and optional named paths still apply.
+Null slices stay null rather than becoming empty lists. Entities can be nested
+in result lists/maps, but cannot be stored as properties. Existing restrictions
+on path-fed writes and optional named paths still apply.
 
 For path lists, indexed/sliced expressions materialize ordered entity records
 inside SQLite; bare path-list outputs retain batch hydration. An index or

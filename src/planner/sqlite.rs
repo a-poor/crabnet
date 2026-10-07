@@ -465,6 +465,7 @@ struct Scalar {
 
 #[derive(Clone, Debug)]
 enum ScalarType {
+    Encoded,
     /// Type SQL that stands on its own, such as `json_type(...)` or a
     /// constant like `'integer'`.
     Sql(String),
@@ -502,6 +503,7 @@ impl Scalar {
     /// value text, so a scope can compute the value once and type it by name.
     fn type_of(&self, value: &str) -> String {
         match &self.kind {
+            ScalarType::Encoded => format!("json_type({value}, '$')"),
             ScalarType::Sql(sql) => sql.clone(),
             ScalarType::Boolean => boolean_type(value),
             ScalarType::Nullable(type_name) => {
@@ -512,7 +514,16 @@ impl Scalar {
 
     fn into_parts(self) -> (String, String) {
         let value_type = self.type_of(&self.value);
-        (self.value, value_type)
+        let value = self.raw_value(&self.value);
+        (value, value_type)
+    }
+
+    fn raw_value(&self, value: &str) -> String {
+        if matches!(self.kind, ScalarType::Encoded) {
+            format!("json_extract({value}, '$')")
+        } else {
+            value.to_owned()
+        }
     }
 }
 
@@ -1503,6 +1514,10 @@ impl Compiler {
                         .push((expression.clone(), self.scalars[slot].clone()));
                 }
                 *expression = match expression {
+                    Expr::Nested { shape, .. } => Expr::Nested {
+                        shape: shape.clone(),
+                        expression: Box::new(Expr::Scalar(*slot)),
+                    },
                     Expr::EntityList { kind, .. } => Expr::EntityList {
                         kind: *kind,
                         expression: Box::new(Expr::Scalar(*slot)),
@@ -1768,7 +1783,9 @@ impl Compiler {
                 WithBinding::Scalar {
                     slot, expression, ..
                 } => {
-                    let function = if matches!(expression, Expr::EntityList { .. }) {
+                    let function = if matches!(expression, Expr::Nested { .. }) {
+                        "crabnet_nested_key"
+                    } else if matches!(expression, Expr::EntityList { .. }) {
                         "crabnet_entity_list_key"
                     } else {
                         "crabnet_semantic_key"
@@ -2107,6 +2124,9 @@ impl Compiler {
     }
 
     fn output_expression(&mut self, expression: &Expr) -> Result<(String, OutputShape)> {
+        if matches!(expression, Expr::Nested { .. }) {
+            return Ok((self.encoded_expression(expression)?, OutputShape::Nested));
+        }
         if let Expr::EntityValue { kind, .. } = expression {
             return Ok((
                 self.encoded_expression(expression)?,
@@ -2164,7 +2184,9 @@ impl Compiler {
             ));
         }
         let encoded = self.encoded_expression(expression)?;
-        let key = if matches!(expression, Expr::EntityList { .. }) {
+        let key = if matches!(expression, Expr::Nested { .. }) {
+            format!("crabnet_nested_key({encoded})")
+        } else if matches!(expression, Expr::EntityList { .. }) {
             format!("crabnet_entity_list_key({encoded})")
         } else {
             format!("crabnet_semantic_key({encoded})")
@@ -2197,10 +2219,106 @@ impl Compiler {
 
     /// The JSON text encoding of a scalar, as stored in result columns.
     fn encoded_expression(&mut self, expression: &Expr) -> Result<String> {
+        if matches!(expression, Expr::Nested { .. } | Expr::NestedCall { .. }) {
+            return self.encoded_nested(expression);
+        }
         self.scoped(&[expression], |_, parts| {
             let (value, value_type) = &parts[0];
             Ok(encoded_scalar(value, value_type))
         })
+    }
+
+    /// Build tagged constructors iteratively. A deeply nested literal should
+    /// not allocate several recursive SQL-compiler frames per container.
+    fn encoded_nested(&mut self, expression: &Expr) -> Result<String> {
+        use super::nested::Op;
+        enum Work<'a> {
+            Expr(&'a Expr),
+            Call(Op, usize),
+            List(usize),
+            Map(Vec<String>),
+        }
+        let mut work = vec![Work::Expr(expression)];
+        let mut values: Vec<String> = Vec::new();
+        while let Some(next) = work.pop() {
+            match next {
+                Work::Expr(expression) => {
+                    if let Some((_, encoded)) = self
+                        .projected_scalars
+                        .iter()
+                        .find(|(projected, _)| projected == expression)
+                    {
+                        values.push(encoded.clone());
+                        continue;
+                    }
+                    match expression {
+                        Expr::Nested { expression, .. } => work.push(Work::Expr(expression)),
+                        Expr::NestedCall { op, arguments } => {
+                            work.push(Work::Call(*op, arguments.len()));
+                            work.extend(arguments.iter().rev().map(Work::Expr));
+                        }
+                        Expr::List(items) => {
+                            work.push(Work::List(items.len()));
+                            work.extend(items.iter().rev().map(Work::Expr));
+                        }
+                        Expr::Map(entries) => {
+                            let keys = entries
+                                .iter()
+                                .map(|(key, _)| self.push_binding(SqlParameter::Text(key.clone())))
+                                .collect();
+                            work.push(Work::Map(keys));
+                            work.extend(entries.iter().rev().map(|(_, value)| Work::Expr(value)));
+                        }
+                        Expr::Entity(slot) => {
+                            values.push(self.encoded_entity(*slot, self.entity_kind(*slot)?)?)
+                        }
+                        Expr::Path(path) => {
+                            let nodes = self.encoded_expression(&Expr::PathFunction {
+                                kind: PathFunctionKind::Nodes,
+                                path: *path,
+                            })?;
+                            let relationships = self.encoded_expression(&Expr::PathFunction {
+                                kind: PathFunctionKind::Relationships,
+                                path: *path,
+                            })?;
+                            values.push(format!("json_object('nodes', json({nodes}), 'relationships', json({relationships}))"));
+                        }
+                        _ => values.push(self.encoded_expression(expression)?),
+                    }
+                }
+                Work::Call(op, count) => {
+                    let arguments = values.split_off(values.len() - count);
+                    values.push(format!(
+                        "crabnet_nested('{}', {})",
+                        op.name(),
+                        arguments.join(", ")
+                    ));
+                }
+                Work::List(count) => {
+                    let items = values.split_off(values.len() - count);
+                    values.push(format!(
+                        "json_array({})",
+                        items
+                            .iter()
+                            .map(|value| format!("json({value})"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                Work::Map(keys) => {
+                    let items = values.split_off(values.len() - keys.len());
+                    values.push(format!(
+                        "json_object({})",
+                        keys.iter()
+                            .zip(items)
+                            .map(|(key, value)| format!("{key}, json({value})"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+            }
+        }
+        Ok(values.pop().expect("nested expression result"))
     }
 
     /// Compiles each operand once and builds `body` over short references to
@@ -2299,7 +2417,8 @@ impl Compiler {
             let value_type = format!("t{scope}_{index}");
             let bound_type = scalar.type_of(&format!("b{scope}.{value}"));
             values.push(format!("({}) AS {value}", scalar.value));
-            typed.push(format!("b{scope}.{value}, ({bound_type}) AS {value_type}"));
+            let raw = scalar.raw_value(&format!("b{scope}.{value}"));
+            typed.push(format!("{raw} AS {value}, ({bound_type}) AS {value_type}"));
             parts.push((
                 format!("s{scope}.{value}"),
                 format!("s{scope}.{value_type}"),
@@ -2457,9 +2576,13 @@ impl Compiler {
             ));
         }
         match expression {
-            Expr::EntityList { expression, .. } | Expr::EntityValue { expression, .. } => {
-                self.compile_scalar(expression)
-            }
+            Expr::NestedCall { .. } => Ok(Scalar {
+                value: self.encoded_nested(expression)?,
+                kind: ScalarType::Encoded,
+            }),
+            Expr::Nested { expression, .. }
+            | Expr::EntityList { expression, .. }
+            | Expr::EntityValue { expression, .. } => self.compile_scalar(expression),
             Expr::EntityAccess { entity, access } => self.computed_entity_access(entity, access),
             Expr::Entity(_) => Err(Error::Unsupported(
                 "graph entities in scalar expressions".to_owned(),
@@ -3503,6 +3626,20 @@ impl Compiler {
         let argument = argument.ok_or_else(|| {
             Error::Data("logical aggregate other than count() is missing its argument".into())
         })?;
+
+        if matches!(argument, Expr::Nested { .. }) {
+            let encoded = self.encoded_expression(argument)?;
+            let key =
+                format!("CASE WHEN ({encoded}) <> 'null' THEN crabnet_nested_key({encoded}) END");
+            return match kind {
+                AggregateKind::Collect => Ok(self.collect_scalar(encoded, key, distinct)),
+                AggregateKind::Count => Ok(Scalar::sql(
+                    format!("COUNT({}{key})", if distinct { "DISTINCT " } else { "" }),
+                    "'integer'",
+                )),
+                _ => Err(Error::Data("unsupported graph collection aggregate".into())),
+            };
+        }
 
         if let Expr::EntityValue { .. } = argument {
             let encoded = self.encoded_expression(argument)?;

@@ -1,6 +1,7 @@
 mod explain;
 mod logical;
 mod lower;
+mod nested;
 mod physical;
 mod sqlite;
 mod typecheck;
@@ -147,6 +148,7 @@ fn compile_logical(query: Query) -> Result<Plan> {
         slots: query.slots.clone(),
         scalar_slots: query.scalar_slots,
         entity_lists: query.entity_lists.clone(),
+        nested_slots: query.nested_slots.clone(),
     };
     // Every later read segment continues from the rows the mutations before
     // it leave behind, seeing the variables live at that point.
@@ -266,6 +268,7 @@ pub(crate) struct RowLayout {
     pub(crate) slots: Vec<EntityKind>,
     pub(crate) scalar_slots: usize,
     pub(crate) entity_lists: Vec<(ScalarSlotId, EntityKind)>,
+    pub(crate) nested_slots: Vec<ScalarSlotId>,
 }
 
 impl RowLayout {

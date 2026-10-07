@@ -613,12 +613,69 @@ fn render_projection(renderer: &mut Renderer, projection: &Projection) {
     );
 }
 
+fn render_nested(expression: &Expr) -> String {
+    enum Part<'a> {
+        Expr(&'a Expr),
+        Text(String),
+    }
+    let mut pending = vec![Part::Expr(expression)];
+    let mut output = String::new();
+    while let Some(part) = pending.pop() {
+        match part {
+            Part::Text(text) => output.push_str(&text),
+            Part::Expr(expression) => match expression {
+                Expr::Nested { expression, .. } => {
+                    output.push_str("nested(");
+                    pending.push(Part::Text(")".into()));
+                    pending.push(Part::Expr(expression));
+                }
+                Expr::NestedCall { op, arguments } => {
+                    output.push_str(&format!("nested-{}(", op.name()));
+                    pending.push(Part::Text(")".into()));
+                    for (index, value) in arguments.iter().enumerate().rev() {
+                        pending.push(Part::Expr(value));
+                        if index > 0 {
+                            pending.push(Part::Text(", ".into()));
+                        }
+                    }
+                }
+                Expr::List(items) => {
+                    output.push_str("list[");
+                    pending.push(Part::Text("]".into()));
+                    for (index, value) in items.iter().enumerate().rev() {
+                        pending.push(Part::Expr(value));
+                        if index > 0 {
+                            pending.push(Part::Text(", ".into()));
+                        }
+                    }
+                }
+                Expr::Map(entries) => {
+                    output.push_str("map{");
+                    pending.push(Part::Text("}".into()));
+                    let mut entries = entries.iter().collect::<Vec<_>>();
+                    entries.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (index, (key, value)) in entries.into_iter().enumerate().rev() {
+                        pending.push(Part::Expr(value));
+                        pending.push(Part::Text(format!("{}: ", quote(key))));
+                        if index > 0 {
+                            pending.push(Part::Text(", ".into()));
+                        }
+                    }
+                }
+                _ => output.push_str(&render_expr(expression)),
+            },
+        }
+    }
+    output
+}
+
 fn render_expr(expression: &Expr) -> String {
     match expression {
         Expr::Value(value) => render_value_expr(value),
         Expr::Entity(slot) => format!("entity({})", slot_name(*slot)),
         Expr::EntityIdentity(slot) => format!("entity-identity({})", slot_name(*slot)),
         Expr::Scalar(slot) => format!("scalar({})", scalar_slot_name(*slot)),
+        Expr::Nested { .. } | Expr::NestedCall { .. } => render_nested(expression),
         Expr::EntityValue { kind, expression } => {
             format!("entity-value({kind:?}, {})", render_expr(expression))
         }

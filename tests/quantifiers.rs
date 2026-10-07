@@ -224,14 +224,10 @@ fn quantifier_rejections_and_plan_rendering_are_explicit() {
         "{error:?}"
     );
     let error = database
-        .execute("MATCH (n) RETURN any(x IN [n] WHERE x.name = 'a') AS value")
+        .execute("MATCH (n) RETURN any(x IN [n] WHERE type(x) = 'a') AS value")
         .unwrap_err();
-    // Literal lists containing graph entities remain unsupported; use a
-    // typed source such as collect(n) or nodes(path) instead.
-    assert!(
-        matches!(&error, Error::Semantic(message) if message.contains("not a scalar")),
-        "{error:?}"
-    );
+    // A literal node list retains the member kind; type() requires a relationship.
+    assert!(matches!(&error, Error::Semantic(_)), "{error:?}");
     let error = database
         .execute("RETURN any(x IN [1] WHERE y = 1) AS value")
         .unwrap_err();

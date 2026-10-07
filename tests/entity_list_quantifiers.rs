@@ -308,17 +308,10 @@ fn invalid_predicates_fail_with_structured_errors_and_roll_back_writes() {
             "{query}: {error:?}"
         );
     }
-    for list in ["ns[0]", "[ns]", "[ns[0]]"] {
-        let query =
-            format!("MATCH (n:Step) WITH collect(n) AS ns RETURN all(n IN {list} WHERE true)");
-        assert!(
-            matches!(
-                db.execute(&query),
-                Err(Error::Semantic(_) | Error::Unsupported(_))
-            ),
-            "{query}"
-        );
-    }
+    assert!(matches!(
+        db.execute("MATCH (n:Step) WITH collect(n) AS ns RETURN all(n IN ns[0] WHERE true)"),
+        Err(Error::Semantic(_))
+    ));
     assert!(matches!(
         db.execute("MATCH p = ()-->() RETURN any(n IN p WHERE true)"),
         Err(Error::Semantic(_))

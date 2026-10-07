@@ -1,0 +1,132 @@
+//! Type information for collections that contain graph values. Their private
+//! tagged transport is separate from property JSON, including user maps that
+//! happen to look like entity records.
+use std::collections::BTreeMap;
+
+use super::logical::{EntityKind, Expr};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Shape {
+    Json,
+    Null,
+    Entity(EntityKind),
+    Path,
+    List(Box<Self>),
+    Tuple(Vec<Self>),
+    Map(BTreeMap<String, Self>),
+    Mixed,
+}
+
+impl Shape {
+    pub(crate) fn contains_graph(&self) -> bool {
+        match self {
+            Self::Json | Self::Null => false,
+            Self::List(value) => value.contains_graph(),
+            Self::Tuple(values) => values.iter().any(Self::contains_graph),
+            Self::Map(values) => values.values().any(Self::contains_graph),
+            _ => true,
+        }
+    }
+    pub(crate) fn element(&self) -> Self {
+        match self {
+            Self::List(element) => *element.clone(),
+            Self::Tuple(elements) => Self::merge(elements.iter()),
+            _ => Self::Mixed,
+        }
+    }
+
+    pub(crate) fn merge<'a>(shapes: impl IntoIterator<Item = &'a Self>) -> Self {
+        let mut shapes = shapes.into_iter().filter(|shape| **shape != Self::Null);
+        let Some(first) = shapes.next() else {
+            return Self::Json;
+        };
+        if shapes.all(|shape| shape == first) {
+            first.clone()
+        } else {
+            Self::Mixed
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Op {
+    Json,
+    Node,
+    Relationship,
+    Nodes,
+    Relationships,
+    Path,
+    List,
+    Map,
+    Payload,
+    ToJson,
+    Elements,
+    EntityList,
+    Get,
+    Property,
+    Size,
+    Equal,
+    In,
+    ElementId,
+    Labels,
+    RelationshipType,
+    Properties,
+    Keys,
+    HasLabel,
+    Length,
+    PathNodes,
+    PathRelationships,
+}
+
+impl Op {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::Node => "node",
+            Self::Relationship => "relationship",
+            Self::Nodes => "nodes",
+            Self::Relationships => "relationships",
+            Self::Path => "path",
+            Self::List => "list",
+            Self::Map => "map",
+            Self::Payload => "payload",
+            Self::ToJson => "to_json",
+            Self::Elements => "elements",
+            Self::EntityList => "entity_list",
+            Self::Get => "get",
+            Self::Property => "property",
+            Self::Size => "size",
+            Self::Equal => "equal",
+            Self::In => "in",
+            Self::ElementId => "element_id",
+            Self::Labels => "labels",
+            Self::RelationshipType => "relationship_type",
+            Self::Properties => "properties",
+            Self::Keys => "keys",
+            Self::HasLabel => "has_label",
+            Self::Length => "length",
+            Self::PathNodes => "path_nodes",
+            Self::PathRelationships => "path_relationships",
+        }
+    }
+}
+
+pub(crate) fn call(op: Op, arguments: Vec<Expr>) -> Expr {
+    Expr::NestedCall { op, arguments }
+}
+
+/// Recover a statically known entity or property value after selecting a
+/// tagged member. Containers and heterogeneous selections retain their tag.
+pub(crate) fn restore(shape: Shape, expression: Expr) -> Expr {
+    match shape {
+        Shape::Json | Shape::Null => call(Op::ToJson, vec![expression]),
+        Shape::Entity(kind) => Expr::EntityValue {
+            kind,
+            expression: Box::new(call(Op::Payload, vec![expression])),
+        },
+        shape => Expr::Nested {
+            shape: Box::new(shape),
+            expression: Box::new(expression),
+        },
+    }
+}

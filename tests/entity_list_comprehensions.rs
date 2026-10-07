@@ -352,13 +352,9 @@ fn graph_lists_refresh_through_writes_and_keep_nulls_and_deleted_snapshots() {
 }
 
 #[test]
-fn unsupported_graph_nesting_and_entity_scalar_uses_remain_structured_errors() {
+fn unsupported_entity_scalar_uses_remain_structured_errors() {
     let mut db = graph();
     for projection in [
-        "[n IN ns | [n]]",
-        "[n IN ns | {n:n}]",
-        "[n IN ns | ns]",
-        "[n IN ns | [m IN ns | m]]",
         "[n IN ns | n + 1]",
         "[n IN ns WHERE n | n]",
         "[n IN ns | count(n)]",

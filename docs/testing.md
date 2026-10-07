@@ -68,6 +68,11 @@ end-to-end result test for user-visible semantics.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
+- `tests/nested_graph_collections.rs` covers recursively typed node, relationship,
+  and path containers; mixed selections and forged-record isolation; aliases,
+  iteration, aggregation, identity-based grouping/distinctness, writes and
+  rollback, mutation snapshots, depth guards, and eager/cursor parity. Depth
+  tests exercise explanation and execution on the default thread stack.
 - `tests/entity_list_quantifiers.rs` covers `all`, `any`, `none`, and `single`
   over collected entities and every path-list transport: typed member access,
   null/empty truth tables, duplicates, scoped patterns and nested bindings,
