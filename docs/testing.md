@@ -84,6 +84,13 @@ end-to-end result test for user-visible semantics.
   plain parameter isolation, Unicode/scalar reversal parity, aggregation and
   identity, mutation refresh/deletion snapshots, write bags and rollback,
   cursor errors, depth limits, and bounded SQL growth.
+- `tests/graph_conditionals.rs` covers graph-aware `coalesce` and `CASE`:
+  typed entity selection/rebinding, identity-based simple selectors, paths
+  across every transport, nested/mixed results, nulls/empty collections,
+  branch and condition short-circuiting, random value/type consistency,
+  parameter isolation, aggregates/grouping/distinctness/unions, mutation
+  refresh/deletion snapshots, write bags/rollback, cursor parity/errors,
+  depth limits, and bounded SQL growth.
 - `tests/entity_list_quantifiers.rs` covers `all`, `any`, `none`, and `single`
   over collected entities and every path-list transport: typed member access,
   null/empty truth tables, duplicates, scoped patterns and nested bindings,

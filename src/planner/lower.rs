@@ -2491,6 +2491,7 @@ impl<'source> Lowerer<'source> {
             ExprKind::Binary { operator, .. } if operator.kind == BinaryOperator::Add => {
                 self.add_expression(expression, aliases, expression_depth)
             }
+            ExprKind::Case(_) => self.case_expression(expression, aliases, expression_depth),
             ExprKind::ListComprehension(comprehension) => {
                 self.list_comprehension(comprehension, aliases, expression_depth)
             }
@@ -2528,6 +2529,85 @@ impl<'source> Lowerer<'source> {
                 self.scalar_expression_with_aliases_at_depth(expression, aliases, expression_depth)
             }
         }
+    }
+
+    /// Select values in their native transport. Graph results use private
+    /// tags; agreeing branches retain their shape for later typed access.
+    fn case_expression(
+        &self,
+        expression: &AstExpr,
+        aliases: &HashMap<String, Expr>,
+        expression_depth: usize,
+    ) -> Result<Expr> {
+        let ExprKind::Case(case) = &expression.kind else {
+            unreachable!("a CASE expression was matched");
+        };
+        let lower = |value: &AstExpr| {
+            self.output_expression_with_aliases_at_depth(value, aliases, expression_depth + 1)
+        };
+        let mut operand = case.operand.as_deref().map(lower).transpose()?;
+        let mut alternatives = Vec::with_capacity(case.alternatives.len());
+        for alternative in &case.alternatives {
+            let conditions = alternative
+                .when
+                .iter()
+                .map(|condition| {
+                    if operand.is_some() {
+                        lower(condition)
+                    } else {
+                        self.scalar_expression_with_aliases_at_depth(
+                            condition,
+                            aliases,
+                            expression_depth + 1,
+                        )
+                    }
+                })
+                .collect::<Result<Vec<_>>>()?;
+            alternatives.push(CaseAlternative {
+                conditions,
+                result: lower(&alternative.then)?,
+            });
+        }
+        let mut otherwise = case.else_expression.as_deref().map(lower).transpose()?;
+        // Mark simple CASE selectors as tagged whenever any selector can
+        // contain a graph value. SQL compares these with graph-aware equality.
+        if operand.is_some()
+            && operand
+                .iter()
+                .chain(alternatives.iter().flat_map(|a| &a.conditions))
+                .any(|value| self.nested_shape(value).contains_graph())
+        {
+            let pack = |value| nested::restore(NestedShape::Mixed, self.pack_nested(value));
+            operand = operand.map(pack);
+            for alternative in &mut alternatives {
+                alternative.conditions = std::mem::take(&mut alternative.conditions)
+                    .into_iter()
+                    .map(pack)
+                    .collect();
+            }
+        }
+        let shapes = alternatives
+            .iter()
+            .map(|a| self.nested_shape(&a.result))
+            .chain(otherwise.iter().map(|value| self.nested_shape(value)))
+            .collect::<Vec<_>>();
+        let graph = shapes.iter().any(NestedShape::contains_graph);
+        if graph {
+            for alternative in &mut alternatives {
+                alternative.result = self.pack_nested(alternative.result.clone());
+            }
+            otherwise = otherwise.map(|value| self.pack_nested(value));
+        }
+        let result = Expr::Case {
+            operand: operand.map(Box::new),
+            alternatives,
+            otherwise: otherwise.map(Box::new),
+        };
+        Ok(if graph {
+            nested::restore(NestedShape::merge(shapes.iter()), result)
+        } else {
+            result
+        })
     }
 
     fn collection_expression(
@@ -3058,57 +3138,10 @@ impl<'source> Lowerer<'source> {
                     expression.span,
                 )
             }
-            ExprKind::Case(case) => {
-                let operand = case
-                    .operand
-                    .as_deref()
-                    .map(|operand| {
-                        self.scalar_expression_with_aliases_at_depth(
-                            operand,
-                            aliases,
-                            expression_depth + 1,
-                        )
-                        .map(Box::new)
-                    })
-                    .transpose()?;
-                let mut alternatives = Vec::with_capacity(case.alternatives.len());
-                for alternative in &case.alternatives {
-                    let conditions = alternative
-                        .when
-                        .iter()
-                        .map(|condition| {
-                            self.scalar_expression_with_aliases_at_depth(
-                                condition,
-                                aliases,
-                                expression_depth + 1,
-                            )
-                        })
-                        .collect::<Result<Vec<_>>>()?;
-                    let result = self.scalar_expression_with_aliases_at_depth(
-                        &alternative.then,
-                        aliases,
-                        expression_depth + 1,
-                    )?;
-                    alternatives.push(CaseAlternative { conditions, result });
-                }
-                let otherwise = case
-                    .else_expression
-                    .as_deref()
-                    .map(|otherwise| {
-                        self.scalar_expression_with_aliases_at_depth(
-                            otherwise,
-                            aliases,
-                            expression_depth + 1,
-                        )
-                        .map(Box::new)
-                    })
-                    .transpose()?;
-                Ok(Expr::Case {
-                    operand,
-                    alternatives,
-                    otherwise,
-                })
-            }
+            ExprKind::Case(_) => require_scalar_context(
+                self.case_expression(expression, aliases, expression_depth)?,
+                expression.span,
+            ),
             ExprKind::ListComprehension(comprehension) => {
                 let lowered = self.list_comprehension(comprehension, aliases, expression_depth)?;
                 require_scalar_context(lowered, expression.span)
@@ -3674,6 +3707,36 @@ impl<'source> Lowerer<'source> {
                         arguments: vec![argument],
                     }),
                 }
+            }
+            "coalesce" => {
+                if function.arguments.is_empty() {
+                    return Err(semantic(span, "coalesce() requires at least 1 argument(s)"));
+                }
+                let mut arguments = function
+                    .arguments
+                    .iter()
+                    .map(lower_one)
+                    .collect::<Result<Vec<_>>>()?;
+                let shapes = arguments
+                    .iter()
+                    .map(|value| self.nested_shape(value))
+                    .collect::<Vec<_>>();
+                let graph = shapes.iter().any(NestedShape::contains_graph);
+                if graph {
+                    arguments = arguments
+                        .into_iter()
+                        .map(|value| self.pack_nested(value))
+                        .collect();
+                }
+                let result = Expr::Function {
+                    function: ScalarFunction::Coalesce,
+                    arguments,
+                };
+                Ok(if graph {
+                    nested::restore(NestedShape::merge(shapes.iter()), result)
+                } else {
+                    result
+                })
             }
             "head" | "last" | "tail" | "reverse" => {
                 let [argument] = function.arguments.as_slice() else {
@@ -4578,6 +4641,15 @@ fn contains_graph_value(expression: &Expr) -> bool {
             | Expr::Quantified { .. }
     ) {
         return false;
+    }
+    if let Expr::Case {
+        alternatives,
+        otherwise,
+        ..
+    } = expression
+    {
+        return alternatives.iter().any(|a| contains_graph_value(&a.result))
+            || otherwise.as_deref().is_some_and(contains_graph_value);
     }
     if let Expr::ListComprehension {
         list, projection, ..

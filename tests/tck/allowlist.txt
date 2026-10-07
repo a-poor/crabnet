@@ -474,6 +474,7 @@ clauses/match/Match7.feature::[10] Optionally matching from null nodes should re
 clauses/match/Match7.feature::[11] Return two subgraphs with bound undirected relationship and optional relationship
 clauses/match/Match7.feature::[1] Simple OPTIONAL MATCH on empty graph
 clauses/match/Match7.feature::[21] Handling optional matches between nulls
+clauses/match/Match7.feature::[22] MATCH after OPTIONAL MATCH
 clauses/match/Match7.feature::[23] OPTIONAL MATCH with labels on the optional end node
 clauses/match/Match7.feature::[24] Optionally matching self-loops
 clauses/match/Match7.feature::[25] Optionally matching self-loops without matches

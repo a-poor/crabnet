@@ -190,12 +190,13 @@ fn case_sql_stays_linear_and_explains() {
         "{shallow} {middle} {deep}"
     );
 
-    let error = Database::in_memory()
-        .unwrap()
-        .execute("MATCH p = (n) RETURN CASE p WHEN 1 THEN 1 END AS r")
-        .unwrap_err();
-    assert!(
-        matches!(error, Error::Unsupported(_) | Error::Semantic { .. }),
-        "{error:?}"
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE ()").unwrap();
+    assert_eq!(
+        single(
+            &mut database,
+            "MATCH p = (n) RETURN CASE p WHEN 1 THEN 1 END AS r"
+        ),
+        [NULL]
     );
 }

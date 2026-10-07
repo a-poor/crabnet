@@ -270,7 +270,8 @@ Within those shapes, the first iteration supports:
   `[n.a, n.b + 1]` or `{key: n.a}`
 - `list[i]`, `map[k]`, `entity[k]`, `list[a..b]`, `range()`, and string and
   list concatenation with `+`, including entity lists and mixed graph collections
-- `CASE` expressions in the simple and generic forms
+- `CASE` expressions in the simple and generic forms, including graph-valued results
+  and identity-based graph selectors
 - scalar functions: `coalesce`, `keys`, `properties`, `head`, `last`, `tail`,
   `reverse`, `toInteger`, `toFloat`, `toString`, `toBoolean`, `toLower`,
   `toUpper`, `trim`, `ltrim`, `rtrim`, `substring`, `left`, `right`,
@@ -480,10 +481,10 @@ part, with a lower bound above one, or in a write query. Named paths or
 relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,
 traversal-fed writes (including writes fed by a relationship list), writes fed
 by any named path, match modes and hints, parameter-map matching,
-exponentiation (`^`), and concatenation (`||`). Paths also cannot
-themselves be scalar operands, aggregate inputs/grouping keys, or ordering
-keys; use `length(path)` where an integer scalar is required. Typed graph lists
-from `nodes` and `relationships` retain the context restrictions above.
+exponentiation (`^`), and concatenation (`||`). Bare path bindings cannot be
+general scalar operands, aggregate inputs/grouping keys, or ordering keys;
+use `length(path)` where an integer scalar is required. Typed graph lists from
+`nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
 `DISTINCT`, `size()`, `UNWIND`, indexing, slicing, comprehensions, list
 quantifiers, concatenation with `+`, and `head`, `last`, `tail`, and `reverse`.
@@ -497,6 +498,12 @@ null member. Paths may also be appended or prepended to lists.
 The four list functions also accept path-function lists and mixed nested lists.
 `head(reverse(people))` retains the last node's identity; `tail(people)` keeps
 the remaining members in order. Reversal changes only the outer list order.
+`coalesce` and both forms of `CASE` select nodes, relationships, paths, and
+nested graph collections while preserving identity. For example,
+`coalesce(friend, person)` supplies a fallback after an optional match.
+Agreeing result kinds remain available for later matches and supported writes;
+unused arguments and branches do not raise runtime errors. All parameters
+and static expression errors are still checked before execution.
 Comprehensions such as `[n IN people WHERE n.active]`,
 `[n IN nodes(path) | n.name]`, and `[r IN relationships(path) | r.weight]`
 filter typed entities or project ordinary values while keeping list order,

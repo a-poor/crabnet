@@ -515,11 +515,13 @@ an incompatible dynamically selected graph value raises `Error::Type`.
 Existing indexing/slicing rules govern `head`, `last`, and `tail`. The same
 depth limits, materialization costs, and path-fed write restrictions apply.
 
-Other general scalar functions, ordering, numeric/extremum aggregates,
-and `CASE` over graph collections remain unsupported. Direct whole-path
-aggregation remains unsupported; nesting a path in a map permits collecting
-that map. Node and relationship expressions, including dynamically selected
-members, may be used directly as `DELETE` targets. A literal
+`coalesce` and both forms of `CASE` also preserve graph values; see
+[conditional graph values](#conditional-graph-values). Other general scalar
+functions, ordering, and numeric/extremum aggregates over graph collections
+remain unsupported. Aggregating a bare path binding remains unsupported;
+a path selected through a conditional, or nested in a map, uses the tagged
+transport and can be collected. Node and relationship expressions, including
+dynamically selected members, may be used directly as `DELETE` targets. A literal
 relationship list does not become a legacy pre-bound relationship-list
 pattern. These boundaries are independent of the typed collection transport.
 
@@ -726,6 +728,51 @@ decides the type, and the result feeds arithmetic, comparisons, predicates,
 `WITH`, `CASE` may contain aggregate calls in its operand, conditions, and
 results. Those aggregates run over the group before branch selection.
 
+### Conditional graph values
+
+`coalesce` and both forms of `CASE` can select nodes, relationships, paths,
+entity lists, and mixed or nested graph collections. The selected value
+retains graph identity, list order, duplicate and null members, and the usual
+mutation refresh and deletion snapshots. Ordinary parameter maps and lists
+remain ordinary values, even if they resemble internal entity records.
+
+If all non-null result shapes agree, the result retains that shape. Node and
+relationship selections can therefore feed a later match or an aliased
+`SET`/`REMOVE`, and can be used directly as `DELETE` targets:
+
+```cypher
+MATCH (person:Person)
+OPTIONAL MATCH (person)-[:KNOWS]->(friend)
+WITH coalesce(friend, person) AS chosen
+RETURN chosen.name
+```
+
+Different result shapes retain their runtime tags. They support dynamic
+property access, collection selection, and other operations that accept mixed
+graph values, but cannot become a statically typed pattern binding. A null
+literal or omitted `ELSE` does not erase an otherwise known shape; an unknown
+parameter or property may have a different type and is treated conservatively.
+Selected paths support `length`, `nodes`, and `relationships`. Conditional
+results compose with collection functions, comprehensions, quantifiers,
+aggregation, grouping, distinctness, and unions. Existing depth limits,
+materialization costs, and restrictions on writes fed by paths still apply.
+
+Simple `CASE` selectors accept graph values and nested collections. Nodes
+and relationships compare by typed identity, paths by their graph identity
+sequence, and lists/maps recursively; a null comparison does not match.
+Generic `CASE` conditions retain the boolean/null predicate rules.
+
+`coalesce` evaluates arguments in order until a non-null value is found;
+false, zero, empty strings, and empty collections are all non-null. `CASE`
+stops testing conditions at the first match and evaluates its selected
+result. Runtime errors in unused arguments, later conditions, or unselected
+results are skipped. Static errors and missing parameters anywhere in the
+statement are still rejected before execution. Aggregate inputs are evaluated
+for the group before conditional selection, including aggregates in unused
+branches. The upstream parser requires an escaped function name for `collect`
+in some `CASE` results (for example, ``THEN `collect`(n)``); binding the
+collection in an earlier `WITH` also works.
+
 ## Scalar functions
 
 `keys()`, `properties()`, and the conversion functions reject an argument of a
@@ -736,7 +783,8 @@ wrong kind, where Cypher raises a type error. Function names are
 case-insensitive, and calling one with the wrong number of
 arguments is a semantic error.
 
-- `coalesce(a, b, ...)` returns the first non-null argument.
+- `coalesce(a, b, ...)` returns the first non-null argument, including graph
+  values, and skips the remaining arguments (see [conditional graph values](#conditional-graph-values)).
 - `keys(x)` returns the property names of a node, relationship, or map as a
   list, and `properties(x)` returns them as a map. Stored property maps and
   map literals keep their keys sorted, so the order is alphabetical. An

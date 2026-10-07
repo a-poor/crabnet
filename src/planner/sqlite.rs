@@ -2219,8 +2219,34 @@ impl Compiler {
 
     /// The JSON text encoding of a scalar, as stored in result columns.
     fn encoded_expression(&mut self, expression: &Expr) -> Result<String> {
+        if let Some((_, encoded)) = self
+            .projected_scalars
+            .iter()
+            .find(|(projected, _)| projected == expression)
+        {
+            return Ok(encoded.clone());
+        }
         if matches!(expression, Expr::Nested { .. } | Expr::NestedCall { .. }) {
             return self.encoded_nested(expression);
+        }
+        if let Expr::Case {
+            operand,
+            alternatives,
+            otherwise,
+        } = expression
+        {
+            return self
+                .case_expression(operand.as_deref(), alternatives, otherwise.as_deref(), true)
+                .map(|scalar| scalar.value);
+        }
+        if let Expr::Function {
+            function: ScalarFunction::Coalesce,
+            arguments,
+        } = expression
+        {
+            return self
+                .scalar_function(ScalarFunction::Coalesce, arguments)
+                .map(|scalar| scalar.value);
         }
         self.scoped(&[expression], |_, parts| {
             let (value, value_type) = &parts[0];
@@ -2828,7 +2854,12 @@ impl Compiler {
                 operand,
                 alternatives,
                 otherwise,
-            } => self.case_expression(operand.as_deref(), alternatives, otherwise.as_deref()),
+            } => self.case_expression(
+                operand.as_deref(),
+                alternatives,
+                otherwise.as_deref(),
+                false,
+            ),
             Expr::Function {
                 function,
                 arguments,
@@ -3386,31 +3417,20 @@ impl Compiler {
                 Ok(Scalar::nullable(value, "array"))
             }
             ScalarFunction::Coalesce => {
-                // The type must follow the value that was picked, and a
-                // statically typed scalar (an element id, say) can still be
-                // null, so both outputs test the bound values.
-                let mut compiled = Vec::with_capacity(arguments.len());
-                for argument in arguments {
-                    compiled.push((self.compile_scalar(argument)?, is_inline_operand(argument)));
-                }
-                let pick = |parts: &[(String, String)],
-                            choose: fn(&(String, String)) -> &String,
-                            default: &str| {
-                    let arms = parts
-                        .iter()
-                        .map(|part| {
-                            format!(" WHEN ({}) IS NOT NULL THEN ({})", part.0, choose(part))
-                        })
-                        .collect::<String>();
-                    format!("(CASE{arms} ELSE {default} END)")
-                };
-                let value = self.scoped_scalars(compiled.clone(), |_, parts| {
-                    Ok(pick(parts, |part| &part.0, "NULL"))
-                })?;
-                let value_type = self.scoped_scalars(compiled, |_, parts| {
-                    Ok(pick(parts, |part| &part.1, "'null'"))
-                })?;
-                Ok(Scalar::sql(value, value_type))
+                // SQLite's COALESCE is lazy. Pick encoded JSON so its type
+                // travels with its value, and evaluate each argument only
+                // when the preceding values were null.
+                let arguments = arguments
+                    .iter()
+                    .map(|argument| {
+                        self.conditional_expression(|this| this.encoded_expression(argument))
+                            .map(|value| format!("nullif(({value}), 'null')"))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(Scalar {
+                    value: format!("coalesce({}, 'null')", arguments.join(", ")),
+                    kind: ScalarType::Encoded,
+                })
             }
             ScalarFunction::Keys => {
                 let value = self.scoped(&operands, |this, parts| {
@@ -3441,130 +3461,105 @@ impl Compiler {
         }
     }
 
-    /// Compiles a `CASE` expression. With an operand, an alternative matches
-    /// when the operand equals one of its `WHEN` values under Cypher
-    /// equality (so a null operand never matches); without one, it matches
-    /// when its predicate is true.
-    ///
-    /// The selectors (operand and conditions) are evaluated once into a
-    /// branch number that is bound in a scope; the value and the type then
-    /// each pick the matching result from it. Results therefore appear once
-    /// in the value and once, as their standalone types, in the type, which
-    /// keeps `CASE` nested in results linear. Aggregate leaves have already
-    /// been materialized by the enclosing projection.
+    /// Keep random sources inside the conditional branch that uses them.
+    /// The surrounding row anchor makes these local sources run per row.
+    fn conditional_expression(
+        &mut self,
+        compile: impl FnOnce(&mut Self) -> Result<String>,
+    ) -> Result<String> {
+        let (value, sources) = self.capture_sources(compile)?;
+        Ok(if sources.is_empty() {
+            value
+        } else {
+            format!("(SELECT ({value}) FROM (SELECT 1){sources})")
+        })
+    }
+
+    /// Select a branch lazily. Binding only the simple CASE operand avoids
+    /// hoisting later conditions out of their conditional scopes. Encoded
+    /// results carry their type with their value; scalar operators can instead
+    /// request separate value/type SQL to keep nested arithmetic linear.
     fn case_expression(
         &mut self,
         operand: Option<&Expr>,
         alternatives: &[CaseAlternative],
         otherwise: Option<&Expr>,
+        encoded: bool,
     ) -> Result<Scalar> {
-        struct Part {
-            scalar: Scalar,
-            inline: bool,
-            native_boolean: bool,
-        }
-        let compile = |this: &mut Self, part: &Expr| {
-            let scalar = this.compile_scalar(part)?;
-            Ok::<_, Error>(Part {
-                native_boolean: matches!(scalar.kind, ScalarType::Boolean),
-                inline: is_inline_operand(part),
-                scalar,
-            })
-        };
-        let operand = operand.map(|operand| compile(self, operand)).transpose()?;
-        let has_operand = operand.is_some();
-        let mut conditions = Vec::with_capacity(alternatives.len());
-        let mut results = Vec::with_capacity(alternatives.len() + 1);
-        for alternative in alternatives {
-            let arm = alternative
-                .conditions
-                .iter()
-                .map(|condition| compile(self, condition))
-                .collect::<Result<Vec<_>>>()?;
-            conditions.push(arm);
-            results.push(compile(self, &alternative.result)?);
-        }
-        let otherwise = otherwise
-            .map(|otherwise| compile(self, otherwise))
-            .transpose()?;
-
-        // Selector parts are laid out as [operand?] ++ conditions, in order;
-        // this builds each arm's SQL condition over their bound (value, type).
-        let native = conditions
-            .iter()
-            .map(|arm| {
-                arm.iter()
-                    .map(|part| part.native_boolean)
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>();
-        let arm_conditions = move |parts: &[(String, String)]| {
-            let mut next = usize::from(has_operand);
-            native
-                .iter()
-                .map(|arm| {
-                    arm.iter()
-                        .map(|&native_boolean| {
-                            let (value, value_type) = &parts[next];
-                            next += 1;
-                            if has_operand {
-                                let (operand, operand_type) = &parts[0];
+        let graph = matches!(operand, Some(Expr::Nested { .. }));
+        let compiled = operand
+            .map(|value| self.compile_scalar(value).map(|scalar| (scalar, false)))
+            .transpose()?
+            .into_iter()
+            .collect();
+        let branch = self.scoped_scalars(compiled, |this, operand| {
+            let mut arms = String::new();
+            for (index, alternative) in alternatives.iter().enumerate() {
+                for condition in &alternative.conditions {
+                    let condition = if let Some((left, left_type)) = operand.first() {
+                        this.scoped(&[condition], |_, parts| {
+                            let (right, right_type) = &parts[0];
+                            Ok(if graph {
+                                format!(
+                                    "json_extract(crabnet_nested('equal', {}, {}), '$')",
+                                    encoded_scalar(left, left_type),
+                                    encoded_scalar(right, right_type)
+                                )
+                            } else {
                                 typed_sql_comparison(
-                                    operand,
-                                    operand_type,
-                                    value,
-                                    value_type,
+                                    left,
+                                    left_type,
+                                    right,
+                                    right_type,
                                     BinaryOp::Equal,
                                 )
-                            } else if native_boolean {
-                                format!("({value})")
-                            } else {
-                                boolean_value(value_type)
-                            }
+                            })
                         })
-                        .collect::<Vec<_>>()
-                        .join(" OR ")
-                })
-                .collect::<Vec<_>>()
-        };
-        let selectors = operand
-            .iter()
-            .chain(conditions.iter().flatten())
-            .map(|part| (part.scalar.clone(), part.inline))
-            .collect::<Vec<_>>();
-
-        let branch = self.scoped_scalars(selectors, |_, parts| {
-            let arms = arm_conditions(parts)
-                .into_iter()
-                .enumerate()
-                .map(|(arm, condition)| format!(" WHEN {condition} THEN {arm}"))
-                .collect::<String>();
+                    } else {
+                        this.boolean_expression(condition)
+                    }?;
+                    // Separate WHEN arms also short-circuit comma-separated
+                    // conditions without duplicating the result expression.
+                    arms.push_str(&format!(" WHEN ({condition}) THEN {index}"));
+                }
+            }
             Ok(format!("(CASE{arms} ELSE -1 END)"))
         })?;
-        let mut types = Vec::with_capacity(results.len() + 1);
-        for part in results.iter().chain(otherwise.iter()) {
-            types.push(self.standalone_type(&part.scalar, part.inline)?);
-        }
         let scope = self.scopes;
         self.scopes += 1;
         let pick = |choices: Vec<String>, default: &str| {
-            let mut otherwise = choices[results.len()..].iter();
-            let otherwise = otherwise.next().map_or(default, String::as_str);
-            let arms = choices[..results.len()]
+            let otherwise = choices
+                .get(alternatives.len())
+                .map_or(default, String::as_str);
+            let arms = choices[..alternatives.len()]
                 .iter()
                 .enumerate()
-                .map(|(arm, choice)| format!(" WHEN {arm} THEN ({choice})"))
+                .map(|(index, value)| format!(" WHEN {index} THEN ({value})"))
                 .collect::<String>();
             format!(
-                "(SELECT CASE cs{scope}.k{arms} ELSE ({otherwise}) END \
-                 FROM (SELECT ({branch}) AS k) AS cs{scope})"
+                "(SELECT CASE cs{scope}.k{arms} ELSE ({otherwise}) END FROM (SELECT ({branch}) AS k) AS cs{scope})"
             )
         };
-        let values = results
-            .iter()
-            .chain(otherwise.iter())
-            .map(|part| part.scalar.value.clone())
-            .collect::<Vec<_>>();
+        let results = alternatives.iter().map(|a| &a.result).chain(otherwise);
+        if encoded {
+            let choices = results
+                .map(|value| self.conditional_expression(|this| this.encoded_expression(value)))
+                .collect::<Result<Vec<_>>>()?;
+            return Ok(Scalar {
+                value: pick(choices, "'null'"),
+                kind: ScalarType::Encoded,
+            });
+        }
+        // Scalar operators can ask for the value and type separately. Keep
+        // their branch types separate from their values so arithmetic around
+        // nested CASE results does not double the SQL at every level.
+        let mut values = Vec::new();
+        let mut types = Vec::new();
+        for result in results {
+            let scalar = self.compile_scalar(result)?;
+            types.push(self.standalone_type(&scalar, is_inline_operand(result))?);
+            values.push(scalar.raw_value(&scalar.value));
+        }
         Ok(Scalar::sql(pick(values, "NULL"), pick(types, "'null'")))
     }
 
