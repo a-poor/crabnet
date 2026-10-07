@@ -162,6 +162,12 @@ end-to-end result test for user-visible semantics.
 - `tests/matched_mutations.rs` covers matched node/relationship `SET` and
   `REMOVE`, whole-map replace/merge semantics, counters, aliases, parameter
   preflight, no-match behavior, and rollback.
+- `tests/property_targets.rs` covers expression targets for property `SET`
+  and `REMOVE`: parenthesized bindings, indexes, nested/dynamic selections,
+  functions/conditionals, mixed entities, nulls and empty inputs, per-item
+  evaluation, duplicate updates and counters, refreshed copies, CREATE/MERGE
+  composition and deletion snapshots, invalid types, parameter isolation and
+  preflight, uniqueness/property indexes, transaction rollback, and result budgets.
 - `tests/delete_mutations.rs` covers node/relationship deletion, detach edge
   cleanup, input-bag target deduplication, pre-delete return snapshots,
   counters, constraint failures, and rollback.

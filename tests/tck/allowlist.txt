@@ -719,6 +719,8 @@ clauses/return/Return8.feature::[1] Return aggregation after With filtering
 clauses/set/Set1.feature::[11] Set multiple node properties
 clauses/set/Set1.feature::[1] Set a property
 clauses/set/Set1.feature::[2] Set a property to an expression
+clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression
+clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression
 clauses/set/Set1.feature::[5] Adding a list property
 clauses/set/Set1.feature::[6] Concatenate elements onto a list property
 clauses/set/Set1.feature::[7] Concatenate elements in reverse onto a list property

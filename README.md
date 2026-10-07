@@ -219,7 +219,8 @@ Within those shapes, the first iteration supports:
 - `CREATE` for nodes and fixed, directed relationship chains, including
   relationships between matched and fresh nodes
 - matched `SET entity.key = value` and `REMOVE entity.key` for node and
-  relationship properties
+  relationship properties, including expression targets such as
+  `SET (people[0]).active = true` and `REMOVE (box.node).temporary`
 - matched whole-property-map replacement (`SET entity = map`) and shallow
   merge (`SET entity += map`) when the map is a literal or named parameter
 - matched node and relationship `DELETE`, plus `DETACH DELETE` for nodes with

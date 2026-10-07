@@ -8,12 +8,12 @@ mod typecheck;
 
 use crate::{Error, Parameters, Result};
 
-use logical::{
-    DeleteTarget, Expr, Input, MatchPlan, Mutation, Projection, Query, ROW_INDEX_SLOT,
-    ScalarSlotId, Segment, StoredValue,
-};
 pub(crate) use logical::{
     EntityKind, SlotId, require_object, validate_storable_properties, validate_storable_value,
+};
+use logical::{
+    EntityTarget, Expr, Input, MatchPlan, Mutation, Projection, Query, ROW_INDEX_SLOT,
+    ScalarSlotId, Segment, StoredValue,
 };
 pub(crate) use physical::{
     OutputShape, PhysicalOperator, PreparedFragmentArgument, PreparedPhysicalOperator,
@@ -313,6 +313,13 @@ pub(crate) enum ResolvedStoredValue {
     Computed(PreparedReadPlan),
 }
 
+/// A property target resolved without executing its per-row selection.
+#[derive(Clone)]
+pub(crate) enum ResolvedPropertyTarget {
+    Bound(SlotId),
+    Computed(PreparedReadPlan),
+}
+
 #[derive(Clone)]
 pub(crate) enum ResolvedMutation {
     CreateNode {
@@ -328,7 +335,7 @@ pub(crate) enum ResolvedMutation {
         properties: ResolvedStoredValue,
     },
     SetProperty {
-        slot: SlotId,
+        target: ResolvedPropertyTarget,
         key: String,
         value: ResolvedStoredValue,
     },
@@ -341,7 +348,7 @@ pub(crate) enum ResolvedMutation {
         properties: ResolvedStoredValue,
     },
     RemoveProperty {
-        slot: SlotId,
+        target: ResolvedPropertyTarget,
         key: String,
     },
     SetLabels {
@@ -462,6 +469,16 @@ fn resolve_mutation(
             StoredValue::Computed(expression) => computed(expression),
         }
     };
+    let property_target = |target| -> Result<ResolvedPropertyTarget> {
+        match target {
+            EntityTarget::Bound(slot, _) => Ok(ResolvedPropertyTarget::Bound(slot)),
+            EntityTarget::Computed(expression) => {
+                compile_row_expressions(layout, vec![expression])?
+                    .prepare(parameters)
+                    .map(ResolvedPropertyTarget::Computed)
+            }
+        }
+    };
     let resolve_all = |mutations: Vec<Mutation>| {
         mutations
             .into_iter()
@@ -491,8 +508,8 @@ fn resolve_mutation(
             to,
             properties: properties(value, "relationship properties")?,
         },
-        Mutation::SetProperty { slot, key, value } => ResolvedMutation::SetProperty {
-            slot,
+        Mutation::SetProperty { target, key, value } => ResolvedMutation::SetProperty {
+            target: property_target(target)?,
             key,
             value: scalar(value)?,
         },
@@ -510,7 +527,10 @@ fn resolve_mutation(
             slot,
             properties: properties(value, "merged properties")?,
         },
-        Mutation::RemoveProperty { slot, key } => ResolvedMutation::RemoveProperty { slot, key },
+        Mutation::RemoveProperty { target, key } => ResolvedMutation::RemoveProperty {
+            target: property_target(target)?,
+            key,
+        },
         Mutation::SetLabels { slot, labels } => ResolvedMutation::SetLabels { slot, labels },
         Mutation::RemoveLabels { slot, labels } => ResolvedMutation::RemoveLabels { slot, labels },
         Mutation::Delete { targets, detach } => {
@@ -518,8 +538,8 @@ fn resolve_mutation(
             let mut expressions = Vec::new();
             for target in targets {
                 match target {
-                    DeleteTarget::Bound(slot, kind) => bound.push((slot, kind)),
-                    DeleteTarget::Computed(expression) => expressions.push(expression),
+                    EntityTarget::Bound(slot, kind) => bound.push((slot, kind)),
+                    EntityTarget::Computed(expression) => expressions.push(expression),
                 }
             }
             let computed_targets = if expressions.is_empty() {

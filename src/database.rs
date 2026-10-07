@@ -17,8 +17,8 @@ use crate::{
     planner::{
         self, EntityKind, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
         PreparedReadPlan, PreparedSqlFragment, PreparedValueOperator, ReadPlan, ResolvedMutation,
-        ResolvedMutationPlan, ResolvedRowSource, ResolvedSegment, ResolvedStoredValue, RowLayout,
-        SlotId, UnionKind,
+        ResolvedMutationPlan, ResolvedPropertyTarget, ResolvedRowSource, ResolvedSegment,
+        ResolvedStoredValue, RowLayout, SlotId, UnionKind,
     },
 };
 
@@ -715,17 +715,16 @@ fn update_labels(
 fn update_properties(
     transaction: &Transaction<'_>,
     rows: &mut [ExecutionRow],
-    slot: SlotId,
+    targets: &PropertyTargets,
     update: impl Fn(usize, &mut serde_json::Map<String, serde_json::Value>),
     context: &ExecutionContext,
 ) -> Result<usize> {
     let mut total_changed = 0;
     for target_index in 0..rows.len() {
         context.check()?;
-        if !rows[target_index].binds(slot) {
+        let Some((kind, id)) = targets.identity(target_index, &rows[target_index])? else {
             continue;
-        }
-        let (kind, id) = rows[target_index].entity_identity(slot)?;
+        };
         let select_sql = match kind {
             EntityKind::Node => "SELECT props FROM nodes WHERE id = ?1",
             EntityKind::Relationship => "SELECT props FROM edges WHERE id = ?1",
@@ -1127,12 +1126,13 @@ fn apply_mutation(
                 summary.relationships_created += 1;
             }
         }
-        ResolvedMutation::SetProperty { slot, key, value } => {
+        ResolvedMutation::SetProperty { target, key, value } => {
+            let targets = property_targets(transaction, layout, rows, target, "SET", context)?;
             let values = row_values(transaction, layout, rows, value, false, context)?;
             summary.properties_set += update_properties(
                 transaction,
                 rows,
-                *slot,
+                &targets,
                 |index, properties| {
                     let value = values.get(index);
                     if value.is_null() {
@@ -1149,7 +1149,7 @@ fn apply_mutation(
             summary.properties_set += update_properties(
                 transaction,
                 rows,
-                *slot,
+                &PropertyTargets::Bound(*slot),
                 |index, current| {
                     let serde_json::Value::Object(replacement) =
                         stored_properties(values.get(index))
@@ -1166,7 +1166,7 @@ fn apply_mutation(
             summary.properties_set += update_properties(
                 transaction,
                 rows,
-                *slot,
+                &PropertyTargets::Bound(*slot),
                 |index, current| {
                     let patch = values
                         .get(index)
@@ -1183,11 +1183,12 @@ fn apply_mutation(
                 context,
             )?;
         }
-        ResolvedMutation::RemoveProperty { slot, key } => {
+        ResolvedMutation::RemoveProperty { target, key } => {
+            let targets = property_targets(transaction, layout, rows, target, "REMOVE", context)?;
             summary.properties_set += update_properties(
                 transaction,
                 rows,
-                *slot,
+                &targets,
                 |_, properties| {
                     properties.remove(key);
                 },
@@ -1441,6 +1442,62 @@ fn entity_from_value(value: CypherValue, kind: EntityKind) -> Result<EntityValue
             "MERGE matcher returned a value of the wrong kind".into(),
         )),
     }
+}
+
+/// Direct bindings need no read; computed selections retain one identity per
+/// input row, including duplicates and nulls. They are frozen before an item
+/// writes, just like its stored values.
+enum PropertyTargets {
+    Bound(SlotId),
+    PerRow(Vec<Option<(EntityKind, String)>>),
+}
+
+impl PropertyTargets {
+    fn identity(&self, index: usize, row: &ExecutionRow) -> Result<Option<(EntityKind, String)>> {
+        match self {
+            Self::Bound(slot) if row.binds(*slot) => row.entity_identity(*slot).map(Some),
+            Self::Bound(_) => Ok(None),
+            Self::PerRow(targets) => Ok(targets[index].clone()),
+        }
+    }
+}
+
+fn property_targets(
+    transaction: &Transaction<'_>,
+    layout: &RowLayout,
+    rows: &[ExecutionRow],
+    target: &ResolvedPropertyTarget,
+    clause: &str,
+    context: &ExecutionContext,
+) -> Result<PropertyTargets> {
+    let plan = match target {
+        ResolvedPropertyTarget::Bound(slot) => return Ok(PropertyTargets::Bound(*slot)),
+        ResolvedPropertyTarget::Computed(plan) => plan.clone(),
+    };
+    let result = read_materialized_rows(transaction, layout, rows, plan, false, context)?;
+    if result.rows.len() != rows.len() {
+        return Err(crate::Error::Data(
+            "computed property targets did not yield one result per row".into(),
+        ));
+    }
+    result
+        .rows
+        .into_iter()
+        .map(|mut row| {
+            context.check()?;
+            match row.remove(0) {
+                CypherValue::Null => Ok(None),
+                CypherValue::Node(node) => Ok(Some((EntityKind::Node, node.element_id))),
+                CypherValue::Relationship(edge) => {
+                    Ok(Some((EntityKind::Relationship, edge.element_id)))
+                }
+                _ => Err(crate::Error::Type(format!(
+                    "{clause} target must evaluate to a node, relationship, or null"
+                ))),
+            }
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(PropertyTargets::PerRow)
 }
 
 /// One stored value per input row: a static value shared by every row, or

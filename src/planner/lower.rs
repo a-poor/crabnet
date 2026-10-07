@@ -21,7 +21,7 @@ use crate::{Error, Result};
 
 use super::UnionKind;
 use super::logical::{
-    AggregateKind, BinaryOp, CaseAlternative, DeleteTarget, Direction, EntityAccess, EntityKind,
+    AggregateKind, BinaryOp, CaseAlternative, Direction, EntityAccess, EntityKind, EntityTarget,
     Expr, Input, ListQuantifier, ListVariableId, MAX_USER_VALUE_NESTING, MatchOperator, MatchPlan,
     Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection, Query,
     ReadPipeline, ReadStage, RelationshipUse, ScalarFunction, ScalarSlotId, Segment, SlotId,
@@ -1581,9 +1581,9 @@ impl<'source> Lowerer<'source> {
         for item in &set_clause.items {
             match &item.kind {
                 SetItemKind::Property { target, value } => {
-                    let (slot, key) = self.property_target(target)?;
+                    let (target, key) = self.property_target(target, "SET")?;
                     self.mutations.push(Mutation::SetProperty {
-                        slot,
+                        target,
                         key,
                         value: self.stored_value(value, input_value, false)?,
                     });
@@ -1670,8 +1670,9 @@ impl<'source> Lowerer<'source> {
         for item in &remove_clause.items {
             match &item.kind {
                 RemoveItemKind::Property(target) => {
-                    let (slot, key) = self.property_target(target)?;
-                    self.mutations.push(Mutation::RemoveProperty { slot, key });
+                    let (target, key) = self.property_target(target, "REMOVE")?;
+                    self.mutations
+                        .push(Mutation::RemoveProperty { target, key });
                 }
                 RemoveItemKind::Labels { target, labels } => {
                     let slot = self.label_target(target)?;
@@ -1695,47 +1696,49 @@ impl<'source> Lowerer<'source> {
         let targets = delete_clause
             .expressions
             .iter()
-            .map(|expression| {
-                let lowered = self.output_expression(expression)?;
-                if lowered.contains_aggregate() {
-                    return Err(semantic(
-                        expression.span,
-                        "aggregate calls are not allowed in a DELETE target",
-                    ));
-                }
-                if let Expr::Entity(slot) = lowered {
-                    return Ok(DeleteTarget::Bound(slot, self.kind(slot)));
-                }
-                let valid = match self.nested_shape(&lowered) {
-                    NestedShape::Entity(_) | NestedShape::Mixed | NestedShape::Null => true,
-                    NestedShape::Json => matches!(
-                        self.check_kinds(&lowered, expression.span)?,
-                        None | Some(typecheck::Kind::Null)
-                    ),
-                    _ => false,
-                };
-                if !valid {
-                    return Err(semantic(
-                        expression.span,
-                        "DELETE target must evaluate to a node, relationship, or null",
-                    ));
-                }
-                Ok(DeleteTarget::Computed(lowered))
-            })
+            .map(|expression| self.entity_target(expression, "DELETE"))
             .collect::<Result<Vec<_>>>()?;
         self.mutations.push(Mutation::Delete { targets, detach });
         Ok(())
     }
 
-    fn property_target(&self, target: &AstExpr) -> Result<(SlotId, String)> {
+    fn entity_target(&self, expression: &AstExpr, clause: &str) -> Result<EntityTarget> {
+        let lowered = self.output_expression(expression)?;
+        if lowered.contains_aggregate() {
+            return Err(semantic(
+                expression.span,
+                format!("aggregate calls are not allowed in a {clause} target"),
+            ));
+        }
+        if let Expr::Entity(slot) = lowered {
+            return Ok(EntityTarget::Bound(slot, self.kind(slot)));
+        }
+        let valid = match self.nested_shape(&lowered) {
+            NestedShape::Entity(_) | NestedShape::Mixed | NestedShape::Null => true,
+            NestedShape::Json => matches!(
+                self.check_kinds(&lowered, expression.span)?,
+                None | Some(typecheck::Kind::Null)
+            ),
+            _ => false,
+        };
+        if !valid {
+            return Err(semantic(
+                expression.span,
+                format!("{clause} target must evaluate to a node, relationship, or null"),
+            ));
+        }
+        Ok(EntityTarget::Computed(lowered))
+    }
+
+    fn property_target(&self, target: &AstExpr, clause: &str) -> Result<(EntityTarget, String)> {
         let ExprKind::Property { expression, key } = &target.kind else {
             return Err(semantic(
                 target.span,
-                "property mutation requires `variable.key`",
+                "property mutation requires `expression.key`",
             ));
         };
         Ok((
-            self.resolve_entity_variable(expression)?,
+            self.entity_target(expression, clause)?,
             key.kind.text.clone(),
         ))
     }
@@ -4025,36 +4028,6 @@ impl<'source> Lowerer<'source> {
                 base: Box::new(base),
                 key: key.to_owned(),
             }),
-        }
-    }
-
-    fn resolve_entity_variable(&self, expression: &AstExpr) -> Result<SlotId> {
-        let ExprKind::Variable(variable) = &expression.kind else {
-            return Err(unsupported(expression.span, "nested property access"));
-        };
-        match self.resolve_symbol(variable)? {
-            Symbol::Entity(slot) => Ok(slot),
-            Symbol::Scalar(_) => Err(semantic(
-                variable.span,
-                format!(
-                    "scalar variable `{}` does not have graph properties",
-                    variable.kind.text
-                ),
-            )),
-            Symbol::Path(_) => Err(semantic(
-                variable.span,
-                format!(
-                    "path variable `{}` does not have graph properties",
-                    variable.kind.text
-                ),
-            )),
-            Symbol::PathCollection { .. } => Err(semantic(
-                variable.span,
-                format!(
-                    "path collection variable `{}` does not have graph properties",
-                    variable.kind.text
-                ),
-            )),
         }
     }
 

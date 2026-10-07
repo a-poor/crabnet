@@ -1032,10 +1032,10 @@ pub(crate) enum StoredValue {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum DeleteTarget {
+pub(crate) enum EntityTarget {
     /// Direct bindings avoid an extra read over the materialized rows.
     Bound(SlotId, EntityKind),
-    /// Evaluated and checked before any target in the clause is removed.
+    /// Evaluated and checked at the start of the mutation item or DELETE clause.
     Computed(Expr),
 }
 
@@ -1054,7 +1054,7 @@ pub(crate) enum Mutation {
         properties: StoredValue,
     },
     SetProperty {
-        slot: SlotId,
+        target: EntityTarget,
         key: String,
         value: StoredValue,
     },
@@ -1067,7 +1067,7 @@ pub(crate) enum Mutation {
         properties: StoredValue,
     },
     RemoveProperty {
-        slot: SlotId,
+        target: EntityTarget,
         key: String,
     },
     /// `SET n:A:B`: adds the labels the node does not have yet.
@@ -1081,7 +1081,7 @@ pub(crate) enum Mutation {
         labels: Vec<String>,
     },
     Delete {
-        targets: Vec<DeleteTarget>,
+        targets: Vec<EntityTarget>,
         detach: bool,
     },
     /// `MERGE pattern [ON CREATE SET ...] [ON MATCH SET ...]`. `pattern`

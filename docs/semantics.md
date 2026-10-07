@@ -812,8 +812,8 @@ mutation refresh and deletion snapshots. Ordinary parameter maps and lists
 remain ordinary values, even if they resemble internal entity records.
 
 If all non-null result shapes agree, the result retains that shape. Node and
-relationship selections can therefore feed a later match or an aliased
-`SET`/`REMOVE`, and can be used directly as `DELETE` targets:
+relationship selections can therefore feed a later match, property
+`SET`/`REMOVE`, or `DELETE`, including direct expression targets:
 
 ```cypher
 MATCH (person:Person)
@@ -1169,9 +1169,42 @@ materialized row. Consequently:
 - entities created by the statement cannot become additional input matches for
   that same statement.
 
-Matched `SET` and `REMOVE` currently accept direct property targets on nodes or
-relationships. `SET entity.key = value` assigns a value and `REMOVE entity.key`
-deletes that key. `SET entity = map` replaces the complete property map, while
+Matched `SET` and `REMOVE` accept property targets on nodes or relationships.
+`SET entity.key = value` assigns a value and `REMOVE entity.key` deletes that
+key. The entity may be a variable or an expression that selects a node or
+relationship from a collection, map, function, or conditional:
+
+```cypher
+MATCH (person:Person)
+WITH collect(person) AS people
+SET (people[0]).active = true
+REMOVE (head(people)).temporary
+RETURN people
+```
+
+Parenthesized bindings such as `(n).key`, nested/dynamic selections such as
+`(box[$key][i]).key`, and `coalesce`/`CASE` selections preserve typed entity
+identity. A dynamic selection may choose a node or relationship per row.
+Null, missing, and out-of-range selections are no-ops. Statically invalid
+targets and aggregate calls in targets fail during planning; other non-null
+non-entity targets raise `Error::Type` when evaluated. Ordinary parameter
+maps and lists cannot impersonate graph entities. Target parameters are
+preflighted even when no rows match.
+
+For each property mutation item, computed targets and stored values are
+evaluated once per input row against the state at the start of that item,
+before it writes. Duplicate targets retain input-bag multiplicity; each row
+updates the current stored properties in input order. Later items see all
+earlier updates, and every matching entity copy in aliases, lists, and nested
+maps is refreshed. Unchanged assignments and absent removals count zero;
+`SET ... = null` removes the key. `MERGE` actions use the same rules over their
+row subsets. Target, value, constraint, and output-resource failures roll back
+the statement, or abort and roll back an enclosing application transaction.
+Internal target evaluation does not consume final-result budgets.
+
+The final property key is still a static identifier. Whole-map replacement,
+whole-map merge, and label mutation retain variable targets.
+`SET entity = map` replaces the complete property map, while
 `SET entity += map` performs a shallow merge. Values and maps may be literals,
 named parameters, or expressions over the row: `SET a.total = a.price * a.qty`,
 `SET a += {copy: b.name}`, and `SET a = b` (which copies `b`'s properties) all

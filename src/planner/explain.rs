@@ -1,7 +1,7 @@
 use serde_json::Value;
 
 use super::logical::{
-    AggregateKind, BinaryOp, DeleteTarget, Direction, EntityKind, Expr, Input, ListQuantifier,
+    AggregateKind, BinaryOp, Direction, EntityKind, EntityTarget, Expr, Input, ListQuantifier,
     MatchOperator, Mutation, PathCollectionKind, PathFunctionKind, PathId, PathSegment, Projection,
     Query, ReadStage, RelationshipUse, ScalarSlotId, SlotId, SortDirection, StoredValue, UnaryOp,
     UnwindBinding, ValueExpr, WithBinding, WithStage,
@@ -467,6 +467,15 @@ fn render_labels(labels: &[String]) -> String {
     )
 }
 
+fn render_property_target(target: &EntityTarget) -> String {
+    match target {
+        EntityTarget::Bound(slot, _) => format!("slot={}", slot_name(*slot)),
+        EntityTarget::Computed(expression) => {
+            format!("target=computed({})", render_expr(expression))
+        }
+    }
+}
+
 fn render_mutation(mutation: &Mutation) -> String {
     match mutation {
         Mutation::CreateNode {
@@ -503,9 +512,9 @@ fn render_mutation(mutation: &Mutation) -> String {
             slot_name(*to),
             render_stored_value(properties)
         ),
-        Mutation::SetProperty { slot, key, value } => format!(
-            "set-property slot={} key={} value={}",
-            slot_name(*slot),
+        Mutation::SetProperty { target, key, value } => format!(
+            "set-property {} key={} value={}",
+            render_property_target(target),
             quote(key),
             render_stored_value(value)
         ),
@@ -519,9 +528,9 @@ fn render_mutation(mutation: &Mutation) -> String {
             slot_name(*slot),
             render_stored_value(properties)
         ),
-        Mutation::RemoveProperty { slot, key } => format!(
-            "remove-property slot={} key={}",
-            slot_name(*slot),
+        Mutation::RemoveProperty { target, key } => format!(
+            "remove-property {} key={}",
+            render_property_target(target),
             quote(key)
         ),
         Mutation::Merge {
@@ -556,9 +565,9 @@ fn render_mutation(mutation: &Mutation) -> String {
             targets
                 .iter()
                 .map(|target| match target {
-                    DeleteTarget::Bound(slot, kind) =>
+                    EntityTarget::Bound(slot, kind) =>
                         format!("{}:{}", slot_name(*slot), entity_kind_name(*kind)),
-                    DeleteTarget::Computed(expression) =>
+                    EntityTarget::Computed(expression) =>
                         format!("computed({})", render_expr(expression)),
                 })
                 .collect::<Vec<_>>()
