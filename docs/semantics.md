@@ -193,9 +193,50 @@ calls inside comprehension bodies or quantifier predicates are also rejected.
 A `RETURN` after a mutation may aggregate over the post-mutation rows.
 Aggregates are not allowed in `MATCH` predicates or
 directly in `UNWIND`; a `WITH` boundary must materialize them first.
-Whole path values and path-derived typed lists are not accepted as aggregate
-inputs or grouping keys. `length(path)` is an ordinary integer and may be a
-grouping key or aggregate argument.
+
+### Path aggregation and grouping
+
+`count(p)`, `collect(p)`, `count(DISTINCT p)`, and `collect(DISTINCT p)` accept
+whole paths directly. The same aggregates accept `nodes(p)`,
+`relationships(p)`, and legacy relationship-list variables. Paths and these
+lists can also be grouping keys in `WITH` and `RETURN`, including aliases
+and wildcard projections. This works across fixed, bounded, deep/open-ended,
+shortest-path, and all-shortest-path producers.
+
+```cypher
+MATCH p = (:Person)-[:KNOWS*1..3]->(:Person)
+WITH p, count(*) AS copies
+RETURN length(p) AS hops, copies, nodes(p) AS people
+```
+
+A path's ordered node and relationship identities determine its group and
+distinctness, independently of properties and internal segment boundaries.
+A reversed route is distinct when its identity sequence changes; parallel
+relationships remain distinct even with identical properties. Path lists compare their
+ordered entity identities. An empty relationship list is a non-null value:
+zero-hop paths contribute to `count(relationships(p))`, and their empty lists
+share one distinct value. Zero-hop paths themselves remain distinct by node
+identity. Nullable path values follow the ordinary aggregate rules: nulls
+form a group, `count` and `collect` omit them, and an ungrouped empty input
+produces zero counts and empty collections. A grouped empty input has no rows.
+
+Collected paths retain their type through aliases, indexing, list functions,
+comprehensions, quantifiers, `UNWIND`, conditionals, distinctness, and unions.
+They support `length`, `nodes`, and `relationships` after selection. Grouped
+paths also support these functions in later clauses and in expressions over
+the same group's aggregates. Collected path lists remain nested lists; they
+are not flattened. Collection order follows an immediately preceding
+`WITH ... ORDER BY`; `collect(DISTINCT ...)` keeps first occurrences.
+
+Aggregate arguments and grouping keys materialize complete paths/lists using
+the private tagged transport, including for `count`. Ordinary projections
+retain deferred hydration. The existing query resource limits and 100-container
+result-depth limit apply. Materialized relationship lists retain their entity
+kind but do not become legacy pre-bound relationship-list pattern bindings.
+Named-path/relationship-list `OPTIONAL MATCH`, writes fed by paths, whole-path
+`DELETE`, numeric/extremum aggregates over paths or graph lists, and ordering
+by these values remain unsupported. `length(path)` remains an ordinary integer
+usable in numeric aggregates and ordering.
 
 ## `UNWIND`
 
@@ -518,9 +559,9 @@ depth limits, materialization costs, and path-fed write restrictions apply.
 `coalesce` and both forms of `CASE` also preserve graph values; see
 [conditional graph values](#conditional-graph-values). Other general scalar
 functions, ordering, and numeric/extremum aggregates over graph collections
-remain unsupported. Aggregating a bare path binding remains unsupported;
-a path selected through a conditional, or nested in a map, uses the tagged
-transport and can be collected. Node and relationship expressions, including
+remain unsupported. Bare paths and path lists support `count`, `collect`, and
+grouping as described in [path aggregation](#path-aggregation-and-grouping).
+Node and relationship expressions, including
 dynamically selected members, may be used directly as `DELETE` targets. A literal
 relationship list does not become a legacy pre-bound relationship-list
 pattern. These boundaries are independent of the typed collection transport.
@@ -1023,8 +1064,9 @@ member's identity into a node or relationship binding for subsequent reads.
 
 Each function requires exactly one in-scope path argument; bad arity, unknown
 variables, and wrong variable kinds fail during planning. Property access and
-selectors on a path, plus raw path use as a scalar, aggregate, grouping, or
-ordering expression, remain planning-time rejections. The typed lists from
+selectors on a path, plus raw path use as a general scalar or ordering
+expression, remain planning-time rejections. Paths and path lists support
+`count`, `collect`, and grouping (see [path aggregation](#path-aggregation-and-grouping)). The typed lists from
 `nodes` and `relationships` retain the expression-context restrictions above.
 A fresh legacy relationship variable in `[rels:TYPE*min..]` is a
 relationship-list binding, not a stored relationship or a first-class path. It

@@ -426,8 +426,8 @@ outside them.
 `PathValue` exposes nodes and relationships in traversal order, always with one
 more node than relationship. A zero-hop path therefore has one node and no
 relationships. Relationship values keep their stored start/end direction even
-when the path traversed them backwards. SQLite returns compact ordered
-identities. `length(path)` is the relationship count and remains an ordinary
+when the path traversed them backwards. Ordinary path projections use compact
+ordered identities. `length(path)` is the relationship count and remains an ordinary
 SQL-backed integer across filters, arithmetic, ordering, implicit grouping,
 and aggregate arguments. `nodes(path)` and `relationships(path)` return
 `CypherValue::List` values whose members are typed `NodeValue` and
@@ -435,9 +435,19 @@ and aggregate arguments. `nodes(path)` and `relationships(path)` return
 empty list. These graph lists may be returned directly, carried through a
 computed `WITH` alias, indexed or sliced, or expanded with `UNWIND` into entity
 bindings for later reads and matches. Segment junctions appear once in `nodes(path)`; repeated
-nodes in cycles and self-loops retain their multiplicity. Bare path lists
-are not yet accepted as predicates, arithmetic operands, ordering/grouping
-keys, or aggregate inputs. Path-fed writes remain unsupported.
+nodes in cycles and self-loops retain their multiplicity. Paths and path lists
+support `count`, `collect`, their `DISTINCT` forms, and grouping in `WITH` and
+`RETURN`. For example:
+
+```cypher
+MATCH p = (:Person)-[:KNOWS*1..3]->(:Person)
+RETURN count(DISTINCT p) AS routeCount, collect(p) AS routes
+```
+
+Grouping and distinctness compare ordered graph identities, preserving
+traversal direction and distinguishing parallel edges. Aggregation materializes
+the complete path or list. General scalar operations, ordering by whole paths
+or graph lists, and path-fed writes remain unsupported.
 
 A fresh variable on a legacy relationship pattern, for example
 `[rels:NEXT*0..]`, binds the same public relationship-list value shape. Its
@@ -482,7 +492,7 @@ relationship-list bindings in `OPTIONAL MATCH`, quantified `OPTIONAL MATCH`,
 traversal-fed writes (including writes fed by a relationship list), writes fed
 by any named path, match modes and hints, parameter-map matching,
 exponentiation (`^`), and concatenation (`||`). Bare path bindings cannot be
-general scalar operands, aggregate inputs/grouping keys, or ordering keys;
+general scalar operands or ordering keys;
 use `length(path)` where an integer scalar is required. Typed graph lists from
 `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,

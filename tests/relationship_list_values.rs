@@ -708,10 +708,6 @@ fn relationship_lists_remain_rejected_in_unimplemented_value_contexts() {
          RETURN rels = [] AS same",
         "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
          RETURN rels AS links ORDER BY links",
-        "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
-         RETURN rels, count(*) AS paths",
-        "MATCH (:RelListNode {name: 'a'})-[rels:NEXT*1]->(:RelListNode) \
-         RETURN collect(rels) AS lists",
         "OPTIONAL MATCH (:RelListNode)-[rels:NEXT*1]->(:RelListNode) \
          RETURN rels",
     ] {

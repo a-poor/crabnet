@@ -347,6 +347,7 @@ clauses/match/Match4.feature::[3] Zero-length variable length pattern in the mid
 clauses/match/Match4.feature::[4] Matching longer variable length paths
 clauses/match/Match4.feature::[5] Matching variable length pattern with property predicate
 clauses/match/Match4.feature::[6] Matching variable length patterns from a bound node
+clauses/match/Match4.feature::[7] Matching variable length patterns including a bound relationship
 clauses/match/Match4.feature::[9] Fail when asterisk operator is missing
 clauses/match/Match5.feature::[10] Handling symmetrically bounded variable length match, bounds are two
 clauses/match/Match5.feature::[11] Handling upper and lower bounded variable length match, empty interval 1
@@ -499,6 +500,7 @@ clauses/match/Match9.feature::[1] Variable length relationship variables are lis
 clauses/match/Match9.feature::[2] Return relationships by collecting them as a list - directed, one way
 clauses/match/Match9.feature::[3] Return relationships by collecting them as a list - undirected, starting from two extremes
 clauses/match/Match9.feature::[4] Return relationships by collecting them as a list - undirected, starting from one extreme
+clauses/match/Match9.feature::[5] Variable length pattern with label predicate on both sides
 clauses/merge/Merge1.feature::[10] Merge must properly handle multiple labels
 clauses/merge/Merge1.feature::[11] Merge should be able to merge using property of bound node
 clauses/merge/Merge1.feature::[12] Merge should be able to merge using property of freshly created node
@@ -608,6 +610,7 @@ clauses/return-orderby/ReturnOrderBy1.feature::[7] ORDER BY should order floats 
 clauses/return-orderby/ReturnOrderBy1.feature::[8] ORDER BY DESC should order floats in the expected order
 clauses/return-orderby/ReturnOrderBy1.feature::[9] ORDER BY should order lists in the expected order
 clauses/return-orderby/ReturnOrderBy2.feature::[11] Aggregates ordered by arithmetics
+clauses/return-orderby/ReturnOrderBy2.feature::[12] Aggregation of named paths
 clauses/return-orderby/ReturnOrderBy2.feature::[13] Fail when sorting on variable removed by DISTINCT
 clauses/return-orderby/ReturnOrderBy2.feature::[14] Fail on aggregation in ORDER BY after RETURN
 clauses/return-orderby/ReturnOrderBy2.feature::[1] ORDER BY should return results in ascending order
@@ -680,6 +683,7 @@ clauses/return/Return4.feature::[2] Support column renaming
 clauses/return/Return4.feature::[3] Aliasing expressions
 clauses/return/Return4.feature::[4] Keeping used expression 1
 clauses/return/Return4.feature::[5] Keeping used expression 2
+clauses/return/Return4.feature::[6] Keeping used expression 3
 clauses/return/Return4.feature::[7] Keeping used expression 4
 clauses/return/Return4.feature::[8] Support column renaming for aggregations
 clauses/return/Return4.feature::[9] Handle subexpression in aggregation also occurring as standalone expression with nested aggregation in a literal map
@@ -1049,6 +1053,7 @@ clauses/with/With5.feature::[2] Handling DISTINCT with lists in maps
 clauses/with/With6.feature::[1] Implicit grouping with single expression as grouping key and single aggregation
 clauses/with/With6.feature::[2] Implicit grouping with single relationship variable as grouping key and single aggregation
 clauses/with/With6.feature::[3] Implicit grouping with multiple node and relationship variables as grouping key and single aggregation
+clauses/with/With6.feature::[4] Implicit grouping with single path variable as grouping key and single aggregation
 clauses/with/With6.feature::[5] Handle constants and parameters inside an expression which contains an aggregation expression
 clauses/with/With6.feature::[6] Handle projected variables inside an expression which contains an aggregation expression
 clauses/with/With6.feature::[7] Handle projected property accesses inside an expression which contains an aggregation expression
@@ -1453,6 +1458,8 @@ expressions/list/List11.feature::[5] Fail on invalid argument types for `range()
 expressions/list/List12.feature::[1] Collect and extract using a list comprehension
 expressions/list/List12.feature::[2] Collect and filter using a list comprehension
 expressions/list/List12.feature::[3] Size of list comprehension
+expressions/list/List12.feature::[4] Returning a list comprehension
+expressions/list/List12.feature::[5] Using a list comprehension in a WITH
 expressions/list/List12.feature::[6] Using a list comprehension in a WHERE
 expressions/list/List12.feature::[7] Fail when using aggregation in list comprehension
 expressions/list/List2.feature::[10] List slice with parameterised range

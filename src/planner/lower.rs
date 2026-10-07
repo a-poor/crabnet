@@ -2112,7 +2112,15 @@ impl<'source> Lowerer<'source> {
                 _ => return Err(unsupported(item.span, "this WITH item")),
             }
         }
+        let aggregating = items
+            .iter()
+            .any(|(_, _, expression)| expression.contains_aggregate());
         for (span, name, expression) in items {
+            let expression = if aggregating {
+                nested::materialize_path_value(expression)
+            } else {
+                expression
+            };
             if projected_symbols.contains_key(&name) {
                 return Err(semantic(
                     span,
@@ -2220,13 +2228,6 @@ impl<'source> Lowerer<'source> {
                 WithBinding::Scalar { expression, .. } => expression.clone(),
             })
             .collect::<Vec<_>>();
-        let aggregating = binding_expressions.iter().any(Expr::contains_aggregate);
-        if aggregating && binding_expressions.iter().any(is_deferred_graph_value) {
-            return Err(unsupported(
-                projection.span,
-                "path values or path collections in aggregating WITH projections",
-            ));
-        }
         let mut grouping = implicit_grouping(&binding_expressions);
         if aggregating {
             validate_aggregate_scope(&binding_expressions, &grouping, projection.span)?;
@@ -2361,7 +2362,15 @@ impl<'source> Lowerer<'source> {
                 _ => return Err(unsupported(item.span, "this RETURN item")),
             }
         }
+        let aggregating = items
+            .iter()
+            .any(|(_, _, expression, _)| expression.contains_aggregate());
         for (span, column, lowered, alias) in items {
+            let lowered = if aggregating {
+                nested::materialize_path_value(lowered)
+            } else {
+                lowered
+            };
             if !column_names.insert(column.clone()) {
                 return Err(semantic(
                     span,
@@ -2381,13 +2390,6 @@ impl<'source> Lowerer<'source> {
             ));
         }
 
-        let aggregating = expressions.iter().any(Expr::contains_aggregate);
-        if aggregating && expressions.iter().any(is_deferred_graph_value) {
-            return Err(unsupported(
-                projection.span,
-                "path values or path collections in aggregating RETURN projections",
-            ));
-        }
         let grouping = implicit_grouping(&expressions);
         let order_by = self.order_by(&projection.order_by, &aliases, distinct, &expressions)?;
         if !aggregating
@@ -3869,6 +3871,9 @@ impl<'source> Lowerer<'source> {
                     "whole entities in aggregates other than count()",
                 ));
             }
+            if matches!(kind, AggregateKind::Count | AggregateKind::Collect) {
+                argument = nested::materialize_path_value(argument);
+            }
             if matches!(argument, Expr::Nested { .. } | Expr::EntityList { .. }) {
                 if !matches!(kind, AggregateKind::Count | AggregateKind::Collect) {
                     return Err(unsupported(
@@ -4492,6 +4497,7 @@ fn validate_aggregate_scope(expressions: &[Expr], grouping: &[Expr], span: Span)
             }
             Expr::EntityList { expression, .. } | Expr::Nested { expression, .. } => {
                 matches!(expression.as_ref(), Expr::Scalar(_))
+                    || matches!(expression.as_ref(), Expr::NestedCall { op: NestedOp::Path, arguments } if matches!(arguments.as_slice(), [Expr::Path(_)]))
             }
             _ => false,
         })

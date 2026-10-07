@@ -3,7 +3,7 @@
 //! happen to look like entity records.
 use std::collections::BTreeMap;
 
-use super::logical::{EntityKind, Expr};
+use super::logical::{EntityKind, Expr, PathFunctionKind};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Shape {
@@ -170,4 +170,28 @@ pub(crate) fn restore(shape: Shape, expression: Expr) -> Expr {
             expression: Box::new(expression),
         },
     }
+}
+
+/// Aggregate boundaries need complete graph values rather than deferred path
+/// identities. Ordinary projections keep their batch-hydrated transport.
+pub(crate) fn materialize_path_value(expression: Expr) -> Expr {
+    let (shape, op) = match &expression {
+        Expr::Path(_) => (Shape::Path, Op::Path),
+        Expr::PathFunction {
+            kind: PathFunctionKind::Nodes,
+            ..
+        } => (
+            Shape::List(Box::new(Shape::Entity(EntityKind::Node))),
+            Op::Nodes,
+        ),
+        Expr::PathFunction {
+            kind: PathFunctionKind::Relationships,
+            ..
+        } => (
+            Shape::List(Box::new(Shape::Entity(EntityKind::Relationship))),
+            Op::Relationships,
+        ),
+        _ => return expression,
+    };
+    restore(shape, call(op, vec![expression]))
 }

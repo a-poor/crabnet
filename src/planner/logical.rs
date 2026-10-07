@@ -807,7 +807,11 @@ impl Expr {
             | Self::RelationshipType(slot) => grouping
                 .iter()
                 .any(|expression| matches!(expression, Self::Entity(grouped) if grouped == slot)),
-            Self::Entity(_) | Self::Scalar(_) | Self::Path(_) | Self::PathFunction { .. } => false,
+            Self::Path(path) | Self::PathFunction { path, .. } => {
+                grouping.contains(&super::nested::materialize_path_value(self.clone()))
+                    || grouping.contains(&super::nested::materialize_path_value(Self::Path(*path)))
+            }
+            Self::Entity(_) | Self::Scalar(_) => false,
         }
     }
 }

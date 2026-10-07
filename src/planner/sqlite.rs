@@ -2299,6 +2299,15 @@ impl Compiler {
                             values.push(self.encoded_entity(*slot, self.entity_kind(*slot)?)?)
                         }
                         Expr::Path(path) => {
+                            let grouped = super::nested::materialize_path_value(Expr::Path(*path));
+                            if let Some((_, source)) = self
+                                .projected_scalars
+                                .iter()
+                                .find(|(value, _)| *value == grouped)
+                            {
+                                values.push(format!("crabnet_nested('payload', {source})"));
+                                continue;
+                            }
                             let nodes = self.encoded_expression(&Expr::PathFunction {
                                 kind: PathFunctionKind::Nodes,
                                 path: *path,
@@ -2600,6 +2609,40 @@ impl Compiler {
                 format!("json_extract({encoded}, '$')"),
                 format!("json_type({encoded}, '$')"),
             ));
+        }
+        if let Expr::PathFunction { kind, path } = expression {
+            // Grouped paths are tagged values. Derive their functions from
+            // the retained representative after aggregation drops raw paths.
+            let path_value = super::nested::materialize_path_value(Expr::Path(*path));
+            if self
+                .projected_scalars
+                .iter()
+                .any(|(value, _)| *value == path_value)
+            {
+                use super::nested::{Op, call};
+                let op = match kind {
+                    PathFunctionKind::Length => Op::Length,
+                    PathFunctionKind::Nodes => Op::PathNodes,
+                    PathFunctionKind::Relationships => Op::PathRelationships,
+                };
+                let value = call(op, vec![path_value]);
+                return self.compile_scalar(&if *kind == PathFunctionKind::Length {
+                    value
+                } else {
+                    call(Op::EntityList, vec![value])
+                });
+            }
+            let list = super::nested::materialize_path_value(expression.clone());
+            if self
+                .projected_scalars
+                .iter()
+                .any(|(value, _)| *value == list)
+            {
+                return self.compile_scalar(&super::nested::call(
+                    super::nested::Op::EntityList,
+                    vec![list],
+                ));
+            }
         }
         match expression {
             Expr::NestedCall { .. } => Ok(Scalar {

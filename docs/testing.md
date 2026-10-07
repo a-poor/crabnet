@@ -173,6 +173,13 @@ end-to-end result test for user-visible semantics.
 - `tests/aggregation.rs` and `tests/aggregation_edges.rs` cover implicit
   grouping, typed aggregate behavior, empty inputs, aggregate scope, aliases,
   and structured rejection boundaries.
+- `tests/path_aggregation.rs` covers direct path and path-list count/collect,
+  distinctness and grouping across every traversal transport; identity,
+  direction, parallel edges and segment equivalence; order, duplicates,
+  nulls, empty inputs and zero hops; grouped aliases/functions/modifiers,
+  later matches, collection composition, unions/pagination, parameter
+  isolation and preflight, cursor parity and terminal errors, resource/depth
+  guards, SQL growth, and retained numeric/scope/write restrictions.
 - `tests/collect.rs` covers node/relationship collections and typed distinct
   collection: identity, duplicates, null/empty inputs, order, aliases, grouping,
   typed `UNWIND`, later matches and writes, property/label refreshes, delete

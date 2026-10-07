@@ -1073,7 +1073,7 @@ fn path_functions_reject_unknown_variables_and_non_path_kinds_semantically() {
 }
 
 #[test]
-fn typed_graph_lists_remain_rejected_in_scalar_and_aggregate_contexts() {
+fn typed_graph_lists_remain_rejected_in_scalar_and_ordering_contexts() {
     let mut database = named_linear_graph();
 
     for function in ["nodes", "relationships"] {
@@ -1089,14 +1089,6 @@ fn typed_graph_lists_remain_rejected_in_scalar_and_aggregate_contexts() {
             format!(
                 "MATCH path = (:PathNode)-[:NEXT]->(:PathNode) \
                  RETURN {function}(path) AS values ORDER BY values"
-            ),
-            format!(
-                "MATCH path = (:PathNode)-[:NEXT]->(:PathNode) \
-                 RETURN {function}(path) AS values, count(*) AS rows"
-            ),
-            format!(
-                "MATCH path = (:PathNode)-[:NEXT]->(:PathNode) \
-                 RETURN collect({function}(path)) AS values"
             ),
         ];
         for query in queries {

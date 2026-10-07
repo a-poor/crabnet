@@ -59,7 +59,7 @@ clauses/delete/Delete2.feature::[3] Delete relationship with bidirectional match
 clauses/delete/Delete3.feature::[1] Detach deleting paths	semantic-error: DELETE target must evaluate to a node, relationship, or null
 clauses/delete/Delete3.feature::[2] Delete on null path	semantic-error: DELETE target must evaluate to a node, relationship, or null
 clauses/delete/Delete4.feature::[2] Undirected variable length expand followed by delete and count	unsupported: writes fed by variable-length traversal
-clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	unsupported: path values or path collections in aggregate functions
+clauses/delete/Delete5.feature::[7] Delete paths from nested map/list	semantic-error: DELETE target must evaluate to a node, relationship, or null
 clauses/match-where/MatchWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/match-where/MatchWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
 clauses/match/Match1.feature::[6] Fail when using parameter as node predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
@@ -67,7 +67,6 @@ clauses/match/Match2.feature::[6] Match relationships with multiple types	unsupp
 clauses/match/Match2.feature::[8] Fail when using parameter as relationship predicate in MATCH	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/match/Match3.feature::[19] Two bound nodes pointing to the same node	unsupported: bidirectional relationship patterns
 clauses/match/Match3.feature::[8] Matching using relationship predicate with multiples of the same type	unsupported: multiple or boolean relationship types
-clauses/match/Match4.feature::[7] Matching variable length patterns including a bound relationship	unsupported: path values or path collections in aggregate functions
 clauses/match/Match4.feature::[8] Matching relationships into a list and matching variable length using the list	semantic-error: variable `rs` is already bound as a non-relationship-list value
 clauses/match/Match5.feature::[26] Handling mixed relationship patterns and directions 1	setup-failed: unsupported: mutation clause after DELETE
 clauses/match/Match5.feature::[27] Handling mixed relationship patterns and directions 2	setup-failed: unsupported: mutation clause after DELETE
@@ -82,7 +81,6 @@ clauses/match/Match7.feature::[17] Optionally matching named paths - existing re
 clauses/match/Match7.feature::[18] Named paths inside optional matches with node predicates	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[19] Optionally matching named paths with single and variable length patterns	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
 clauses/match/Match7.feature::[20] Variable length optional relationships with bound nodes, no matches	unsupported: named paths or relationship-list bindings in OPTIONAL MATCH
-clauses/match/Match9.feature::[5] Variable length pattern with label predicate on both sides	unsupported: path values or path collections in aggregate functions
 clauses/match/Match9.feature::[6] Matching relationships into a list and matching variable length using the list, with bound nodes	semantic-error: variable `rs` is already bound as a non-relationship-list value
 clauses/match/Match9.feature::[7] Matching relationships into a list and matching variable length using the list, with bound nodes, wrong direction	semantic-error: variable `rs` is already bound as a non-relationship-list value
 clauses/match/Match9.feature::[8] Variable length relationship in OPTIONAL MATCH	unsupported: path collections in scalar expressions
@@ -100,7 +98,6 @@ clauses/merge/Merge5.feature::[28] Fail when using variable length relationship 
 clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	type-error: graph values cannot be used as property values
 clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	type-error: graph values cannot be used as property values
 clauses/return-orderby/ReturnOrderBy2.feature::[10] Returned columns do not change from using ORDER BY	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
-clauses/return-orderby/ReturnOrderBy2.feature::[12] Aggregation of named paths	unsupported: path values or path collections in aggregate functions
 clauses/return-orderby/ReturnOrderBy2.feature::[4] Support sort and distinct	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[5] Support ordering by a property after being distinct-ified	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-skip-limit/ReturnSkipLimit1.feature::[3] SKIP with an expression that does not depend on variables	semantic-error: SKIP and LIMIT require an integer literal or named parameter
@@ -110,7 +107,6 @@ clauses/return/Return2.feature::[16] Fail when returning labels of deleted nodes
 clauses/return/Return2.feature::[17] Fail when returning properties of deleted relationships	expected-error-not-raised
 clauses/return/Return2.feature::[18] Fail on projecting a non-existent function	wrong-error-kind: unsupported: function `foo`
 clauses/return/Return2.feature::[1] Arithmetic expressions should propagate null values	unsupported: `^`
-clauses/return/Return4.feature::[6] Keeping used expression 3	unsupported: path values or path collections in aggregate functions
 clauses/set/Set1.feature::[10] Failing when setting a list of maps as a property	expected-error-not-raised
 clauses/set/Set1.feature::[3] Set a property by selecting the node using a simple expression	unsupported: nested property access
 clauses/set/Set1.feature::[4] Set a property by selecting the relationship using a simple expression	unsupported: nested property access
@@ -194,7 +190,6 @@ clauses/with-orderBy/WithOrderBy4.feature::[20] Fail if more complex expressions
 clauses/with-where/WithWhere2.feature::[2] Filter node with conjunctive multi-part property predicates on multi variables with multiple bindings	unsupported: positional parameters
 clauses/with-where/WithWhere4.feature::[2] Join with disjunctive multi-part predicates including patterns	unsupported: variable-length pattern predicates
 clauses/with/With4.feature::[5] Fail when not aliasing expressions in WITH	wrong-error-kind: unsupported: computed WITH expressions without aliases
-clauses/with/With6.feature::[4] Implicit grouping with single path variable as grouping key and single aggregation	unsupported: path values or path collections in aggregating WITH projections
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 1	unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 2	unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[1] `percentileDisc()`::example 3	unsupported: function `percentiledisc`
@@ -232,8 +227,6 @@ expressions/existentialSubqueries/ExistentialSubquery3.feature::[2] Nested full 
 expressions/existentialSubqueries/ExistentialSubquery3.feature::[3] Nested full existential subquery with pattern predicate	unsupported: subquery expression
 expressions/graph/Graph3.feature::[7] `labels()` on null node	semantic-error: graph function requires a node or relationship
 expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-error: graph function requires a node or relationship
-expressions/list/List12.feature::[4] Returning a list comprehension	unsupported: path values or path collections in aggregate functions
-expressions/list/List12.feature::[5] Using a list comprehension in a WITH	unsupported: path values or path collections in aggregate functions
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	expected-error-not-raised
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	expected-error-not-raised
