@@ -1617,19 +1617,30 @@ available on writable and read-only databases, but not inside an application
 execution strategy explicit before starting:
 
 - `ReadMode::Incremental`: a single SQLite fragment without Rust runtime
-  producers. Each iterator advance fetches and decodes at most one output row
+  producers, or a `UNION ALL` tree containing only those fragments. Each
+  iterator advance fetches and decodes at most one output row
   into Rust. Scalar values, whole entities, nulls, nested values, and duplicate
   rows use the same decoding as eager execution. SQLite itself can materialize
   sorts, aggregates, intermediate `WITH` stages, JSON arrays, and recursive
   traversals before producing the first row. Each individual value is decoded
   in full; this is not a whole-query memory cap.
 - `ReadMode::Buffered`: the existing eager executor runs at cursor creation.
-  Rust semantic DISTINCT/pagination, UNION/UNION ALL, path and relationship-list
-  hydration, and Rust traversal producers currently use this mode. All rows
+  Rust semantic DISTINCT/pagination, distinct UNION, path and relationship-list
+  hydration, and Rust traversal producers use this mode. A `UNION ALL` with
+  any such boundary uses it for the entire query. All rows
   and resource checks finish before the cursor is returned; the cursor then
   owns the result buffer. This fallback preserves the existing operator order
   and query-wide hydration behavior. Extending incremental execution through
   these operators is follow-up work.
+
+Incremental `UNION ALL` visits branches from left to right and preserves bags,
+branch-local ordering, and each branch's output shapes. Empty branches are
+skipped when advancing. All branch statements are prepared and their parameters
+bound before fetching rows; SQLite execution of a branch begins only when
+reached. This retains statements and bindings proportional to branch count and
+parameter size, without collecting the union's output in Rust. A later branch's
+runtime error may follow rows yielded by earlier branches. Planning and missing
+parameter errors in every branch still fail preparation.
 
 `PreparedRead::cursor()` starts a new deferred transaction and pins the main
 database snapshot before returning, even when no row has been requested yet.
@@ -1645,7 +1656,7 @@ snapshot without requiring an extra advance to `None`.
 handle are dropped. A runtime, resource, cancellation, or deadline error can
 follow already yielded rows. The error is yielded once and subsequent calls
 return `None`. Exhaustion and failure release the snapshot immediately, even
-if the caller retains the terminal cursor. Cleanup resets the SQLite statement
+if the caller retains the terminal cursor. Cleanup resets all SQLite statements
 before rolling back the read transaction, with no progress callback active.
 Ordinary drop and panic unwinding use the same order.
 
@@ -1655,10 +1666,10 @@ and new counters. Drop the prepared read before using its `Database` again.
 The borrow rules enforce both restrictions. Options retain their absolute
 deadline and shared cancellation token across repeated cursors.
 
-Incremental row-transfer and result limits accumulate over advances. A limit
-fails on the first disallowed row, before exposing it; earlier rows remain
+Incremental row-transfer and result limits accumulate over advances and branches.
+A limit fails on the first disallowed row, before exposing it; earlier rows remain
 visible to the caller. Early drop does not execute or validate the unread
-suffix. SQLite VM steps accumulate across snapshot pinning and all advances;
+suffix. SQLite VM steps accumulate across snapshot pinning, branches, and advances;
 the metadata read used to pin the snapshot is excluded from row/byte counters.
 Buffered plans keep eager accounting, including all branches and hydration,
 and also check cancellation/deadline when yielding their buffered rows. There

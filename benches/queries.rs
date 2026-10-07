@@ -345,40 +345,52 @@ fn bench_reads(c: &mut Criterion) {
             });
         }
         let scan = "MATCH (p:Person) RETURN p.name, p.city";
-        {
-            let mut read = database.prepare_read(scan).unwrap();
-            assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
-            let count = read
-                .cursor()
-                .unwrap()
-                .try_fold(0, |count, row| row.map(|_| count + 1))
-                .unwrap();
-            assert_eq!(count, nodes);
-        }
-        for first_only in [false, true] {
-            let name = if first_only {
-                "cursor_first_row"
-            } else {
-                "cursor_scan_properties"
-            };
-            group.throughput(Throughput::Elements(if first_only {
-                1
-            } else {
-                nodes as u64
-            }));
-            group.bench_function(BenchmarkId::new(name, nodes), |b| {
-                b.iter(|| {
-                    let mut read = database.prepare_read(black_box(scan)).unwrap();
-                    let mut cursor = read.cursor().unwrap();
-                    if first_only {
-                        black_box(cursor.next().unwrap().unwrap());
-                    } else {
-                        for row in cursor {
-                            black_box(row.unwrap());
+        let union = format!("{scan} UNION ALL {scan}");
+        assert_eq!(run(&mut database, &union).rows.len(), nodes * 2);
+        group.throughput(Throughput::Elements((nodes * 2) as u64));
+        group.bench_function(BenchmarkId::new("union_all_scan_properties", nodes), |b| {
+            b.iter(|| run(&mut database, black_box(&union)));
+        });
+        for (scan, row_count, scan_name, first_name) in [
+            (scan, nodes, "cursor_scan_properties", "cursor_first_row"),
+            (
+                union.as_str(),
+                nodes * 2,
+                "cursor_union_all_scan_properties",
+                "cursor_union_all_first_row",
+            ),
+        ] {
+            {
+                let mut read = database.prepare_read(scan).unwrap();
+                assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
+                let count = read
+                    .cursor()
+                    .unwrap()
+                    .try_fold(0, |count, row| row.map(|_| count + 1))
+                    .unwrap();
+                assert_eq!(count, row_count);
+            }
+            for first_only in [false, true] {
+                let name = if first_only { first_name } else { scan_name };
+                group.throughput(Throughput::Elements(if first_only {
+                    1
+                } else {
+                    row_count as u64
+                }));
+                group.bench_function(BenchmarkId::new(name, nodes), |b| {
+                    b.iter(|| {
+                        let mut read = database.prepare_read(black_box(scan)).unwrap();
+                        let mut cursor = read.cursor().unwrap();
+                        if first_only {
+                            black_box(cursor.next().unwrap().unwrap());
+                        } else {
+                            for row in cursor {
+                                black_box(row.unwrap());
+                            }
                         }
-                    }
+                    });
                 });
-            });
+            }
         }
     }
     group.finish();

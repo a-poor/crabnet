@@ -112,6 +112,14 @@ end-to-end result test for user-visible semantics.
   fetch budget proves that the first row does not require consuming the suffix.
   File tests retain prepared/terminal handles while a second connection writes
   to prove cleanup happens before those handles are dropped.
+- `tests/read_cursor_union_all.rs` covers incremental unions of SQLite fragments:
+  branch-specific shapes and parameters, duplicates and empty branches, ordered
+  and paginated branches, eager parity, whole-query buffered fallback, early
+  exit without evaluating later branches, preflight and partial runtime errors,
+  cumulative row/byte/VM budgets, cancellation/deadlines, one snapshot across
+  branches, drop/error/panic cleanup, prepared-handle reuse, and read-only/busy
+  behavior. The scan example and Criterion cases measure full and early-exit
+  union consumption as well as single-fragment reads.
 - `tests/query_resources.rs` exercises the options APIs on databases and
   transactions: configurable traversal guards, deadline/cancellation errors,
   SQLite work limits, materialized and final rows/bytes, UTF-8/recursive costs,
@@ -387,6 +395,9 @@ rather than precede one.
 `read/cursor_scan_properties/<nodes>` measures full cursor consumption, and
 `read/cursor_first_row/<nodes>` measures preparation, first-row delivery, and
 early-drop cleanup. They share the eager scan's fixture and projection.
+The corresponding `union_all_scan_properties`, `cursor_union_all_scan_properties`,
+and `cursor_union_all_first_row` cases repeat that projection across two branches
+and validate the full duplicate-preserving row count before timing.
 For process memory and first-row timings on a larger result bag, see the
 standalone [cursor measurement](cursors.md#measurements).
 

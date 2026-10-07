@@ -611,8 +611,15 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   cover typed bags, snapshot pinning, early drop, partial errors, resource
   accounting across advances, cancellation, read-only files, lock failures,
   and reuse. The lifetime contract and [scan measurements](cursors.md) are
-  documented. Incremental UNION, hydration, and Rust traversal consumption,
-  plus cursors inside application transactions, remain follow-up extensions.
+  documented. Incremental `UNION ALL` is also complete when every branch is
+  an eligible SQLite fragment. Eleven additional tests cover branch-specific
+  types/parameters, duplicates/empty branches, SQL modifiers, fallback boundaries,
+  early exit, partial errors, cumulative budgets, cancellation/deadlines, shared
+  snapshots, cleanup/reuse, and read-only/busy behavior. The scan example and
+  Criterion benchmarks cover eager, full-cursor, and first-row union consumption;
+  release measurements record latency and memory. Distinct UNION, hydration,
+  Rust traversal consumption, and cursors inside application transactions remain
+  follow-up extensions.
 - [x] **File opening and lock contention.** `OpenOptions` selects create-or-open,
   existing read/write, or read-only access and a connection-local busy timeout.
   Read-only handles reject mutations and migration; `Error::Busy` preserves
@@ -658,7 +665,8 @@ Caller-controlled query resources and the dependency-graph application/workload
 are complete for eager execution. Opening options and reader/writer contention
 are complete for local files with rollback journaling, as are process-termination
 recovery and backup/restore. The first incremental read slice is complete for
-single SQLite fragments, with explicit buffering and cursor/snapshot rules.
+single SQLite fragments and `UNION ALL` trees containing only those fragments,
+with explicit buffering and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
 Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware

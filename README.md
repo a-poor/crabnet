@@ -183,8 +183,10 @@ drop(read); // releases the database borrow
 
 `prepare_read_with` binds parameters; `prepare_read_with_options` also accepts
 `QueryOptions`. `columns()` and `mode()` are available before execution.
-Single SQLite fragments without Rust traversal inputs decode one row per
-advance. Other plans use `ReadMode::Buffered`, computing the complete result
+Single SQLite fragments without Rust traversal inputs, and `UNION ALL` queries
+whose branches all meet that condition, decode one row per advance. Union
+branches share one snapshot and resource budget; early drop skips the unread
+suffix. Other plans use `ReadMode::Buffered`, computing the complete result
 when the cursor starts. SQLite may still buffer internally for sorts or aggregates.
 
 Incremental cursors retain a read snapshot. Drop them promptly after early exit

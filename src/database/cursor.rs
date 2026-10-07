@@ -1,4 +1,4 @@
-use std::iter::FusedIterator;
+use std::{collections::VecDeque, iter::FusedIterator};
 
 use rusqlite::{Connection, Rows, Statement, Transaction, TransactionBehavior, params_from_iter};
 
@@ -7,14 +7,18 @@ use super::{
 };
 use crate::{
     CypherValue, Error, Parameters, QueryOptions, Result,
-    planner::{self, Plan, PreparedFragmentArgument, PreparedPhysicalOperator, PreparedReadPlan},
+    planner::{
+        self, Plan, PreparedFragmentArgument, PreparedPhysicalOperator, PreparedReadPlan,
+        PreparedSqlFragment, UnionKind,
+    },
 };
 
 /// How a prepared read supplies rows to Rust.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReadMode {
-    /// A single SQLite fragment is decoded one row per cursor advance.
+    /// SQLite fragments, optionally joined by UNION ALL, are decoded one row
+    /// per cursor advance, without Rust runtime producers.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
     Incremental,
     /// Rust operators require the existing eager executor. Cursor creation
@@ -31,7 +35,7 @@ pub enum ReadMode {
 pub struct PreparedRead<'db> {
     connection: &'db Connection,
     plan: PreparedReadPlan,
-    statement: Option<Statement<'db>>,
+    statements: Vec<Statement<'db>>,
     options: QueryOptions,
 }
 
@@ -60,11 +64,38 @@ pub struct ReadCursor<'read> {
 }
 
 enum CursorState<'read> {
-    Incremental {
-        rows: Rows<'read>,
-        shapes: &'read [crate::planner::OutputShape],
-    },
+    Incremental(VecDeque<FragmentRows<'read>>),
     Buffered(std::vec::IntoIter<Vec<CypherValue>>),
+}
+
+struct FragmentRows<'read> {
+    rows: Rows<'read>,
+    shapes: &'read [crate::planner::OutputShape],
+}
+
+/// Preserve branch order and accept a union only when every leaf can stream.
+/// A distinct, hydration, pagination, or runtime-producer boundary keeps the
+/// whole query on the eager fallback, with its existing accounting and order.
+fn incremental_fragments(root: &PreparedPhysicalOperator) -> Option<Vec<&PreparedSqlFragment>> {
+    let mut pending = vec![root];
+    let mut fragments = Vec::new();
+    while let Some(operator) = pending.pop() {
+        match operator {
+            PreparedPhysicalOperator::Sqlite(fragment) if fragment.inputs.is_empty() => {
+                fragments.push(fragment);
+            }
+            PreparedPhysicalOperator::Union {
+                left,
+                right,
+                kind: UnionKind::All,
+            } => {
+                pending.push(right);
+                pending.push(left);
+            }
+            _ => return None,
+        }
+    }
+    Some(fragments)
 }
 
 impl Database {
@@ -129,20 +160,23 @@ impl Database {
             ));
         };
         let plan = plan.prepare(parameters)?;
-        let statement = context.run(&self.connection, || match &plan.root {
-            PreparedPhysicalOperator::Sqlite(fragment) if fragment.inputs.is_empty() => {
-                let statement = self.connection.prepare(&fragment.sql)?;
-                if !statement.readonly() {
-                    return Err(Error::Data("read fragment is not read-only".into()));
-                }
-                Ok(Some(statement))
-            }
-            _ => Ok(None),
+        let statements = context.run(&self.connection, || {
+            incremental_fragments(&plan.root)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|fragment| {
+                    let statement = self.connection.prepare(&fragment.sql)?;
+                    if !statement.readonly() {
+                        return Err(Error::Data("read fragment is not read-only".into()));
+                    }
+                    Ok(statement)
+                })
+                .collect::<Result<Vec<_>>>()
         })?;
         Ok(PreparedRead {
             connection: &self.connection,
             plan,
-            statement,
+            statements,
             options: options.clone(),
         })
     }
@@ -156,10 +190,10 @@ impl PreparedRead<'_> {
 
     /// Whether Rust decodes incrementally or buffers the complete result.
     pub fn mode(&self) -> ReadMode {
-        if self.statement.is_some() {
-            ReadMode::Incremental
-        } else {
+        if self.statements.is_empty() {
             ReadMode::Buffered
+        } else {
+            ReadMode::Incremental
         }
     }
 
@@ -173,7 +207,7 @@ impl PreparedRead<'_> {
     pub fn cursor(&mut self) -> Result<ReadCursor<'_>> {
         let context = ExecutionContext::new(&self.options);
         context.check()?;
-        // Both the statement and transaction borrow the same connection. The
+        // Statements and the transaction borrow the same connection. The
         // public mutable database/read borrows prohibit overlapping cursors.
         let transaction =
             Transaction::new_unchecked(self.connection, TransactionBehavior::Deferred)?;
@@ -182,25 +216,33 @@ impl PreparedRead<'_> {
             // control work, not a materialized Cypher row, but counts VM steps.
             self.connection
                 .query_row("SELECT count(*) FROM main.sqlite_schema", [], |_| Ok(()))?;
-            if let Some(statement) = &mut self.statement {
-                let PreparedPhysicalOperator::Sqlite(fragment) = &self.plan.root else {
-                    unreachable!("only a standalone SQLite fragment has a statement")
-                };
-                let bindings = fragment
-                    .arguments
-                    .iter()
-                    .map(|argument| match argument {
-                        PreparedFragmentArgument::Value(value) => Ok(value),
-                        PreparedFragmentArgument::Runtime(_) => Err(Error::Data(
-                            "incremental read has a runtime argument".into(),
-                        )),
+            if !self.statements.is_empty() {
+                let fragments = incremental_fragments(&self.plan.root)
+                    .expect("only incremental fragments have statements");
+                // query() binds parameters but does not step SQLite. Later
+                // branches therefore do no execution work until reached.
+                let branches = self
+                    .statements
+                    .iter_mut()
+                    .zip(fragments)
+                    .map(|(statement, fragment)| {
+                        let bindings = fragment
+                            .arguments
+                            .iter()
+                            .map(|argument| match argument {
+                                PreparedFragmentArgument::Value(value) => Ok(value),
+                                PreparedFragmentArgument::Runtime(_) => Err(Error::Data(
+                                    "incremental read has a runtime argument".into(),
+                                )),
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+                        Ok(FragmentRows {
+                            rows: statement.query(params_from_iter(bindings))?,
+                            shapes: &fragment.output_shapes,
+                        })
                     })
-                    .collect::<Result<Vec<_>>>()?;
-                let rows = statement.query(params_from_iter(bindings))?;
-                Ok(CursorState::Incremental {
-                    rows,
-                    shapes: &fragment.output_shapes,
-                })
+                    .collect::<Result<VecDeque<_>>>()?;
+                Ok(CursorState::Incremental(branches))
             } else {
                 let result =
                     execute_prepared_read_plan(self.connection, self.plan.clone(), true, &context)?;
@@ -209,7 +251,7 @@ impl PreparedRead<'_> {
         })?;
         // Cleanup must happen outside the progress handler: cancellation or a
         // depleted step budget must never interrupt ROLLBACK.
-        let transaction = if matches!(state, CursorState::Incremental { .. }) {
+        let transaction = if matches!(state, CursorState::Incremental(_)) {
             Some(transaction)
         } else {
             transaction.rollback()?;
@@ -248,16 +290,22 @@ impl Iterator for ReadCursor<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let state = self.state.as_mut()?;
         let result = match state {
-            CursorState::Incremental { rows, shapes } => self.context.run(self.connection, || {
-                let Some(row) = rows.next()? else {
-                    return Ok(None);
-                };
-                self.context.record_sql_row(row, shapes.len())?;
-                self.result_rows = self.result_rows.saturating_add(1);
-                self.context.result_rows(self.result_rows)?;
-                let row = finish_pending_row(decode_pending_row(row, shapes, &self.context)?)?;
-                self.context.result_row(&row, &mut self.result_bytes)?;
-                Ok(Some(row))
+            CursorState::Incremental(branches) => self.context.run(self.connection, || {
+                while let Some(FragmentRows { rows, shapes }) = branches.front_mut() {
+                    if let Some(row) = rows.next()? {
+                        self.context.record_sql_row(row, shapes.len())?;
+                        self.result_rows = self.result_rows.saturating_add(1);
+                        self.context.result_rows(self.result_rows)?;
+                        let row =
+                            finish_pending_row(decode_pending_row(row, shapes, &self.context)?)?;
+                        self.context.result_row(&row, &mut self.result_bytes)?;
+                        return Ok(Some(row));
+                    }
+                    // Reset the exhausted statement without releasing the
+                    // shared snapshot or resetting any query-wide counters.
+                    branches.pop_front();
+                }
+                Ok(None)
             }),
             CursorState::Buffered(rows) => self.context.check().map(|()| rows.next()),
         };

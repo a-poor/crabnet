@@ -32,11 +32,20 @@ drop(read); // releases the exclusive database borrow
 ```
 
 Inspect `mode()` before opening a cursor. `Incremental` means a single SQLite
-fragment without Rust producers; Rust decodes one row per advance. SQLite may
-still buffer sorts, aggregates, or intermediate relations internally.
+fragment without Rust producers, or `UNION ALL` joining only such fragments;
+Rust decodes one row per advance. SQLite may still buffer sorts, aggregates,
+or intermediate relations internally.
 `Buffered` means the existing executor completes the result when `cursor()`
-is called. UNION, Rust traversal, semantic result shaping, and graph-value
-hydration currently use that fallback.
+is called. Distinct UNION, Rust traversal, semantic result shaping, and
+graph-value hydration use that fallback. A union with any buffered branch
+uses the fallback for the whole query.
+
+An incremental `UNION ALL` visits branches from left to right, keeping duplicate
+rows and each branch's output types. All statements are prepared and parameters
+resolved up front, but later branches do not execute until reached. One snapshot
+and cumulative resource budget span every branch. Dropping early skips execution
+and runtime validation of the unread suffix. Prepared statements and bindings
+still occupy memory proportional to the query's branches and parameters.
 
 A cursor yields owned rows and can report an error after earlier rows were
 delivered. An error ends iteration; it does not undo work the application did
@@ -57,7 +66,10 @@ then reads an `n × n` Cartesian bag with a 1,024-byte string and an integer in
 every result row. Modes are eager collection, full cursor consumption with
 rows discarded immediately, and first-row consumption followed by early drop.
 Full scans validate their row count and integer checksum; every consumed row
-validates its types and payload length. A test exercises all three modes.
+validates its types and payload length. An optional fourth argument repeats
+the scan in that many `UNION ALL` branches (default one, maximum 100), producing
+`branches × n × n` potential rows. A test exercises all three modes with one,
+two, and four branches.
 
 Build separately and run each mode in a fresh process, sequentially:
 
@@ -101,5 +113,48 @@ Measured executable SHA-256:
 
 Criterion also includes `read/cursor_scan_properties/<nodes>` and
 `read/cursor_first_row/<nodes>` alongside the equivalent eager property scan.
+The `union_all_scan_properties`, `cursor_union_all_scan_properties`, and
+`cursor_union_all_first_row` cases compare eager, full-cursor, and first-row
+consumption of a two-branch scan in the same `read` group.
 Those cases use the existing social graph at 1,000 and 10,000 nodes and include
 preparation and cursor cleanup on each iteration.
+
+### UNION ALL measurements
+
+The optional fourth argument selects two identical scan branches. Run each
+mode in a fresh process after building, and repeat with `100` nodes to compare
+20,000 potential rows with the 245,000-row case:
+
+```sh
+cargo build --release --example cursor_scan
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_scan eager 350 1024 2
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_scan cursor 350 1024 2
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_scan first 350 1024 2
+```
+
+Recorded on 2026-10-07, macOS 26.5.1 arm64, release build, three fresh
+processes per cell, run sequentially. These are medians; every row has a
+1,024-byte payload. Full consumption verifies both branches' row counts and
+checksums. Timings include planning, preparation of both statements, snapshot
+setup, decoding, and cleanup; fixture creation is excluded.
+
+| Potential rows | Mode | Consumed rows | First row (ms) | Complete query (ms) | Peak RSS (MiB) |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 20,000 | Eager | 20,000 | 41.419 | 43.368 | 38.156 |
+| 20,000 | Cursor | 20,000 | 0.195 | 39.385 | 7.922 |
+| 20,000 | First row | 1 | 0.196 | 0.204 | 7.891 |
+| 245,000 | Eager | 245,000 | 509.380 | 541.361 | 384.891 |
+| 245,000 | Cursor | 245,000 | 0.271 | 486.169 | 12.766 |
+| 245,000 | First row | 1 | 0.270 | 0.281 | 12.797 |
+
+At 245,000 rows, eager peak RSS ranged from 384.734–384.953 MiB and full-cursor
+RSS from 12.672–12.781 MiB. Cursor first-row latency ranged from 0.265–0.282 ms;
+eager first-row latency was 505.947–519.513 ms. Full-query times were
+534.581–553.419 ms eager and 485.429–488.777 ms cursor. These trials show the
+benefit of avoiding the output buffer for this query; they do not measure a
+general throughput improvement or extend to buffered branches. RSS includes
+the fixture, SQLite, and prepared statements. Early exit consumes one row from
+the first branch and never executes the second branch.
+
+Measured executable SHA-256:
+`3f5fc365d32009583fb267210315a6d3ae9b5f92d0dc65af541c5cb04e5e7728`.
