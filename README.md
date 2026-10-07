@@ -445,6 +445,11 @@ MATCH p = (:Person)-[:KNOWS*1..3]->(:Person)
 RETURN count(DISTINCT p) AS routeCount, collect(p) AS routes
 ```
 
+`size(nodes(p))`, `size(relationships(p))`, and `size(rels)` also work directly
+and through aliases. They count positions, including repeated nodes, and use
+the compact path's hop count without fetching entity records when available.
+Zero-hop paths have node-list size one and relationship-list size zero.
+
 Paths and path lists also support `=`, `<>`, `IN`, `IS NULL`, and `IS NOT NULL`:
 for example, `p = q`, `p IN routes`, and `n IN nodes(p)`. Comparisons, grouping,
 and distinctness use ordered graph identities and distinguish parallel edges.

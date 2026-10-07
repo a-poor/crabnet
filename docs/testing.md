@@ -192,6 +192,12 @@ end-to-end result test for user-visible semantics.
   bags, nulls and zero hops, grouping/quantifiers/unions, parameter isolation
   and preflight, eager/cursor parity and terminal errors, scalar predicate
   writes and rollback, retained restrictions, resource limits, and SQL growth.
+- `tests/path_list_size.rs` covers direct `size` on path-function and legacy
+  relationship lists across all traversal transports, aliases, zero hops,
+  repeated nodes and segment junctions, bag multiplicity, null/transformed
+  lists, filters/aggregation/grouping/modifiers/unions, parameters/preflight,
+  retained scope/write restrictions and transaction rollback, eager/cursor
+  parity, and plans that avoid entity records and output hydration.
 - `tests/collect.rs` covers node/relationship collections and typed distinct
   collection: identity, duplicates, null/empty inputs, order, aliases, grouping,
   typed `UNWIND`, later matches and writes, property/label refreshes, delete

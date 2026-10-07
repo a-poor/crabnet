@@ -576,7 +576,13 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   duplicate/null behavior, counters and refreshed copies, CREATE/MERGE and
   deletion composition, parameter isolation/preflight, invalid targets/values,
   uniqueness/property indexes, transaction rollback, and result budgets.
-  Two additional TCK scenarios pass. Other general scalar functions and ordering
+  Two additional TCK scenarios pass. Direct `size` on path-function and legacy
+  relationship lists is complete, including aliases. Eight integration tests
+  cover all traversal transports, zero hops, repeated positions and segment
+  junctions, nulls, transformed lists, clause/aggregate composition, parameters,
+  scope/write boundaries and rollback, eager/cursor parity, and avoiding entity
+  records and hydration when compact path identities can supply the count.
+  Other general scalar functions and ordering
   on graph values, and expression targets for whole-map/label mutations remain
   follow-ups.
 - [x] **Application uniqueness constraints.** `Database` and `Transaction`
@@ -656,8 +662,8 @@ single SQLite fragments, with explicit buffering and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
 Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
-`coalesce` and `CASE`, direct path aggregation/grouping and predicates, and
-expression DELETE and property SET/REMOVE targets are also complete.
+`coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
+predicates, and expression DELETE and property SET/REMOVE targets are also complete.
 Next extend cursors through measured buffering bottlenecks, or add graph-value
 scalar operations and
 expression targets for other mutations.

@@ -2864,6 +2864,29 @@ impl Compiler {
                         variable.0
                     ))
                 }),
+            Expr::Size(operand)
+                if matches!(operand.as_ref(), Expr::PathFunction {
+                    kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+                    path,
+                } if self.paths.contains_key(path)) =>
+            {
+                // Retain Size in the logical expression for grouping and
+                // projected-value substitution. A deferred list needs only
+                // its path's hop count, without fetching entity records.
+                let Expr::PathFunction { kind, path } = operand.as_ref() else {
+                    unreachable!("matched a deferred path list");
+                };
+                let length = self.compile_scalar(&Expr::PathFunction {
+                    kind: PathFunctionKind::Length,
+                    path: *path,
+                })?;
+                let value = if *kind == PathFunctionKind::Nodes {
+                    format!("(({}) + 1)", length.value)
+                } else {
+                    length.value
+                };
+                Ok(Scalar::sql(value, "'integer'"))
+            }
             Expr::Size(operand) => self.composed(
                 &[operand],
                 |_, parts| {

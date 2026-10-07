@@ -65,9 +65,10 @@ of these values a new name. A path may cross directly or feed an aliased
 `length(path)`, `nodes(path)`, or `relationships(path)` projection. Length uses
 a normal scalar slot. The two entity-list results retain ordered path identity
 and element kind across later direct aliases and projections. They support
-`UNWIND`, indexing, slicing, comprehensions, and quantifiers. Bare path lists
-cannot be predicates, general scalar operands, ordering/grouping keys, or
-aggregate inputs. After the boundary, only projected names remain in scope:
+`UNWIND`, indexing, slicing, comprehensions, quantifiers, `size`, `count`,
+`collect`, grouping, and equality/membership/null predicates. Other general
+scalar uses and whole-list ordering remain unsupported. After the boundary,
+only projected names remain in scope:
 a binding that was not projected cannot be referenced by a later `MATCH`,
 `WITH`, or `RETURN`.
 
@@ -710,6 +711,22 @@ may materialize the full source entity list internally.
 `size(null)` is null, and so is `size` of any other kind of value, where Cypher
 raises a type error. `size` of a path or graph entity is a semantic error;
 paths use `length`.
+
+`size(nodes(p))`, `size(relationships(p))`, and `size(rels)` for a legacy
+relationship-list binding work directly and through aliases across fixed,
+bounded, deep/open-ended, and shortest-path traversal. They count list
+positions: repeated nodes in cycles/self-loops count again, while shared
+segment junctions occur once. A zero-hop path has one node and zero
+relationships. Null lists return null and empty lists return zero.
+These integer results compose with filters, arithmetic, ordering, grouping,
+and aggregate arguments under the existing clause and aggregate-scope rules.
+
+When a compact path identity is available, SQL derives relationship-list size
+from its hop count and node-list size from that count plus one. This avoids
+constructing or hydrating entity records solely for `size`. Traversal still
+runs as required to find the paths. Grouped, selected, sliced, conditional,
+and other materialized lists use their actual contents, preserving null
+positions and changes to list length. Path-fed write restrictions remain.
 
 A list or map literal whose elements are all literals or parameters is bound
 as a single value. A literal with a computed element, such as `[n.a, n.b + 1]`

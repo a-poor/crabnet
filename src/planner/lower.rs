@@ -3690,10 +3690,6 @@ impl<'source> Lowerer<'source> {
                         span,
                         "size() requires a list or string, not a graph entity",
                     )),
-                    Expr::PathFunction {
-                        kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
-                        ..
-                    } => Err(unsupported(span, "size() of a path collection")),
                     argument => Ok(Expr::Size(Box::new(argument))),
                 }
             }
