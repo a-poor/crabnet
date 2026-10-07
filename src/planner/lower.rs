@@ -3675,8 +3675,7 @@ impl<'source> Lowerer<'source> {
                     }),
                 }
             }
-            // `head`, `last`, and `tail` are list indexing and slicing.
-            "head" | "last" | "tail" => {
+            "head" | "last" | "tail" | "reverse" => {
                 let [argument] = function.arguments.as_slice() else {
                     return Err(semantic(
                         span,
@@ -3684,7 +3683,9 @@ impl<'source> Lowerer<'source> {
                     ));
                 };
                 let base = lower_one(argument)?;
-                if is_non_list_graph_value(&base) {
+                if is_non_list_graph_value(&base)
+                    || matches!(&base, Expr::Nested { shape, .. } if matches!(shape.as_ref(), NestedShape::Map(_)))
+                {
                     return Err(semantic(span, "list function requires a list"));
                 }
                 let literal =
@@ -3692,7 +3693,8 @@ impl<'source> Lowerer<'source> {
                 Ok(match name.as_str() {
                     "head" => index_expression(base, *literal(0)),
                     "last" => index_expression(base, *literal(-1)),
-                    _ => slice_expression(base, Some(literal(1)), None),
+                    "reverse" => reverse_expression(base),
+                    _ => tail_expression(base),
                 })
             }
             _ => {
@@ -4673,6 +4675,45 @@ fn slice_expression(base: Expr, lower: Option<Box<Expr>>, upper: Option<Box<Expr
         base: Box::new(base),
         lower,
         upper,
+    };
+    match kind {
+        Some(kind) => Expr::EntityList {
+            kind,
+            expression: Box::new(expression),
+        },
+        None => expression,
+    }
+}
+
+fn tail_expression(base: Expr) -> Expr {
+    let lower = Some(Box::new(Expr::Value(ValueExpr::Literal(Value::from(1)))));
+    // Unlike a general slice, tail preserves every known remaining position.
+    if let Expr::Nested { shape, .. } = &base
+        && let NestedShape::Tuple(items) = shape.as_ref()
+    {
+        let shape = NestedShape::Tuple(items.iter().skip(1).cloned().collect());
+        let expression = Expr::Slice {
+            base: Box::new(nested::call(NestedOp::Elements, vec![base])),
+            lower,
+            upper: None,
+        };
+        return nested::restore(shape, nested::call(NestedOp::List, vec![expression]));
+    }
+    slice_expression(base, lower, None)
+}
+
+fn reverse_expression(base: Expr) -> Expr {
+    if let Expr::Nested { shape, .. } = &base {
+        let mut shape = *shape.clone();
+        if let NestedShape::Tuple(items) = &mut shape {
+            items.reverse();
+        }
+        return nested::restore(shape, nested::call(NestedOp::Reverse, vec![base]));
+    }
+    let kind = entity_list_kind(&base);
+    let expression = Expr::Function {
+        function: ScalarFunction::Reverse,
+        arguments: vec![base],
     };
     match kind {
         Some(kind) => Expr::EntityList {

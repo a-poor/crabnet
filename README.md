@@ -485,14 +485,18 @@ themselves be scalar operands, aggregate inputs/grouping keys, or ordering
 keys; use `length(path)` where an integer scalar is required. Typed graph lists
 from `nodes` and `relationships` retain the context restrictions above.
 Collected entity lists support direct projection, aliases, grouping,
-`DISTINCT`, `size()`, `UNWIND`, indexing, slicing, comprehensions, and list
-quantifiers, and concatenation with `+`. For example,
+`DISTINCT`, `size()`, `UNWIND`, indexing, slicing, comprehensions, list
+quantifiers, concatenation with `+`, and `head`, `last`, `tail`, and `reverse`.
+For example,
 `people[0].name` reads the first collected node's name and `people[-2..]`
 returns the last two entities. Indexing and slicing also work on `nodes(path)`
 and `relationships(path)`, preserving graph types, order, and duplicates.
 Concatenation supports `[person] + friends`, `friends + person`, and joins
 between typed lists; a null operand produces null, while `[null]` retains a
 null member. Paths may also be appended or prepended to lists.
+The four list functions also accept path-function lists and mixed nested lists.
+`head(reverse(people))` retains the last node's identity; `tail(people)` keeps
+the remaining members in order. Reversal changes only the outer list order.
 Comprehensions such as `[n IN people WHERE n.active]`,
 `[n IN nodes(path) | n.name]`, and `[r IN relationships(path) | r.weight]`
 filter typed entities or project ordinary values while keeping list order,

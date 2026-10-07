@@ -544,9 +544,14 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   Eleven integration tests cover nulls, parameter preflight, target evaluation
   before deletion, refreshed snapshots, counters, forged-record isolation,
   errors and rollback, application transactions, and result budgets. Six
-  additional TCK scenarios pass. General scalar functions and ordering
-  on graph values, direct path aggregation, and other expression mutation targets
-  remain follow-ups.
+  additional TCK scenarios pass. Graph-aware `head`, `last`, `tail`, and
+  `reverse` are complete, including exact tuple positions after transformation.
+  Ten integration tests cover entity, path, and mixed/nested lists across all
+  transports, nulls/empty lists, order/duplicates, identity and rebinding,
+  parameters, scalar reversal parity, aggregation, mutation snapshots,
+  write bags/rollback, cursor errors, depth limits, and bounded SQL growth.
+  Other general scalar functions and ordering on graph values, direct path
+  aggregation, and other expression mutation targets remain follow-ups.
 - [x] **Application uniqueness constraints.** `Database` and `Transaction`
   expose create/list/drop methods for a node label/property pair such as
   `:Person.email`. Installation rejects conflicting existing data atomically;
@@ -623,10 +628,10 @@ recovery and backup/restore. The first incremental read slice is complete for
 single SQLite fragments, with explicit buffering and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
 Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
-collections, graph-list concatenation, and expression DELETE targets are also
-complete. Next extend cursors through measured buffering bottlenecks, or add
-graph-value scalar operations
-and expression targets for other mutations.
+collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, and
+expression DELETE targets are also complete. Next extend cursors through
+measured buffering bottlenecks, or add graph-value scalar operations and
+expression targets for other mutations.
 Performance work should start with the measured node-upsert cost and
 shortest-path scaling. Track completion in milestone 10 rather than a separate
 TODO file.

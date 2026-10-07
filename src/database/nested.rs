@@ -498,6 +498,14 @@ fn evaluate(op: &str, args: &[Value]) -> Result<Value> {
             ("v", Value::String(s)) => json!(s.chars().count()),
             _ => Value::Null,
         },
+        "reverse" => match (tag, payload) {
+            ("l" | "v", Value::Array(items)) => {
+                tagged(tag, Value::Array(items.iter().rev().cloned().collect()))
+            }
+            ("v", Value::String(s)) => tagged("v", Value::String(s.chars().rev().collect())),
+            ("v", _) => Value::Null,
+            _ => return Err(Error::Type("reverse() requires a list or string".into())),
+        },
         "element_id" if tag == "n" || tag == "r" => payload["id"].clone(),
         "labels" if tag == "n" => payload["labels"].clone(),
         "relationship_type" if tag == "r" => payload["type"].clone(),
@@ -584,6 +592,7 @@ pub(super) fn register(connection: &Connection) -> Result<()> {
                             | "nodes"
                             | "relationships"
                             | "add"
+                            | "reverse"
                             | "get"
                             | "property"
                             | "properties"

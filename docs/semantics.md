@@ -179,7 +179,8 @@ these graph types. Comprehensions can also project scalar properties or maps,
 which produce ordinary lists. List quantifiers also accept these typed lists.
 Lists and maps may contain entities, paths, and other graph collections.
 `count` and `collect` also accept these containers, including entity lists
-from an earlier `WITH`. General scalar operations on graph collections remain
+from an earlier `WITH`. `head`, `last`, `tail`, and `reverse` preserve graph
+members. Other general scalar operations on graph collections remain
 unsupported; see the nested collection contract below.
 
 Explicit `ALL` on `count`, `sum`, `avg`, `min`, and `max` has the same bag
@@ -429,8 +430,8 @@ RETURN {person: person, connections: connections} AS result
 ```
 
 These values retain their public `CypherValue` kinds across projections,
-`WITH`, indexing, slicing, `head`/`last`/`tail`, comprehensions, quantifiers,
-and `UNWIND`. Maps support literal and dynamic keys; absent keys and
+`WITH`, indexing, slicing, `head`/`last`/`tail`/`reverse`, comprehensions,
+quantifiers, and `UNWIND`. Maps support literal and dynamic keys; absent keys and
 out-of-range indexes return null. Lists keep order, duplicates, and null
 positions. Homogeneous node or relationship members can become entity
 bindings for later matches and supported writes. A heterogeneous member can
@@ -488,7 +489,33 @@ members selected from mixed collections retain ordinary numeric, string, and
 list `+` behavior. Concatenation materializes its inputs and applies the same
 100-container result-depth guard, including rollback on failure.
 
-General scalar functions, ordering, numeric/extremum aggregates,
+`head`, `last`, `tail`, and `reverse` accept collected entities, path-function
+lists, legacy relationship lists, and mixed nested lists. They preserve graph
+identities, duplicates, null members, and nested containers. `reverse` changes
+only the outer order; it does not reverse a nested path's traversal direction.
+`head` and `last` of an empty list are null; `tail` and `reverse` of an empty
+list are empty. All four return null for a null list. Known tuple positions
+remain known after `tail` and `reverse`, so selecting a node or relationship
+can feed later matches and supported writes:
+
+```cypher
+MATCH (person:Person)
+WITH person ORDER BY person.name
+WITH reverse(collect(person)) AS people
+DETACH DELETE head(people)
+RETURN tail(people)
+```
+
+These functions compose with aggregation, comprehensions, quantifiers,
+grouping/distinctness, and unions, and retain mutation refresh and deletion
+snapshots. Graph maps, individual entities, and whole paths are not list
+arguments; a list containing a path is valid. A dynamically selected list or
+string retains ordinary `reverse` behavior, including Unicode string reversal;
+an incompatible dynamically selected graph value raises `Error::Type`.
+Existing indexing/slicing rules govern `head`, `last`, and `tail`. The same
+depth limits, materialization costs, and path-fed write restrictions apply.
+
+Other general scalar functions, ordering, numeric/extremum aggregates,
 and `CASE` over graph collections remain unsupported. Direct whole-path
 aggregation remains unsupported; nesting a path in a map permits collecting
 that map. Node and relationship expressions, including dynamically selected
@@ -719,6 +746,8 @@ arguments is a semantic error.
 - `head(list)`, `last(list)`, and `tail(list)` are `list[0]`, `list[-1]`, and
   `list[1..]`, with the same null rules.
 - `reverse(x)` reverses a string or a list.
+  These four list functions preserve entity and nested graph values; see
+  [nested graph collections](#nested-graph-collections).
 - `toInteger`, `toFloat`, `toString`, and `toBoolean` convert between
   numbers, strings, and booleans. `toInteger` truncates floats toward zero,
   parses integer or float text, and maps booleans to `1`/`0`; `toFloat`

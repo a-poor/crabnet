@@ -78,6 +78,12 @@ end-to-end result test for user-visible semantics.
   all path transports, aggregation and identity, parameters, mutation refresh
   and deletion snapshots, write bags and rollback, scalar addition parity,
   eager/cursor results and partial errors, depth limits, and SQL growth.
+- `tests/graph_list_functions.rs` covers `head`, `last`, `tail`, and `reverse`
+  on collected entities, all path-list transports, and mixed/nested lists:
+  order, duplicates, nulls/empty lists, precise tuple selections and rebinding,
+  plain parameter isolation, Unicode/scalar reversal parity, aggregation and
+  identity, mutation refresh/deletion snapshots, write bags and rollback,
+  cursor errors, depth limits, and bounded SQL growth.
 - `tests/entity_list_quantifiers.rs` covers `all`, `any`, `none`, and `single`
   over collected entities and every path-list transport: typed member access,
   null/empty truth tables, duplicates, scoped patterns and nested bindings,
