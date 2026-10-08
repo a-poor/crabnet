@@ -123,7 +123,6 @@ fn buffered_plans_preserve_union_distinct_pagination_hydration_and_traversal() {
         .execute("CREATE (a:Start)-[:LINK]->(b:End), (a)-[:LINK]->(b)")
         .unwrap();
     for query in [
-        "RETURN 1 AS x UNION RETURN 1 AS x UNION RETURN 2 AS x",
         "MATCH p = (a)-[:LINK]->(b) RETURN p, nodes(p), relationships(p)",
         "MATCH p = (a)-[:LINK]->(b) RETURN DISTINCT p SKIP 1 LIMIT 1",
         "MATCH (:Start)-[:LINK*1..]->(b) RETURN b",
@@ -146,7 +145,7 @@ fn buffered_plans_preserve_union_distinct_pagination_hydration_and_traversal() {
     };
     let mut read = database
         .prepare_read_with_options(
-            "RETURN 1 AS x UNION RETURN 2 AS x",
+            "MATCH (:Start)-[:LINK*1..]->(n) RETURN n AS x UNION RETURN 2 AS x",
             &Parameters::new(),
             &options,
         )
@@ -460,7 +459,7 @@ fn failures_panics_and_buffered_results_release_file_snapshots() {
     writer.execute("CREATE (:AfterPanic)").unwrap();
     drop(read);
     let mut read = reader
-        .prepare_read("MATCH (n:Item) RETURN n.x AS x UNION RETURN 9 AS x")
+        .prepare_read("MATCH (n:Item)-[:MISSING*0..]->(m) RETURN m.x AS x UNION RETURN 9 AS x")
         .unwrap();
     assert_eq!(read.mode(), ReadMode::Buffered);
     let cursor = read.cursor().unwrap();

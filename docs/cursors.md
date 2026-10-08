@@ -31,13 +31,14 @@ drop(read); // releases the exclusive database borrow
 # Ok::<(), crabnet::Error>(())
 ```
 
-Inspect `mode()` before opening a cursor. `Incremental` means a single SQLite
-fragment without Rust producers, or `UNION ALL` joining only such fragments;
-Rust decodes one row per advance. SQLite may still buffer sorts, aggregates,
+Inspect `mode()` before opening a cursor. `Incremental` means SQLite fragments
+without Rust producers, composed through `UNION ALL`, `UNION`, `RETURN DISTINCT`,
+and pagination. Each advance yields at most one row, but can consume several
+duplicate or skipped input rows. SQLite may still buffer sorts, aggregates,
 or intermediate relations internally.
 `Buffered` means the existing executor completes the result when `cursor()`
-is called. Distinct UNION, Rust traversal, semantic result shaping, and
-graph-value hydration use that fallback. A union with any buffered branch
+is called. Rust traversal and graph-value hydration use that fallback.
+A union with any buffered branch
 uses the fallback for the whole query.
 
 An incremental `UNION ALL` visits branches from left to right, keeping duplicate
@@ -46,6 +47,15 @@ resolved up front, but later branches do not execute until reached. One snapshot
 and cumulative resource budget span every branch. Dropping early skips execution
 and runtime validation of the unread suffix. Prepared statements and bindings
 still occupy memory proportional to the query's branches and parameters.
+
+`RETURN DISTINCT` and distinct `UNION` emit the first representative of each
+typed row, retaining seen values until their operator is released. Equal numeric
+values and graph identities use the same rules as eager execution. Memory grows
+with the number and size of unique rows; streaming distinct is not a bounded-memory
+algorithm. Branch-level distinct and pagination finish before applying the
+union's duplicate policy. `SKIP` and `LIMIT` count unique rows after distinct;
+reaching a cursor's limit stops fetching that input, including runtime validation
+of its unread suffix. Whole-query parameter checks still happen at preparation.
 
 A cursor yields owned rows and can report an error after earlier rows were
 delivered. An error ends iteration; it does not undo work the application did
@@ -158,3 +168,64 @@ the first branch and never executes the second branch.
 
 Measured executable SHA-256:
 `3f5fc365d32009583fb267210315a6d3ae9b5f92d0dc65af541c5cb04e5e7728`.
+
+### DISTINCT and distinct UNION measurements
+
+`examples/cursor_distinct.rs` generates a controlled number of rows using
+`UNWIND range(...)`. Every row contains a 1,024-byte payload and an integer
+cycling through the requested number of unique values. The `distinct` case
+uses one RETURN DISTINCT; `union` divides the same input sequence between two
+UNION branches. Full consumption validates every first representative in order
+and the exact unique-row count. The example's test covers both operators,
+all three modes, and several unique/input ratios.
+
+Build once, then run each mode in a fresh process:
+
+```sh
+cargo build --release --example cursor_distinct
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_distinct eager distinct 10000 64 1024
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_distinct cursor distinct 10000 64 1024
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_distinct first distinct 10000 64 1024
+```
+
+Repeat with `union` and with `9900` unique rows to compare duplicate-heavy
+and mostly-unique inputs. Recorded on 2026-10-07, macOS 26.5.1 arm64, release
+build, three fresh processes per cell run sequentially. All cases have 10,000
+input rows. Values are medians; timings include planning, parameter binding,
+snapshot setup, SQLite range generation, decoding, deduplication, and cleanup.
+`First row` consumes one result and drops the cursor; other modes drain the
+complete unique result.
+
+| Operator | Unique rows | Mode | First row (ms) | Complete query (ms) | Peak RSS (MiB) |
+| --- | ---: | --- | ---: | ---: | ---: |
+| DISTINCT | 64 | Eager | 32.174 | 32.178 | 21.172 |
+| DISTINCT | 64 | Cursor | 5.648 | 25.223 | 6.281 |
+| DISTINCT | 64 | First row | 5.667 | 5.691 | 6.125 |
+| UNION | 64 | Eager | 34.437 | 34.441 | 21.766 |
+| UNION | 64 | Cursor | 4.122 | 28.720 | 6.703 |
+| UNION | 64 | First row | 4.124 | 4.155 | 6.297 |
+| DISTINCT | 9,900 | Eager | 1,885.899 | 1,886.300 | 21.391 |
+| DISTINCT | 9,900 | Cursor | 5.722 | 29.964 | 20.344 |
+| DISTINCT | 9,900 | First row | 5.675 | 5.701 | 6.141 |
+| UNION | 9,900 | Eager | 1,787.676 | 1,788.078 | 21.781 |
+| UNION | 9,900 | Cursor | 4.098 | 33.400 | 20.656 |
+| UNION | 9,900 | First row | 4.123 | 4.156 | 6.328 |
+
+For DISTINCT, cursor peak RSS ranged from 6.250–6.297 MiB with 64 unique rows
+and 20.297–20.359 MiB with 9,900 unique rows. This shows the retained-state
+cost: streaming avoids the complete input buffer, but stores each unique
+representative. At 9,900 unique rows, DISTINCT cursor first-row latency ranged
+from 5.599–8.065 ms, versus 1,836.521–2,270.294 ms eager. The UNION cursor
+range was 4.080–4.139 ms, versus 1,699.089–1,839.908 ms eager.
+
+The eager executor still uses pairwise duplicate comparisons, while cursors
+use hash buckets followed by the same equality check. Full-query timing
+differences therefore include that algorithm difference, not just streaming.
+RSS covers the entire process and SQLite's internal work. These cases do not
+establish bounds for arbitrary values, sorting, traversal, or hydration.
+Criterion's `cursor_distinct_city`, `cursor_distinct_first_row`,
+`cursor_union_distinct_city`, and `cursor_union_distinct_first_row` cases also
+exercise duplicate-heavy reads on the standard graph fixtures.
+
+Measured executable SHA-256:
+`2a9a860ab6e9a8734d6058a8ed0c0762f0356c5c5ed1ee967870dfe9f1bb84f6`.

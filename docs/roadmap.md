@@ -617,9 +617,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   early exit, partial errors, cumulative budgets, cancellation/deadlines, shared
   snapshots, cleanup/reuse, and read-only/busy behavior. The scan example and
   Criterion benchmarks cover eager, full-cursor, and first-row union consumption;
-  release measurements record latency and memory. Distinct UNION, hydration,
-  Rust traversal consumption, and cursors inside application transactions remain
-  follow-up extensions.
+  release measurements record latency and memory. Semantic DISTINCT, distinct
+  UNION, and pagination now stream over eligible fragments too. Twelve additional
+  integration tests cover typed first representatives, exact numeric and graph
+  identity, branch scopes/pages, long unions, input versus output accounting,
+  early completion and errors, resource controls, snapshots, cleanup, and reuse.
+  Two unit tests verify hash-bucket filtering against the existing equality and
+  force collisions. The distinct example measures duplicate-heavy and mostly-unique
+  inputs: retained state grows with unique rows, while early exit avoids draining
+  the suffix. Hydration, Rust traversal consumption, and cursors inside
+  application transactions remain follow-up extensions.
 - [x] **File opening and lock contention.** `OpenOptions` selects create-or-open,
   existing read/write, or read-only access and a connection-local busy timeout.
   Read-only handles reject mutations and migration; `Error::Busy` preserves
@@ -665,8 +672,8 @@ Caller-controlled query resources and the dependency-graph application/workload
 are complete for eager execution. Opening options and reader/writer contention
 are complete for local files with rollback journaling, as are process-termination
 recovery and backup/restore. The first incremental read slice is complete for
-single SQLite fragments and `UNION ALL` trees containing only those fragments,
-with explicit buffering and cursor/snapshot rules.
+eligible SQLite fragments composed through UNION/UNION ALL, semantic DISTINCT,
+and pagination, with explicit buffering, retained-state, and cursor/snapshot rules.
 Keep the example, cursor, and persistence tests as application regression coverage.
 Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware

@@ -1617,17 +1617,17 @@ available on writable and read-only databases, but not inside an application
 execution strategy explicit before starting:
 
 - `ReadMode::Incremental`: a single SQLite fragment without Rust runtime
-  producers, or a `UNION ALL` tree containing only those fragments. Each
-  iterator advance fetches and decodes at most one output row
-  into Rust. Scalar values, whole entities, nulls, nested values, and duplicate
+  producers, or a tree of those fragments with UNION/UNION ALL, semantic DISTINCT,
+  and pagination. Each iterator advance produces at most one output row, but
+  may decode multiple inputs while discarding duplicates or skipping rows.
+  Scalar values, whole entities, nulls, nested values, and duplicate
   rows use the same decoding as eager execution. SQLite itself can materialize
   sorts, aggregates, intermediate `WITH` stages, JSON arrays, and recursive
   traversals before producing the first row. Each individual value is decoded
   in full; this is not a whole-query memory cap.
 - `ReadMode::Buffered`: the existing eager executor runs at cursor creation.
-  Rust semantic DISTINCT/pagination, distinct UNION, path and relationship-list
-  hydration, and Rust traversal producers use this mode. A `UNION ALL` with
-  any such boundary uses it for the entire query. All rows
+  Path and relationship-list hydration and Rust traversal producers use this
+  mode. A union with any such boundary uses it for the entire query. All rows
   and resource checks finish before the cursor is returned; the cursor then
   owns the result buffer. This fallback preserves the existing operator order
   and query-wide hydration behavior. Extending incremental execution through
@@ -1641,6 +1641,26 @@ reached. This retains statements and bindings proportional to branch count and
 parameter size, without collecting the union's output in Rust. A later branch's
 runtime error may follow rows yielded by earlier branches. Planning and missing
 parameter errors in every branch still fail preparation.
+
+Incremental DISTINCT preserves the first encountered representative using the
+same recursive row equivalence as eager execution, including nulls, exact
+integer/float equality, and ordered graph identities. Randomized hash buckets
+narrow candidate comparisons; collisions are checked with that equivalence.
+Each active distinct operator retains representative rows, including their
+property payloads. Its memory grows with the count and size of unique rows.
+Branch-local seen sets are released when the branch finishes; consecutive
+distinct UNION branches share one union-level set. These allocations are not
+a new row transfer and are not separately charged as result bytes; resource
+controls remain transfer/work/output limits rather than a total heap cap.
+
+Branch-local DISTINCT and pagination run before the union's duplicate policy.
+SKIP and LIMIT after DISTINCT count unique rows. Reaching a cursor's LIMIT
+stops requesting input from that operator, and LIMIT 0 does not step its input.
+Early completion can therefore avoid a runtime error that eager execution
+would encounter while draining the input before pagination. SQLite can still
+materialize or sort internally, so this does not promise to avoid all suffix
+work inside a SQLite fragment. Parameter and pagination validation in all
+branches still finish during preparation, including zero-length pages.
 
 `PreparedRead::cursor()` starts a new deferred transaction and pins the main
 database snapshot before returning, even when no row has been requested yet.
@@ -1667,6 +1687,8 @@ The borrow rules enforce both restrictions. Options retain their absolute
 deadline and shared cancellation token across repeated cursors.
 
 Incremental row-transfer and result limits accumulate over advances and branches.
+Transfer limits count every fetched input, including duplicates and skipped
+rows; result limits count only rows surviving distinct, pagination, and union.
 A limit fails on the first disallowed row, before exposing it; earlier rows remain
 visible to the caller. Early drop does not execute or validate the unread
 suffix. SQLite VM steps accumulate across snapshot pinning, branches, and advances;

@@ -87,6 +87,7 @@ fn branch_shapes_parameters_and_sql_modifiers_match_eager_results() {
         "MATCH (n:Item) RETURN n.x AS x,count(*) AS c UNION ALL RETURN 9 AS x,0 AS c",
         "MATCH ()-[:LINK*1..2]->(n) RETURN n AS x UNION ALL MATCH (n:Item) RETURN n AS x",
         "MATCH (n:Missing) RETURN n AS x UNION ALL MATCH (n:Missing) RETURN n AS x",
+        "UNWIND [1,1,2] AS x RETURN DISTINCT x SKIP 1 LIMIT 1 UNION ALL RETURN 2 AS x",
     ] {
         let expected = db.execute_with(query, &parameters).unwrap();
         let mut read = db.prepare_read_with(query, &parameters).unwrap();
@@ -118,7 +119,6 @@ fn any_buffered_branch_keeps_the_entire_union_buffered() {
     db.execute("CREATE (a:Start)-[:LINK]->(b:End),(a)-[:LINK]->(b)")
         .unwrap();
     for branch in [
-        "UNWIND [1,1,2] AS x RETURN DISTINCT x SKIP 1 LIMIT 1",
         "MATCH p=(:Start)-[:LINK]->() RETURN p AS x",
         "MATCH p=(:Start)-[:LINK]->() RETURN nodes(p) AS x",
         "MATCH p=(:Start)-[:LINK]->() RETURN DISTINCT p AS x SKIP 1 LIMIT 1",
@@ -129,6 +129,8 @@ fn any_buffered_branch_keeps_the_entire_union_buffered() {
         for query in [
             format!("RETURN null AS x UNION ALL {branch}"),
             format!("{branch} UNION ALL RETURN null AS x"),
+            format!("RETURN null AS x UNION {branch}"),
+            format!("{branch} UNION RETURN null AS x"),
         ] {
             let expected = db.execute(&query).unwrap();
             let mut read = db.prepare_read(&query).unwrap();
@@ -148,7 +150,7 @@ fn any_buffered_branch_keeps_the_entire_union_buffered() {
         "RETURN 1 AS x UNION DISTINCT RETURN 1 AS x",
     ] {
         let mut read = db.prepare_read(query).unwrap();
-        assert_eq!(read.mode(), ReadMode::Buffered);
+        assert_eq!(read.mode(), ReadMode::Incremental);
         assert_eq!(read.cursor().unwrap().count(), 1);
     }
 }

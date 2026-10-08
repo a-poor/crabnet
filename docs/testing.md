@@ -120,6 +120,14 @@ end-to-end result test for user-visible semantics.
   branches, drop/error/panic cleanup, prepared-handle reuse, and read-only/busy
   behavior. The scan example and Criterion cases measure full and early-exit
   union consumption as well as single-fragment reads.
+- `tests/read_cursor_distinct.rs` covers streaming DISTINCT and distinct UNION:
+  typed first representatives, numeric precision, graph and nested identities,
+  branch-local distinct/pages, long union chains, duplicate/skip versus output
+  accounting, zero-page preflight, unread suffixes and partial errors, shared
+  work/control budgets, snapshot pinning, cleanup/reuse, and read-only/busy
+  behavior. Cursor deduplication unit tests compare hash-bucket admission with
+  the existing equality oracle and force collisions. `examples/cursor_distinct.rs`
+  validates and measures duplicate-heavy and mostly-unique workloads.
 - `tests/query_resources.rs` exercises the options APIs on databases and
   transactions: configurable traversal guards, deadline/cancellation errors,
   SQLite work limits, materialized and final rows/bytes, UTF-8/recursive costs,
@@ -400,6 +408,10 @@ and `cursor_union_all_first_row` cases repeat that projection across two branche
 and validate the full duplicate-preserving row count before timing.
 For process memory and first-row timings on a larger result bag, see the
 standalone [cursor measurement](cursors.md#measurements).
+`cursor_distinct_city`, `cursor_distinct_first_row`, `cursor_union_distinct_city`,
+and `cursor_union_distinct_first_row` add duplicate-heavy cursor cases to the
+same Criterion group. The distinct example separately measures latency and
+process memory as the number of unique output rows changes.
 
 ## Persistent application workload
 

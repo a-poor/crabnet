@@ -351,6 +351,10 @@ fn bench_reads(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("union_all_scan_properties", nodes), |b| {
             b.iter(|| run(&mut database, black_box(&union)));
         });
+        let distinct = "MATCH (p:Person) RETURN DISTINCT p.city AS city";
+        let union_distinct =
+            "MATCH (p:Person) RETURN p.city AS city UNION MATCH (p:Person) RETURN p.city AS city";
+        let cities = run(&mut database, distinct).rows.len();
         for (scan, row_count, scan_name, first_name) in [
             (scan, nodes, "cursor_scan_properties", "cursor_first_row"),
             (
@@ -358,6 +362,18 @@ fn bench_reads(c: &mut Criterion) {
                 nodes * 2,
                 "cursor_union_all_scan_properties",
                 "cursor_union_all_first_row",
+            ),
+            (
+                distinct,
+                cities,
+                "cursor_distinct_city",
+                "cursor_distinct_first_row",
+            ),
+            (
+                union_distinct,
+                cities,
+                "cursor_union_distinct_city",
+                "cursor_union_distinct_first_row",
             ),
         ] {
             {

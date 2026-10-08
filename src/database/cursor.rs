@@ -1,5 +1,8 @@
 use std::{collections::VecDeque, iter::FusedIterator};
 
+mod distinct;
+use distinct::SeenRows;
+
 use rusqlite::{Connection, Rows, Statement, Transaction, TransactionBehavior, params_from_iter};
 
 use super::{
@@ -17,8 +20,8 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReadMode {
-    /// SQLite fragments, optionally joined by UNION ALL, are decoded one row
-    /// per cursor advance, without Rust runtime producers.
+    /// SQLite fragments compose through UNION, DISTINCT, and pagination
+    /// without buffering the complete result. DISTINCT retains seen rows.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
     Incremental,
     /// Rust operators require the existing eager executor. Cursor creation
@@ -64,7 +67,7 @@ pub struct ReadCursor<'read> {
 }
 
 enum CursorState<'read> {
-    Incremental(VecDeque<FragmentRows<'read>>),
+    Incremental(Stream<'read>),
     Buffered(std::vec::IntoIter<Vec<CypherValue>>),
 }
 
@@ -73,9 +76,135 @@ struct FragmentRows<'read> {
     shapes: &'read [crate::planner::OutputShape],
 }
 
+enum Stream<'read> {
+    Sqlite(FragmentRows<'read>),
+    Union(VecDeque<Self>),
+    Distinct {
+        input: Box<Self>,
+        seen: SeenRows,
+    },
+    Paginate {
+        input: Box<Self>,
+        skip: usize,
+        remaining: Option<usize>,
+    },
+}
+
+impl<'read> Stream<'read> {
+    fn build(
+        plan: &PreparedPhysicalOperator,
+        fragments: &mut impl Iterator<Item = FragmentRows<'read>>,
+    ) -> Self {
+        match plan {
+            PreparedPhysicalOperator::Sqlite(_) => Self::Sqlite(
+                fragments
+                    .next()
+                    .expect("each incremental fragment has a statement"),
+            ),
+            PreparedPhysicalOperator::SemanticDistinct { input } => Self::Distinct {
+                input: Box::new(Self::build(input, fragments)),
+                seen: SeenRows::default(),
+            },
+            PreparedPhysicalOperator::Paginate {
+                input,
+                offset,
+                limit,
+            } => Self::Paginate {
+                input: Box::new(Self::build(input, fragments)),
+                skip: *offset,
+                remaining: *limit,
+            },
+            PreparedPhysicalOperator::Union { kind, .. } => {
+                // Consecutive unions share one duplicate policy. Flatten them
+                // so a long UNION chain needs only one seen set, while keeping
+                // each branch's DISTINCT and pagination in their own scopes.
+                let mut pending = vec![plan];
+                let mut branches = VecDeque::new();
+                while let Some(operator) = pending.pop() {
+                    match operator {
+                        PreparedPhysicalOperator::Union {
+                            left,
+                            right,
+                            kind: inner,
+                        } if inner == kind => {
+                            pending.push(right);
+                            pending.push(left);
+                        }
+                        branch => branches.push_back(Self::build(branch, fragments)),
+                    }
+                }
+                let union = Self::Union(branches);
+                if *kind == UnionKind::Distinct {
+                    Self::Distinct {
+                        input: Box::new(union),
+                        seen: SeenRows::default(),
+                    }
+                } else {
+                    union
+                }
+            }
+            PreparedPhysicalOperator::BatchHydrate { .. } => {
+                unreachable!("hydration uses the buffered fallback")
+            }
+        }
+    }
+
+    fn next(&mut self, context: &ExecutionContext) -> Result<Option<Vec<CypherValue>>> {
+        context.check()?;
+        match self {
+            Self::Sqlite(FragmentRows { rows, shapes }) => {
+                let Some(row) = rows.next()? else {
+                    return Ok(None);
+                };
+                context.record_sql_row(row, shapes.len())?;
+                finish_pending_row(decode_pending_row(row, shapes, context)?).map(Some)
+            }
+            Self::Union(branches) => {
+                while let Some(branch) = branches.front_mut() {
+                    if let Some(row) = branch.next(context)? {
+                        return Ok(Some(row));
+                    }
+                    // Release exhausted statements and branch-local seen sets.
+                    branches.pop_front();
+                }
+                Ok(None)
+            }
+            Self::Distinct { input, seen } => {
+                while let Some(row) = input.next(context)? {
+                    if seen.insert(&row, context)? {
+                        return Ok(Some(row));
+                    }
+                }
+                Ok(None)
+            }
+            Self::Paginate {
+                input,
+                skip,
+                remaining,
+            } => {
+                if *remaining == Some(0) {
+                    return Ok(None);
+                }
+                while *skip > 0 {
+                    if input.next(context)?.is_none() {
+                        return Ok(None);
+                    }
+                    *skip -= 1;
+                }
+                let row = input.next(context)?;
+                if row.is_some()
+                    && let Some(remaining) = remaining
+                {
+                    *remaining -= 1;
+                }
+                Ok(row)
+            }
+        }
+    }
+}
+
 /// Preserve branch order and accept a union only when every leaf can stream.
-/// A distinct, hydration, pagination, or runtime-producer boundary keeps the
-/// whole query on the eager fallback, with its existing accounting and order.
+/// Hydration and runtime producers keep the whole query on the eager fallback.
 fn incremental_fragments(root: &PreparedPhysicalOperator) -> Option<Vec<&PreparedSqlFragment>> {
     let mut pending = vec![root];
     let mut fragments = Vec::new();
@@ -84,14 +213,12 @@ fn incremental_fragments(root: &PreparedPhysicalOperator) -> Option<Vec<&Prepare
             PreparedPhysicalOperator::Sqlite(fragment) if fragment.inputs.is_empty() => {
                 fragments.push(fragment);
             }
-            PreparedPhysicalOperator::Union {
-                left,
-                right,
-                kind: UnionKind::All,
-            } => {
+            PreparedPhysicalOperator::Union { left, right, .. } => {
                 pending.push(right);
                 pending.push(left);
             }
+            PreparedPhysicalOperator::SemanticDistinct { input }
+            | PreparedPhysicalOperator::Paginate { input, .. } => pending.push(input),
             _ => return None,
         }
     }
@@ -241,8 +368,11 @@ impl PreparedRead<'_> {
                             shapes: &fragment.output_shapes,
                         })
                     })
-                    .collect::<Result<VecDeque<_>>>()?;
-                Ok(CursorState::Incremental(branches))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(CursorState::Incremental(Stream::build(
+                    &self.plan.root,
+                    &mut branches.into_iter(),
+                )))
             } else {
                 let result =
                     execute_prepared_read_plan(self.connection, self.plan.clone(), true, &context)?;
@@ -290,22 +420,16 @@ impl Iterator for ReadCursor<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let state = self.state.as_mut()?;
         let result = match state {
-            CursorState::Incremental(branches) => self.context.run(self.connection, || {
-                while let Some(FragmentRows { rows, shapes }) = branches.front_mut() {
-                    if let Some(row) = rows.next()? {
-                        self.context.record_sql_row(row, shapes.len())?;
-                        self.result_rows = self.result_rows.saturating_add(1);
-                        self.context.result_rows(self.result_rows)?;
-                        let row =
-                            finish_pending_row(decode_pending_row(row, shapes, &self.context)?)?;
-                        self.context.result_row(&row, &mut self.result_bytes)?;
-                        return Ok(Some(row));
-                    }
-                    // Reset the exhausted statement without releasing the
-                    // shared snapshot or resetting any query-wide counters.
-                    branches.pop_front();
-                }
-                Ok(None)
+            CursorState::Incremental(stream) => self.context.run(self.connection, || {
+                let Some(row) = stream.next(&self.context)? else {
+                    return Ok(None);
+                };
+                // Transfers count every input row, including duplicates and
+                // skipped rows. Result budgets count only surviving output.
+                self.result_rows = self.result_rows.saturating_add(1);
+                self.context.result_rows(self.result_rows)?;
+                self.context.result_row(&row, &mut self.result_bytes)?;
+                Ok(Some(row))
             }),
             CursorState::Buffered(rows) => self.context.check().map(|()| rows.next()),
         };
