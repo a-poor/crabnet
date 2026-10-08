@@ -43,6 +43,15 @@ end-to-end result test for user-visible semantics.
   write-lock release, and persistence after reopening. Transaction unit tests
   cover cleanup after SQLite itself has already rolled back and after a
   failed commit.
+- `tests/transaction_cursors.rs` covers reads of earlier writes in both cursor
+  modes, typed bags/parameters, DISTINCT/UNION/pagination and hydration, prepared
+  reuse with fresh budgets, successful cleanup preserving the parent, rejection
+  of writes, errors during preparation/start/iteration, rollback of graph/index/
+  constraint changes, cancellation/deadlines and transfer/output/SQLite limits,
+  provisional rows after rollback, immediate lock release with failed handles
+  retained, and consumer versus parent panic unwinding. Rustdoc examples cover
+  transactional read/decide/write and enforce exclusive borrowing against writes
+  and commit with compile-fail cases.
 - `tests/opening.rs` covers file access modes, missing/empty/foreign/future
   files, migration policy, read-only hybrid reads and rejected writes,
   connection-local lock timeouts, concurrent openers, reader visibility,
@@ -128,6 +137,15 @@ end-to-end result test for user-visible semantics.
   behavior. Cursor deduplication unit tests compare hash-bucket admission with
   the existing equality oracle and force collisions. `examples/cursor_distinct.rs`
   validates and measures duplicate-heavy and mostly-unique workloads.
+- `tests/read_cursor_hydration.rs` covers incremental SQLite path and graph-list
+  hydration: zero hops, cycles, parallel edges, direction and repeated members,
+  mixed/nested projections, compact/materialized list equality, branch shaping,
+  first-row laziness, per-batch entity reuse and direct-entity seeding, exact
+  transfer/result limits, read-ahead errors, cancellation/deadlines, shared work,
+  snapshot cleanup/reuse, and read-only/busy behavior. The distinct fingerprint
+  unit matrix also checks compact identities against materialized lists.
+  `examples/cursor_hydration.rs` validates paths and node lists across batches
+  and measures eager, full-cursor, and first-row consumption.
 - `tests/query_resources.rs` exercises the options APIs on databases and
   transactions: configurable traversal guards, deadline/cancellation errors,
   SQLite work limits, materialized and final rows/bytes, UTF-8/recursive costs,
@@ -412,6 +430,10 @@ standalone [cursor measurement](cursors.md#measurements).
 and `cursor_union_distinct_first_row` add duplicate-heavy cursor cases to the
 same Criterion group. The distinct example separately measures latency and
 process memory as the number of unique output rows changes.
+`hydrate_paths`, `hydrate_nodes`, their `cursor_` counterparts, and
+`cursor_hydrate_paths_first_row` / `cursor_hydrate_nodes_first_row` measure eager,
+full-cursor, and first-row hydration on the same social graphs. The standalone
+hydration example measures large repeated outputs with sizeable entity payloads.
 
 ## Persistent application workload
 

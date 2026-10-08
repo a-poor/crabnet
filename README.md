@@ -184,16 +184,27 @@ drop(read); // releases the database borrow
 `prepare_read_with` binds parameters; `prepare_read_with_options` also accepts
 `QueryOptions`. `columns()` and `mode()` are available before execution.
 SQLite fragments without Rust traversal inputs can stream through `UNION ALL`,
-`UNION`, `RETURN DISTINCT`, and pagination. Distinct operators retain seen values
-and preserve typed equality; memory grows with the number and size of unique
-rows. Branches share one snapshot and resource budget; early drop skips the
-unread suffix. Other plans use `ReadMode::Buffered`, computing the complete result
-when the cursor starts. SQLite may still buffer internally for sorts or aggregates.
+`UNION`, `RETURN DISTINCT`, pagination, and path/list hydration. Hydration loads
+one surviving row initially, then batches of up to 64, reusing entities within
+each batch. Distinct operators retain seen values and preserve typed equality;
+memory grows with the number and size of unique rows. Branches share one snapshot
+and resource budget; early drop skips the suffix beyond any hydration read-ahead.
+Rust traversal plans use `ReadMode::Buffered`, computing the complete result when
+the cursor starts. SQLite may still buffer internally for sorts or aggregates.
 
-Incremental cursors retain a read snapshot. Drop them promptly after early exit
-to release locks. A later error can follow rows already yielded; the error ends iteration.
+Standalone incremental cursors retain a read snapshot. Drop them promptly after
+early exit to release locks. A later error can follow rows already yielded;
+the error ends iteration.
 Mutations are rejected. See [cursor usage and measurements](docs/cursors.md) and
 the [lifetime and resource contract](docs/semantics.md#read-cursors).
+
+`Transaction::prepare_read*` exposes the same prepared reads and execution modes
+inside an application transaction, including uncommitted writes. Drop the prepared
+read before another query or commit. Cursor exhaustion or early drop leaves the
+parent transaction open and holding its locks; any preparation or cursor error
+rolls back the entire transaction immediately. Each cursor gets fresh resource
+counters, while its snapshot belongs to the parent. Returned rows remain
+provisional until commit. See the [transaction example](docs/cursors.md#inside-an-application-transaction).
 
 ## Current query slice
 
@@ -477,10 +488,12 @@ unsupported.
 Rust keeps path and graph-list cells pending while branch-local
 `RETURN DISTINCT` and deferred pagination, followed by left-to-right
 `UNION`/`UNION ALL`, shape complete typed rows. It then collects only
-surviving IDs query-wide, seeds hydration from directly projected node and
-relationship values, and loads the remainder in batches—at most one node query
-and one edge query. Every branch and hydration read shares one deferred SQLite
-snapshot. Concurrent external writers are not a current goal.
+surviving IDs query-wide for eager execution, seeds hydration from directly
+projected node and relationship values, and loads the remainder in batches—at
+most one node query and one edge query. Every branch and hydration read shares
+one deferred SQLite snapshot. Eligible cursors use the same shaping order and
+snapshot, with entity reuse scoped to each hydration batch. Concurrent external
+writers are not a current goal.
 
 Unsupported syntax is parsed first and then reported as `Error::Unsupported`.
 Malformed Cypher, semantic errors such as unknown variables or `NOT 1`, and
@@ -607,7 +620,8 @@ argument, deferred page value, and traversal filter across all `UNION`
 branches before any runtime producer or SQLite fragment runs. At execution,
 Rust materializes deep/open-ended trails or shortest-path BFS results for
 SQLite to consume, applies semantic row operators, and performs one final
-query-wide hydration pass. Direct entities seed that pass; remaining IDs use
+query-wide hydration pass for eager execution. Eligible cursors hydrate one
+batch at a time. Direct entities seed each pass; remaining IDs use
 at most one node query and one edge query. With `RETURN DISTINCT`, `ORDER BY`
 is restricted to projected expressions or their aliases.
 

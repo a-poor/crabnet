@@ -355,6 +355,16 @@ fn bench_reads(c: &mut Criterion) {
         let union_distinct =
             "MATCH (p:Person) RETURN p.city AS city UNION MATCH (p:Person) RETURN p.city AS city";
         let cities = run(&mut database, distinct).rows.len();
+        let paths = "MATCH p=(:Person)-[:KNOWS]->() RETURN p";
+        let path_nodes = "MATCH p=(:Person)-[:KNOWS]->() RETURN nodes(p)";
+        let edges = nodes * DEGREE + nodes / COMMUNITY * 2;
+        for (name, query) in [("hydrate_paths", paths), ("hydrate_nodes", path_nodes)] {
+            assert_eq!(run(&mut database, query).rows.len(), edges);
+            group.throughput(Throughput::Elements(edges as u64));
+            group.bench_function(BenchmarkId::new(name, nodes), |b| {
+                b.iter(|| run(&mut database, black_box(query)));
+            });
+        }
         for (scan, row_count, scan_name, first_name) in [
             (scan, nodes, "cursor_scan_properties", "cursor_first_row"),
             (
@@ -374,6 +384,18 @@ fn bench_reads(c: &mut Criterion) {
                 cities,
                 "cursor_union_distinct_city",
                 "cursor_union_distinct_first_row",
+            ),
+            (
+                paths,
+                edges,
+                "cursor_hydrate_paths",
+                "cursor_hydrate_paths_first_row",
+            ),
+            (
+                path_nodes,
+                edges,
+                "cursor_hydrate_nodes",
+                "cursor_hydrate_nodes_first_row",
             ),
         ] {
             {

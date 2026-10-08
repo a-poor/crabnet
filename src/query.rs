@@ -66,12 +66,14 @@ impl Default for TraversalLimits {
 /// including within an application transaction, and for each prepared-read
 /// cursor. Limits fail with a structured error rather than silently truncating.
 /// A write failure rolls back the statement, or the entire explicit transaction.
-/// Read cursors can report errors after yielding earlier rows.
+/// Read cursors can report errors after yielding earlier rows; an error from a
+/// transactional cursor aborts all writes in its enclosing transaction.
 ///
 /// Deadlines and cancellation are checked around planning, periodically inside
 /// SQLite, and between Rust work units. They do not preempt parsing, a single
 /// scalar/aggregate callback, an allocation, or SQLite lock/I/O waits. Use
-/// [`crate::Database::prepare_read_with_options`] for cursor consumption; the
+/// [`crate::Database::prepare_read_with_options`] or
+/// [`crate::Transaction::prepare_read_with_options`] for cursor consumption; the
 /// `execute` methods remain eager.
 ///
 /// ```

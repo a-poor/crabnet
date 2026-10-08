@@ -1148,9 +1148,9 @@ quantifiers, and writes fed by variable-length traversal, a named path, or a
 relationship list also remain unsupported.
 
 SQLite carries a compact encoding of the ordered node and relationship IDs.
-Rust drains each branch cursor into pending typed rows before another branch or
-hydration query runs. Branch-local semantic `RETURN DISTINCT` and deferred
-pagination run on those pending cells, followed by left-to-right
+For eager execution, Rust drains each branch cursor into pending typed rows
+before another branch or hydration query runs. Branch-local semantic
+`RETURN DISTINCT` and deferred pagination run on those pending cells, followed by left-to-right
 `UNION`/`UNION ALL` operations. Only IDs required by surviving whole paths or
 graph lists are collected and deduplicated query-wide. A
 nodes-only result does not load relationships, and a relationships-only result
@@ -1159,8 +1159,12 @@ from their already-materialized snapshots; Rust then loads every remaining ID
 in batches, using at most one node query and one edge query before constructing
 public paths and typed lists in traversal order.
 
+Eligible [read cursors](#read-cursors) apply the same shaping order, then hydrate
+one row initially and up to 64 surviving rows per later batch. Entity reuse is
+per batch rather than query-wide; all batches share the cursor's snapshot.
+
 The complete read—runtime traversal producers, every branch SQL fragment, and
-union evaluation plus both possible hydration queries—shares one deferred
+union evaluation plus every hydration query—shares one deferred
 SQLite read snapshot. Independent Crabnet connections follow the
 [file-opening and contention contract](#file-opening-and-contention).
 
@@ -1427,6 +1431,13 @@ Resource budgets reset for each query, while all operators within a
 query continue sharing that query's budget. Standalone execution retains its
 existing per-statement transaction and preflight behavior.
 
+`Transaction::prepare_read*` exposes the [read cursor API](#read-cursors) using
+this same transaction and its earlier writes. The prepared read borrows the
+parent exclusively. Successful cursor completion/drop leaves it active; any
+preparation, cursor-creation, or iteration error follows the rollback contract
+above. Per-query counters reset for each cursor, while the snapshot remains
+the parent's. Returned rows remain provisional until commit.
+
 ## File opening and contention
 
 `Database::open(path)` delegates to `Database::open_with_options(path,
@@ -1605,33 +1616,34 @@ contract. Existing atomic migration and failed-migration tests remain in place.
 
 ## Read cursors
 
-`Database::prepare_read`, `prepare_read_with`, and `prepare_read_with_options`
-return a `PreparedRead` that exclusively borrows the database. Planning and
+`Database::prepare_read`, `prepare_read_with`, and `prepare_read_with_options`,
+and the equivalent `Transaction` methods, return a `PreparedRead` that exclusively
+borrows its database or transaction. Planning and
 whole-tree parameter resolution finish before this returns; query text,
 parameters, and options are owned by the preparation and can be dropped by
 the caller. Writes return `Error::Unsupported` without executing. This API is
-available on writable and read-only databases, but not inside an application
-`Transaction`.
+available on writable and read-only databases and inside an application
+`Transaction`. Rejecting a mutation inside a transaction aborts earlier writes,
+as for every other query error.
 
 `PreparedRead::columns()` exposes ordered column names. `mode()` makes the
 execution strategy explicit before starting:
 
 - `ReadMode::Incremental`: a single SQLite fragment without Rust runtime
   producers, or a tree of those fragments with UNION/UNION ALL, semantic DISTINCT,
-  and pagination. Each iterator advance produces at most one output row, but
-  may decode multiple inputs while discarding duplicates or skipping rows.
+  pagination, and root path/list hydration. Each iterator advance produces at
+  most one output row, but may decode multiple inputs while discarding duplicates
+  or skipping rows.
   Scalar values, whole entities, nulls, nested values, and duplicate
   rows use the same decoding as eager execution. SQLite itself can materialize
   sorts, aggregates, intermediate `WITH` stages, JSON arrays, and recursive
   traversals before producing the first row. Each individual value is decoded
   in full; this is not a whole-query memory cap.
 - `ReadMode::Buffered`: the existing eager executor runs at cursor creation.
-  Path and relationship-list hydration and Rust traversal producers use this
-  mode. A union with any such boundary uses it for the entire query. All rows
-  and resource checks finish before the cursor is returned; the cursor then
-  owns the result buffer. This fallback preserves the existing operator order
-  and query-wide hydration behavior. Extending incremental execution through
-  these operators is follow-up work.
+  Rust traversal producers use this mode. A union with any such boundary uses
+  it for the entire query. All rows and resource checks finish before the cursor
+  is returned; the cursor then owns the result buffer. This fallback preserves the existing operator order
+  and query-wide hydration behavior. Incremental Rust traversal is follow-up work.
 
 Incremental `UNION ALL` visits branches from left to right and preserves bags,
 branch-local ordering, and each branch's output shapes. Empty branches are
@@ -1646,8 +1658,9 @@ Incremental DISTINCT preserves the first encountered representative using the
 same recursive row equivalence as eager execution, including nulls, exact
 integer/float equality, and ordered graph identities. Randomized hash buckets
 narrow candidate comparisons; collisions are checked with that equivalence.
-Each active distinct operator retains representative rows, including their
-property payloads. Its memory grows with the count and size of unique rows.
+Each active distinct operator retains representative pending rows: compact
+identities for deferred paths/lists and full values, including property payloads,
+for materialized cells. Its memory grows with the count and size of unique rows.
 Branch-local seen sets are released when the branch finishes; consecutive
 distinct UNION branches share one union-level set. These allocations are not
 a new row transfer and are not separately charged as result bytes; resource
@@ -1662,8 +1675,36 @@ materialize or sort internally, so this does not promise to avoid all suffix
 work inside a SQLite fragment. Parameter and pagination validation in all
 branches still finish during preparation, including zero-length pages.
 
-`PreparedRead::cursor()` starts a new deferred transaction and pins the main
-database snapshot before returning, even when no row has been requested yet.
+For SQLite-produced paths, `nodes(p)`, `relationships(p)`, and legacy
+relationship lists, root hydration fills its first batch with one surviving
+pending row and later batches with up to 64. Distinct, branch-local pages, and
+union processing precede batching. Each batch deduplicates required IDs and
+seeds its cache from directly projected entities, then issues at most one node
+query and one relationship query. Nodes-only lists do not load relationships
+and vice versa. The prior cache is dropped before fetching the next batch.
+Paths preserve traversal order, repeated nodes, stored relationship direction,
+and graph identity. Fully materialized cells pass through unchanged.
+
+This bounds batch row count, not bytes or whole-query memory. Individual
+paths/lists can be large, SQLite can buffer internally, and distinct retains
+unique rows. Only pending values and their entity cache are buffered for the
+batch; each output row is cloned on demand, after its final row/byte admission.
+All source reads and hydration queries use the same pinned snapshot and
+cumulative resource context. The cache does not grow across batches: repeated
+IDs are reloaded and charged again. Eager execution keeps query-wide reuse,
+so the same transfer/work budget can succeed eagerly and fail incrementally.
+
+Batch read-ahead can cross union branches and can consume up to 64 surviving
+rows after the first row, plus any input duplicates or skipped rows. An error
+while filling or loading a batch discards the entire batch and immediately
+closes the cursor. An error during row admission or hydration closes it after
+any previously yielded rows. Early drop avoids further reads, but does not
+undo work already performed for the current batch. Batch sizes are execution
+policy, not configurable query options.
+
+For a standalone prepared read, `PreparedRead::cursor()` starts a new deferred
+transaction and pins the main database snapshot before returning, even when no
+row has been requested yet.
 Preparation alone holds no snapshot. An incremental cursor keeps the snapshot
 until it is exhausted, errors, or is dropped, including early drop without any
 advances. A buffered cursor releases it before returning. In rollback-journal
@@ -1671,28 +1712,58 @@ mode an active read snapshot can block another connection's commit; callers
 should drop idle cursors promptly. Dropping after the last row releases the
 snapshot without requiring an extra advance to `None`.
 
+A prepared read created by `Transaction::prepare_read*` instead uses its
+parent's existing immediate transaction, snapshot, and earlier writes. It does
+not open a nested transaction, create a savepoint, or perform the standalone
+snapshot-pinning metadata query. Successful exhaustion, early drop, or dropping
+an unconsumed cursor closes its statements without ending the parent transaction.
+This holds for buffered reads too. The parent's write reservation and locks
+remain until commit, rollback, drop, or a query error; closing a transactional
+cursor is not a way to release them.
+
 `ReadCursor` implements `Iterator<Item = Result<Vec<CypherValue>>>` and
 `FusedIterator`; rows are owned and remain usable after the cursor and prepared
 handle are dropped. A runtime, resource, cancellation, or deadline error can
 follow already yielded rows. The error is yielded once and subsequent calls
-return `None`. Exhaustion and failure release the snapshot immediately, even
-if the caller retains the terminal cursor. Cleanup resets all SQLite statements
+return `None`. For standalone reads, exhaustion and failure release the snapshot
+immediately, even if the caller retains the terminal cursor. Cleanup resets all SQLite statements
 before rolling back the read transaction, with no progress callback active.
 Ordinary drop and panic unwinding use the same order.
 
+For transactional reads, preparation or cursor-creation errors also roll back
+the parent, including all earlier writes. Iteration errors first reset the row
+sources and discard caches, then roll back with no progress callback active.
+The parent is marked permanently aborted before rollback is attempted. If
+SQLite already rolled back, cleanup skips a redundant ROLLBACK. The original
+query error is preserved unless rollback itself fails. All this occurs before
+returning the error, even if the caller retains the failed cursor/prepared read
+and parent handles. Iterators remain exhausted; subsequent `cursor()` calls,
+query execution, constraint operations, and commit return `Error::TransactionAborted`.
+Explicit rollback on an already aborted parent is a successful no-op.
+
+Previously yielded rows remain owned values, but writes they describe have
+been undone. External application side effects from processing those rows are
+outside the transaction. A consumer panic that unwinds only the cursor/prepared
+read leaves the parent active, like ordinary early drop. If the parent also
+unwinds, its transaction guard rolls back.
+
 Only one cursor can borrow a prepared read at a time. Once it is dropped,
-`cursor()` can run again with the same parameters and options, a fresh snapshot,
-and new counters. Drop the prepared read before using its `Database` again.
+`cursor()` can run again with the same parameters/options and new counters.
+Standalone reads get a fresh snapshot; transactional reads reuse the parent's
+snapshot and require a parent that has not aborted. Drop the prepared read
+before using its `Database` or `Transaction` again, including commit/rollback.
 The borrow rules enforce both restrictions. Options retain their absolute
 deadline and shared cancellation token across repeated cursors.
 
 Incremental row-transfer and result limits accumulate over advances and branches.
-Transfer limits count every fetched input, including duplicates and skipped
-rows; result limits count only rows surviving distinct, pagination, and union.
+Transfer limits count every fetched input and hydration record, including
+duplicates and skipped rows; result limits count only rows surviving distinct,
+pagination, and union.
 A limit fails on the first disallowed row, before exposing it; earlier rows remain
-visible to the caller. Early drop does not execute or validate the unread
-suffix. SQLite VM steps accumulate across snapshot pinning, branches, and advances;
-the metadata read used to pin the snapshot is excluded from row/byte counters.
+visible to the caller. Early drop does not execute or validate any suffix beyond
+the current hydration batch. SQLite VM steps accumulate across snapshot pinning,
+branches, hydration queries, and advances; the metadata read used to pin the
+snapshot is excluded from row/byte counters.
 Buffered plans keep eager accounting, including all branches and hydration,
 and also check cancellation/deadline when yielding their buffered rows. There
 is no background deadline timer: an idle cursor keeps its lock until it is

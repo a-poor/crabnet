@@ -33,20 +33,19 @@ drop(read); // releases the exclusive database borrow
 
 Inspect `mode()` before opening a cursor. `Incremental` means SQLite fragments
 without Rust producers, composed through `UNION ALL`, `UNION`, `RETURN DISTINCT`,
-and pagination. Each advance yields at most one row, but can consume several
-duplicate or skipped input rows. SQLite may still buffer sorts, aggregates,
-or intermediate relations internally.
+pagination, and path/list hydration. Each advance yields at most one row, but can
+consume several duplicate or skipped input rows. SQLite may still buffer sorts,
+aggregates, or intermediate relations internally.
 `Buffered` means the existing executor completes the result when `cursor()`
-is called. Rust traversal and graph-value hydration use that fallback.
-A union with any buffered branch
-uses the fallback for the whole query.
+is called. Rust traversal producers use that fallback. A union with any buffered
+branch uses the fallback for the whole query.
 
 An incremental `UNION ALL` visits branches from left to right, keeping duplicate
 rows and each branch's output types. All statements are prepared and parameters
 resolved up front, but later branches do not execute until reached. One snapshot
 and cumulative resource budget span every branch. Dropping early skips execution
-and runtime validation of the unread suffix. Prepared statements and bindings
-still occupy memory proportional to the query's branches and parameters.
+and runtime validation beyond any hydration read-ahead. Prepared statements and
+bindings still occupy memory proportional to the query's branches and parameters.
 
 `RETURN DISTINCT` and distinct `UNION` emit the first representative of each
 typed row, retaining seen values until their operator is released. Equal numeric
@@ -57,17 +56,80 @@ union's duplicate policy. `SKIP` and `LIMIT` count unique rows after distinct;
 reaching a cursor's limit stops fetching that input, including runtime validation
 of its unread suffix. Whole-query parameter checks still happen at preparation.
 
+SQLite-produced paths, `nodes(p)`, `relationships(p)`, and legacy relationship
+lists hydrate incrementally after distinct, pagination, and union processing.
+The first batch contains one surviving row; later batches contain up to 64.
+Each batch deduplicates required IDs, reuses directly projected entities, and
+loads the remainder with at most one node query and one relationship query.
+Only that batch's pending rows and entity cache are retained. Large individual
+paths and DISTINCT seen sets can still use substantial memory.
+
+Hydration reads ahead: requesting the second row can fetch up to 64 more
+surviving rows, including rows from later union branches. A runtime or resource
+error while filling or loading a batch discards that batch and ends iteration;
+previously yielded rows remain valid. Drop after the first row avoids further
+batch reads. Entity IDs repeated in later batches are fetched and charged again,
+so full consumption can use more transfer/work budget than eager execution.
+Final result limits apply one row at a time, before cloning hydrated values.
+
 A cursor yields owned rows and can report an error after earlier rows were
-delivered. An error ends iteration; it does not undo work the application did
-with previous rows. To require the entire read to succeed before consuming its
+delivered. An error ends iteration. In an application transaction it also rolls
+back the transaction's writes, though it cannot undo external application work
+done with previous rows. To require the entire read to succeed before consuming its
 results, use `execute` or collect into `crabnet::Result<Vec<_>>` first.
 
-Each new cursor gets a fresh snapshot and resource counters, using the same
-parameters and options. Only one cursor may borrow the prepared read at a time.
-An incremental cursor pins its snapshot at creation, even before its first
-advance. Drop idle cursors promptly: they can block other connections' commits.
+Each new cursor gets fresh resource counters, using the same parameters and
+options. Only one cursor may borrow the prepared read at a time.
+A standalone incremental cursor pins a fresh snapshot at creation, even before
+its first advance. Drop idle cursors promptly: they can block other connections' commits.
 See the [complete contract](semantics.md#read-cursors) for buffering boundaries,
 partial errors, cancellation, and resource accounting.
+
+## Inside an application transaction
+
+`Transaction::prepare_read`, `prepare_read_with`, and `prepare_read_with_options`
+return the same `PreparedRead` and `ReadCursor` types. They reuse the existing
+transaction and see earlier writes, including paths and graph lists:
+
+```rust
+use crabnet::Database;
+
+let mut database = Database::in_memory()?;
+let mut tx = database.transaction()?;
+tx.execute("CREATE (:Person {name:'Ada'})-[:KNOWS]->(:Person {name:'Grace'})")?;
+let mut read = tx.prepare_read("MATCH p=(:Person)-[:KNOWS]->() RETURN p")?;
+for row in read.cursor()? {
+    let row = row?;
+    println!("Provisional path: {:?}", row[0]);
+}
+drop(read);
+tx.execute("MATCH (p:Person) SET p.checked = true")?;
+tx.commit()?;
+# Ok::<(), crabnet::Error>(())
+```
+
+Drop the prepared read before querying, mutating, committing, or rolling back
+through the parent handle. Rust borrowing enforces this even after a cursor is
+exhausted. Repeated cursors reset all per-query counters and operator state;
+they use the same parent snapshot and retain the options' absolute deadline
+and cancellation token. Incremental and buffered execution have the same
+operator boundaries as standalone reads.
+
+Exhaustion, early drop, and dropping an unused prepared read leave the parent
+transaction open, preserving its writes and write lock. Any error in preparation,
+cursor creation, or iteration—including a rejected mutation, cancellation,
+deadline, or resource failure—immediately rolls back all earlier writes. The
+original error is returned unless rollback fails. A failing iterator emits that
+error once, then stays exhausted. Its prepared read and parent subsequently
+reject execution with `Error::TransactionAborted`; dropping them is not required
+to release the failed transaction's lock.
+
+Rows are owned snapshots and remain readable after rollback, but their graph
+changes are provisional until commit. Closing a successful cursor does not
+release the parent's locks; finish the transaction to do that. A consumer panic
+that only drops the cursor/prepared read acts like early drop. If unwinding also
+drops the transaction, its writes roll back. Early exit does not validate the
+unread suffix beyond any hydration read-ahead.
 
 ## Measurements
 
@@ -229,3 +291,76 @@ exercise duplicate-heavy reads on the standard graph fixtures.
 
 Measured executable SHA-256:
 `2a9a860ab6e9a8734d6058a8ed0c0762f0356c5c5ed1ee967870dfe9f1bb84f6`.
+
+### Path and graph-list hydration measurements
+
+`examples/cursor_hydration.rs` creates one directed relationship between two
+nodes, with a configurable payload on all three entities. It repeats that path
+using `UNWIND range(1,$last)` and returns either the path (`path`) or its node
+list (`nodes`), plus the range index. Every consumed row validates graph types,
+entity payload lengths, and its index; path results also validate cardinality
+and endpoints. Full consumption checks the complete row count. The example test
+covers both projections and all modes across batch boundaries.
+
+Build separately, then measure each mode in a fresh process:
+
+```sh
+cargo build --release --example cursor_hydration
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_hydration eager path 20000 1024
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_hydration cursor path 20000 1024
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_hydration first path 20000 1024
+```
+
+Repeat with `nodes` and with `1000` rows to compare sizes. The wrapper records
+the binary hash, peak process RSS, and platform. Query times exclude fixture
+creation but include planning, snapshot setup, SQLite range processing, hydration,
+validation, and cleanup. Full-cursor mode discards each delivered row immediately;
+first-row mode consumes one row and drops the cursor. RSS includes SQLite and
+the entire process, rather than measuring retained Rust allocations alone.
+
+Recorded on 2026-10-08, macOS 26.5.1 arm64, release build, three fresh
+processes per cell run sequentially after all test/build workloads finished.
+Values are medians; each entity carries a 1,024-byte payload.
+
+| Projection | Potential rows | Mode | First row (ms) | Complete query (ms) | Peak RSS (MiB) |
+| --- | ---: | --- | ---: | ---: | ---: |
+| Path | 1,000 | Eager | 9.753 | 10.172 | 18.000 |
+| Path | 1,000 | Cursor | 6.155 | 10.324 | 8.531 |
+| Path | 1,000 | First row | 6.345 | 7.122 | 8.391 |
+| Path | 20,000 | Eager | 215.280 | 236.348 | 200.281 |
+| Path | 20,000 | Cursor | 149.441 | 216.172 | 9.484 |
+| Path | 20,000 | First row | 142.920 | 144.875 | 9.141 |
+| Node list | 1,000 | Eager | 9.650 | 9.906 | 15.281 |
+| Node list | 1,000 | Cursor | 5.964 | 10.199 | 8.562 |
+| Node list | 1,000 | First row | 5.978 | 6.920 | 8.391 |
+| Node list | 20,000 | Eager | 199.030 | 211.853 | 145.203 |
+| Node list | 20,000 | Cursor | 142.493 | 200.839 | 9.469 |
+| Node list | 20,000 | First row | 139.996 | 146.006 | 9.141 |
+
+At 20,000 paths, full-cursor RSS ranged from 9.453–9.531 MiB, versus
+200.281–200.297 MiB eager. Cursor first-row latency ranged from 145.593–154.088 ms,
+versus 208.755–216.481 ms eager. First-row latency still grows with the range
+size: incremental hydration does not make SQLite's internal work incremental.
+Full-query timings include repeated hydration queries and do not establish a
+general throughput improvement; at 1,000 rows cursor medians were slightly slower.
+
+A pre-change baseline of this same example on `c3d4734` reported `Buffered`.
+At 20,000 paths its full-cursor medians were 209.288 ms to first row,
+225.595 ms total, and 199.172 MiB RSS. For node lists they were 195.921 ms,
+208.960 ms, and 144.078 MiB. Early drop still materialized the whole result:
+199.156 MiB for paths and 144.094 MiB for node lists. These baseline trials also
+used three sequential fresh processes per cell on the same date and platform.
+
+The 64-row continuation batch limits pending rows and entity-cache growth while
+amortizing lookups. This repeated-path case loads three entities per batch:
+942 hydration records across 314 batches for 20,000 paths, versus three eager
+records. Node lists load 628 rather than two. Transfer and SQLite work limits
+charge those extra reads, even though result limits count the same output.
+These measurements do not bound the memory of large individual paths, DISTINCT
+state, sorting, or Rust traversal. Criterion's hydration cases also exercise
+many different paths on the standard social-graph fixtures.
+
+Measured executable SHA-256:
+`26f8bbebe86459c3df6bf4e0aac2e6165fdfdf64208a202b54619e43168be716`.
+Pre-change baseline SHA-256:
+`ac56a22e34ce1a1035ecca1c37ea5115613038077e40c8a9d42cee36437b8d49`.

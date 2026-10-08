@@ -1869,6 +1869,34 @@ struct PathHydrator {
 }
 
 impl PathHydrator {
+    /// Admit a final row before cloning any repeated graph snapshots.
+    fn finish_row(
+        &self,
+        row: PendingRow,
+        result_bytes: Option<&mut usize>,
+        context: &ExecutionContext,
+    ) -> Result<Vec<CypherValue>> {
+        context.check()?;
+        if let Some(bytes) = result_bytes.filter(|_| context.counts_result_bytes()) {
+            context.admit_result_bytes(8, bytes)?;
+            for value in &row {
+                context.admit_result_bytes(self.pending_bytes(value, context)?, bytes)?;
+            }
+        }
+        row.into_iter()
+            .map(|value| match value {
+                PendingValue::Materialized(value) => Ok(value),
+                PendingValue::Path(identity) => {
+                    self.hydrate(identity, context).map(CypherValue::Path)
+                }
+                PendingValue::PathNodes(ids) => self.hydrate_node_list(ids, context),
+                PendingValue::PathRelationships(ids) => {
+                    self.hydrate_relationship_list(ids, context)
+                }
+            })
+            .collect()
+    }
+
     /// Account for every repeated snapshot before cloning hydrated entities.
     fn pending_bytes(&self, value: &PendingValue, context: &ExecutionContext) -> Result<usize> {
         let node_bytes = |id: &String| -> Result<usize> {
@@ -2225,32 +2253,7 @@ fn hydrate_pending_rows(
     let mut result_bytes = 0;
     let hydrator = PathHydrator::load(connection, &rows, context)?;
     rows.into_iter()
-        .map(|row| {
-            context.check()?;
-            if is_output && context.counts_result_bytes() {
-                context.admit_result_bytes(8, &mut result_bytes)?;
-                for value in &row {
-                    context.admit_result_bytes(
-                        hydrator.pending_bytes(value, context)?,
-                        &mut result_bytes,
-                    )?;
-                }
-            }
-            let row = row
-                .into_iter()
-                .map(|value| match value {
-                    PendingValue::Materialized(value) => Ok(value),
-                    PendingValue::Path(identity) => {
-                        hydrator.hydrate(identity, context).map(CypherValue::Path)
-                    }
-                    PendingValue::PathNodes(ids) => hydrator.hydrate_node_list(ids, context),
-                    PendingValue::PathRelationships(ids) => {
-                        hydrator.hydrate_relationship_list(ids, context)
-                    }
-                })
-                .collect::<Result<Vec<_>>>()?;
-            Ok(row)
-        })
+        .map(|row| hydrator.finish_row(row, is_output.then_some(&mut result_bytes), context))
         .collect()
 }
 

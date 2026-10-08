@@ -5,26 +5,26 @@ use std::{
     hash::{BuildHasher, Hash, Hasher},
 };
 
-use super::super::{ExecutionContext, cypher_rows_equivalent};
+use super::super::{ExecutionContext, PendingRow, PendingValue, pending_rows_equivalent};
 use crate::{CypherValue, Result};
 
 #[derive(Default)]
 pub(super) struct SeenRows {
-    buckets: HashMap<u64, Vec<Vec<CypherValue>>>,
+    buckets: HashMap<u64, Vec<PendingRow>>,
 }
 
 impl SeenRows {
     pub(super) fn insert(
         &mut self,
-        row: &[CypherValue],
+        row: &[PendingValue],
         context: &ExecutionContext,
     ) -> Result<bool> {
         let mut hasher = self.buckets.hasher().build_hasher();
-        hash_values(row, &mut hasher, context)?;
+        hash_pending_row(row, &mut hasher, context)?;
         let bucket = self.buckets.entry(hasher.finish()).or_default();
         for previous in bucket.iter() {
             context.check()?;
-            if cypher_rows_equivalent(previous, row) {
+            if pending_rows_equivalent(previous, row) {
                 return Ok(false);
             }
         }
@@ -32,6 +32,47 @@ impl SeenRows {
         bucket.push(row.to_vec());
         Ok(true)
     }
+}
+
+fn hash_pending_row(
+    row: &[PendingValue],
+    hasher: &mut impl Hasher,
+    context: &ExecutionContext,
+) -> Result<()> {
+    row.len().hash(hasher);
+    for value in row {
+        context.check()?;
+        match value {
+            PendingValue::Materialized(value) => hash_value(value, hasher, context)?,
+            PendingValue::Path(path) => {
+                9_u8.hash(hasher);
+                for ids in [&path.node_ids, &path.relationship_ids] {
+                    ids.len().hash(hasher);
+                    for id in ids {
+                        context.check()?;
+                        id.hash(hasher);
+                    }
+                }
+            }
+            PendingValue::PathNodes(ids) | PendingValue::PathRelationships(ids) => {
+                // Match materialized lists element by element, including []
+                // across both graph kinds and ordinary empty lists.
+                5_u8.hash(hasher);
+                ids.len().hash(hasher);
+                let tag = if matches!(value, PendingValue::PathNodes(_)) {
+                    7_u8
+                } else {
+                    8_u8
+                };
+                for id in ids {
+                    context.check()?;
+                    tag.hash(hasher);
+                    id.hash(hasher);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn hash_values(
@@ -122,6 +163,7 @@ fn hash_value(
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::PathIdentity;
     use super::*;
     use crate::{NodeValue, PathValue, QueryOptions, RelationshipValue};
     use serde_json::json;
@@ -203,9 +245,55 @@ mod tests {
             rows.push(vec![value, CypherValue::Null]);
         }
         let mut seen = SeenRows::default();
-        let mut oracle: Vec<Vec<CypherValue>> = Vec::new();
+        let mut rows: Vec<PendingRow> = rows
+            .into_iter()
+            .map(|row| row.into_iter().map(PendingValue::Materialized).collect())
+            .collect();
+        // Compact lists must share buckets with their materialized forms,
+        // including repeated members and both graph kinds.
+        for value in &values_for_lists(&rows) {
+            rows.push(vec![PendingValue::Materialized(CypherValue::List(vec![
+                value.clone(),
+            ]))]);
+            rows.push(vec![PendingValue::Materialized(CypherValue::List(vec![
+                value.clone(),
+                value.clone(),
+            ]))]);
+        }
+        for ids in [
+            vec![],
+            vec!["a".into()],
+            vec!["a".into(), "a".into()],
+            vec!["a".into(), "b".into()],
+            vec!["b".into(), "a".into()],
+        ] {
+            rows.push(vec![PendingValue::PathNodes(ids.clone())]);
+            rows.push(vec![PendingValue::PathRelationships(ids.clone())]);
+            rows.push(vec![PendingValue::Path(PathIdentity {
+                node_ids: ids,
+                relationship_ids: vec!["a".into()],
+            })]);
+        }
+        rows.push(vec![PendingValue::Materialized(CypherValue::List(vec![]))]);
+        for left in &rows {
+            for right in &rows {
+                if pending_rows_equivalent(left, right) {
+                    let fingerprint = |row: &[PendingValue]| {
+                        let mut hasher = seen.buckets.hasher().build_hasher();
+                        hash_pending_row(row, &mut hasher, &context).unwrap();
+                        hasher.finish()
+                    };
+                    assert_eq!(
+                        fingerprint(left),
+                        fingerprint(right),
+                        "{left:?} / {right:?}"
+                    );
+                }
+            }
+        }
+        let mut oracle: Vec<PendingRow> = Vec::new();
         for row in rows.iter().chain(rows.iter().rev()) {
-            let new = !oracle.iter().any(|old| cypher_rows_equivalent(old, row));
+            let new = !oracle.iter().any(|old| pending_rows_equivalent(old, row));
             assert_eq!(seen.insert(row, &context).unwrap(), new, "{row:?}");
             if new {
                 oracle.push(row.clone());
@@ -213,17 +301,39 @@ mod tests {
         }
     }
 
+    fn values_for_lists(rows: &[PendingRow]) -> Vec<CypherValue> {
+        rows.iter()
+            .filter_map(|row| match row.as_slice() {
+                [
+                    PendingValue::Materialized(
+                        value @ (CypherValue::Node(_) | CypherValue::Relationship(_)),
+                    ),
+                ] => Some(value.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn a_fingerprint_collision_still_compares_the_complete_row() {
         let context = ExecutionContext::new(&QueryOptions::default());
         let mut seen = SeenRows::default();
-        let row = vec![CypherValue::Integer(2)];
+        let row = vec![PendingValue::Materialized(CypherValue::Integer(2))];
         let mut hasher = seen.buckets.hasher().build_hasher();
-        hash_values(&row, &mut hasher, &context).unwrap();
+        hash_pending_row(&row, &mut hasher, &context).unwrap();
         // Inject a different value into the candidate bucket to force a collision.
-        seen.buckets
-            .insert(hasher.finish(), vec![vec![CypherValue::Integer(1)]]);
+        seen.buckets.insert(
+            hasher.finish(),
+            vec![vec![PendingValue::Materialized(CypherValue::Integer(1))]],
+        );
         assert!(seen.insert(&row, &context).unwrap());
-        assert!(!seen.insert(&[CypherValue::Float(2.0)], &context).unwrap());
+        assert!(
+            !seen
+                .insert(
+                    &[PendingValue::Materialized(CypherValue::Float(2.0))],
+                    &context
+                )
+                .unwrap()
+        );
     }
 }

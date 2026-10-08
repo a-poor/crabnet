@@ -119,9 +119,9 @@ fn any_buffered_branch_keeps_the_entire_union_buffered() {
     db.execute("CREATE (a:Start)-[:LINK]->(b:End),(a)-[:LINK]->(b)")
         .unwrap();
     for branch in [
-        "MATCH p=(:Start)-[:LINK]->() RETURN p AS x",
-        "MATCH p=(:Start)-[:LINK]->() RETURN nodes(p) AS x",
-        "MATCH p=(:Start)-[:LINK]->() RETURN DISTINCT p AS x SKIP 1 LIMIT 1",
+        "MATCH p=(:Start)-[:LINK*1..40]->() RETURN p AS x",
+        "MATCH p=(:Start)-[:LINK*1..40]->() RETURN nodes(p) AS x",
+        "MATCH p=(:Start)-[:LINK*1..40]->() RETURN DISTINCT p AS x SKIP 1 LIMIT 1",
         "MATCH (:Start)-[:LINK*1..40]->(n) RETURN n AS x",
         "MATCH (:Start)-[:LINK*]->(n) RETURN n AS x",
         "MATCH p=shortestPath((:Start)-[:LINK*]->(:End)) RETURN length(p) AS x",

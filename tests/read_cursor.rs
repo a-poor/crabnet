@@ -123,8 +123,8 @@ fn buffered_plans_preserve_union_distinct_pagination_hydration_and_traversal() {
         .execute("CREATE (a:Start)-[:LINK]->(b:End), (a)-[:LINK]->(b)")
         .unwrap();
     for query in [
-        "MATCH p = (a)-[:LINK]->(b) RETURN p, nodes(p), relationships(p)",
-        "MATCH p = (a)-[:LINK]->(b) RETURN DISTINCT p SKIP 1 LIMIT 1",
+        "MATCH p = (a)-[:LINK*1..40]->(b) RETURN p, nodes(p), relationships(p)",
+        "MATCH p = (a)-[:LINK*1..40]->(b) RETURN DISTINCT p SKIP 1 LIMIT 1",
         "MATCH (:Start)-[:LINK*1..]->(b) RETURN b",
         "MATCH p = shortestPath((:Start)-[:LINK*]->(:End)) RETURN p",
     ] {

@@ -1,7 +1,10 @@
+use std::cell::Cell;
+
 use rusqlite::{Connection, Transaction as SqliteTransaction, TransactionBehavior};
 
 use crate::{
-    Error, Parameters, QueryOptions, QueryResult, Result, UniqueConstraint, planner::Plan,
+    Error, Parameters, PreparedRead, QueryOptions, QueryResult, Result, UniqueConstraint,
+    planner::Plan,
 };
 
 use super::{
@@ -23,15 +26,59 @@ use super::{
 /// are not exposed.
 #[must_use = "transactions must be committed explicitly or their writes are rolled back"]
 pub struct Transaction<'database> {
-    // Taking the inner transaction makes an aborted handle permanently inert.
-    // rusqlite also rolls back an active transaction when this field is dropped.
-    inner: Option<SqliteTransaction<'database>>,
+    // Keep the connection owner alive while prepared statements borrow it.
+    // rusqlite rolls back an active transaction when this field is dropped.
+    inner: SqliteTransaction<'database>,
+    state: TransactionState,
+}
+
+/// A cursor can abort its parent without moving the transaction guard from
+/// underneath borrowed statements. Mark it inert before attempting rollback.
+#[derive(Default)]
+pub(super) struct TransactionState {
+    aborted: Cell<bool>,
+}
+
+impl TransactionState {
+    fn check(&self) -> Result<()> {
+        if self.aborted.get() {
+            Err(Error::TransactionAborted)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(super) fn abort(&self, connection: &Connection) -> Result<()> {
+        self.aborted.set(true);
+        // SQLite may have rolled back itself (for example after an I/O error).
+        // Match Transaction::finish without consuming the borrowed guard.
+        if !connection.is_autocommit() {
+            connection.execute_batch("ROLLBACK")?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn run<T>(
+        &self,
+        connection: &Connection,
+        operation: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        self.check()?;
+        let result = operation();
+        if result.is_err() {
+            self.abort(connection)?;
+        }
+        result
+    }
 }
 
 impl<'database> Transaction<'database> {
     pub(super) fn begin(connection: &'database mut Connection) -> Result<Self> {
         let inner = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        Ok(Self { inner: Some(inner) })
+        Ok(Self {
+            inner,
+            state: TransactionState::default(),
+        })
     }
 
     /// Executes a query without parameters in this transaction.
@@ -72,6 +119,82 @@ impl<'database> Transaction<'database> {
         })
     }
 
+    /// Prepares a read-only query that sees this transaction's earlier writes.
+    ///
+    /// Closing or dropping a cursor leaves the transaction open. Drop the
+    /// prepared read before executing another query or committing. Any error
+    /// from preparation, cursor creation, or iteration aborts the whole
+    /// transaction, including earlier writes. Returned rows are provisional
+    /// until the enclosing transaction commits.
+    ///
+    /// ```
+    /// use crabnet::Database;
+    /// let mut db = Database::in_memory()?;
+    /// let mut tx = db.transaction()?;
+    /// tx.execute("CREATE (:Person {name:'Ada'})")?;
+    /// let mut read = tx.prepare_read("MATCH (p:Person) RETURN p.name")?;
+    /// let row = read.cursor()?.next().unwrap()?;
+    /// drop(read);
+    /// tx.execute("MATCH (p:Person) SET p.checked = true")?;
+    /// tx.commit()?;
+    /// # Ok::<(), crabnet::Error>(())
+    /// ```
+    ///
+    /// A prepared read prevents concurrent queries on its transaction:
+    ///
+    /// ```compile_fail
+    /// # use crabnet::Database;
+    /// # let mut db = Database::in_memory().unwrap();
+    /// # let mut tx = db.transaction().unwrap();
+    /// let mut read = tx.prepare_read("RETURN 1").unwrap();
+    /// tx.execute("CREATE ()").unwrap();
+    /// let cursor = read.cursor().unwrap();
+    /// ```
+    ///
+    /// It also prevents committing while the borrowed read is still in use:
+    ///
+    /// ```compile_fail
+    /// # use crabnet::Database;
+    /// # let mut db = Database::in_memory().unwrap();
+    /// # let mut tx = db.transaction().unwrap();
+    /// let mut read = tx.prepare_read("RETURN 1").unwrap();
+    /// tx.commit().unwrap();
+    /// let cursor = read.cursor().unwrap();
+    /// ```
+    pub fn prepare_read(&mut self, cypher: &str) -> Result<PreparedRead<'_>> {
+        self.prepare_read_with(cypher, &Parameters::new())
+    }
+
+    /// Prepares a transactional read with owned parameter bindings.
+    /// All parameters are checked before execution; an error aborts the transaction.
+    pub fn prepare_read_with(
+        &mut self,
+        cypher: &str,
+        parameters: &Parameters,
+    ) -> Result<PreparedRead<'_>> {
+        self.prepare_read_with_options(cypher, parameters, &QueryOptions::default())
+    }
+
+    /// Prepares a transactional read with fresh resource counters per cursor.
+    ///
+    /// Cursors use the existing transaction and its snapshot, including earlier
+    /// writes, rather than opening or closing a separate transaction. The same
+    /// incremental/buffered modes apply as on [`crate::Database::prepare_read`].
+    /// Cancellation, deadlines, budget failures, and rejected mutations abort
+    /// all earlier writes. Reusing a prepared read after an error returns
+    /// [`Error::TransactionAborted`]. Deadlines and cancellation tokens are shared
+    /// across repeated cursors; counters reset, but the snapshot does not.
+    pub fn prepare_read_with_options(
+        &mut self,
+        cypher: &str,
+        parameters: &Parameters,
+        options: &QueryOptions,
+    ) -> Result<PreparedRead<'_>> {
+        self.state.run(&self.inner, || {
+            PreparedRead::prepare(&self.inner, cypher, parameters, options, Some(&self.state))
+        })
+    }
+
     /// Installs a node uniqueness constraint in this transaction.
     ///
     /// Uses [`crate::Database::create_unique_constraint`] semantics and sees
@@ -94,17 +217,7 @@ impl<'database> Transaction<'database> {
     }
 
     fn run<T>(&mut self, operation: impl FnOnce(&SqliteTransaction<'_>) -> Result<T>) -> Result<T> {
-        let transaction = self.inner.as_ref().ok_or(Error::TransactionAborted)?;
-        let result = operation(transaction);
-        if result.is_err()
-            && let Some(transaction) = self.inner.take()
-        {
-            // finish() rolls back unless SQLite already rolled back on its own
-            // (for example after an I/O error). Do not mask the query error with
-            // a redundant ROLLBACK in that case.
-            transaction.finish()?;
-        }
-        result
+        self.state.run(&self.inner, || operation(&self.inner))
     }
 
     /// Commits all queries and consumes this handle.
@@ -113,7 +226,8 @@ impl<'database> Transaction<'database> {
     /// rejects the commit, its transaction guard attempts rollback on drop;
     /// the returned error must be handled before assuming writes persisted.
     pub fn commit(self) -> Result<()> {
-        self.inner.ok_or(Error::TransactionAborted)?.commit()?;
+        self.state.check()?;
+        self.inner.commit()?;
         Ok(())
     }
 
@@ -123,9 +237,7 @@ impl<'database> Transaction<'database> {
     /// successful no-op. Dropping an active handle also attempts rollback;
     /// calling this method explicitly lets the caller observe rollback errors.
     pub fn rollback(self) -> Result<()> {
-        if let Some(transaction) = self.inner {
-            transaction.finish()?;
-        }
+        self.inner.finish()?;
         Ok(())
     }
 }

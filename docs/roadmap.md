@@ -483,6 +483,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   connection reuse. Unit tests cover SQLite-initiated rollback and failed
   commits. Full tests, pinned TCK, benchmark smoke checks, doctests, formatting,
   and Clippy pass.
+- [x] **Read cursors inside application transactions.** `Transaction::prepare_read*`
+  reuses `PreparedRead`/`ReadCursor` and both execution modes on the parent
+  transaction, including earlier writes. Exhaustion and early drop keep the
+  parent active. Errors in preparation, cursor creation, or iteration abort all
+  earlier writes immediately and make both parent and prepared read unusable.
+  Each cursor gets fresh counters without a new snapshot. Fourteen integration
+  tests cover value/operator parity, hydration, limits, cleanup, provisional
+  values, rollback of graph/index/constraint changes, retained write locks on
+  success and immediate release on failure, and panic scopes. Two compile-fail
+  doctests enforce the transaction borrow against writes and commit.
 - [x] **Everyday query composition — complete.** `WITH DISTINCT` is complete, including
   typed recursive equality, entity/path/list identity, scope and modifier
   rules, hybrid reads, and deduplication before later writes with rollback.
@@ -625,8 +635,15 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   Two unit tests verify hash-bucket filtering against the existing equality and
   force collisions. The distinct example measures duplicate-heavy and mostly-unique
   inputs: retained state grows with unique rows, while early exit avoids draining
-  the suffix. Hydration, Rust traversal consumption, and cursors inside
-  application transactions remain follow-up extensions.
+  the suffix. SQLite-produced path and graph-list hydration now streams after
+  pending-row shaping: one surviving row initially, then up to 64 per batch.
+  Caches deduplicate IDs within each batch and reuse direct entities; repeated
+  reads in later batches count again. Eleven integration tests cover typed
+  bags, compact/materialized equality, batch boundaries and budgets, read-ahead
+  errors, control limits, snapshot cleanup/reuse, and read-only/busy behavior.
+  The hydration example and Criterion cases measure eager/full/early consumption.
+  Transaction-scoped cursors reuse this pipeline with parent-owned snapshots
+  and rollback on errors. Rust traversal consumption remains a follow-up extension.
 - [x] **File opening and lock contention.** `OpenOptions` selects create-or-open,
   existing read/write, or read-only access and a connection-local busy timeout.
   Read-only handles reject mutations and migration; `Error::Busy` preserves
@@ -673,7 +690,10 @@ are complete for eager execution. Opening options and reader/writer contention
 are complete for local files with rollback journaling, as are process-termination
 recovery and backup/restore. The first incremental read slice is complete for
 eligible SQLite fragments composed through UNION/UNION ALL, semantic DISTINCT,
-and pagination, with explicit buffering, retained-state, and cursor/snapshot rules.
+pagination, and batched path/list hydration, with explicit buffering,
+retained-state, and cursor/snapshot rules.
+The same cursor API is available inside application transactions, with fresh
+per-cursor counters, reads of earlier writes, and immediate rollback on errors.
 Keep the example, cursor, and persistence tests as application regression coverage.
 Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
