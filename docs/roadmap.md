@@ -643,7 +643,7 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   errors, control limits, snapshot cleanup/reuse, and read-only/busy behavior.
   The hydration example and Criterion cases measure eager/full/early consumption.
   Transaction-scoped cursors reuse this pipeline with parent-owned snapshots
-  and rollback on errors. Rust traversal consumption remains a follow-up extension.
+  and rollback on errors. The first Rust traversal extension is described below.
 - [x] **File opening and lock contention.** `OpenOptions` selects create-or-open,
   existing read/write, or read-only access and a connection-local busy timeout.
   Read-only handles reject mutations and migration; `Error::Busy` preserves
@@ -711,6 +711,18 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   tests and the application lifecycle cover the change; a 1,000-node Criterion
   case measures repeated single-property updates. See the
   [profile and release comparison](dependency-graph.md#bulk-node-upserts-2026-10-08-follow-up).
+- [x] **Incremental Rust trail cursors — initial slice.** A single deep/open-ended
+  relationship between endpoint nodes streams through filters and projections,
+  DISTINCT, final pagination, UNION/UNION ALL, and batched path/list hydration.
+  The resumable enumerator preserves relationship-unique trails and duplicate
+  paths, with graph/frontier memory charged while paused and released on drop.
+  Each trail uses a cached consuming SQL projection; eager SQL remains intact.
+  Global traversal sorts/aggregates, extra joins/stages, multiple producers,
+  and shortest paths retain explicit buffering. Twelve integration tests and a
+  traversal oracle cover parity, early exit, resource controls, snapshots,
+  partial errors, and transaction rollback. The example and Criterion cases
+  compare eager, full-cursor, and first-row consumption; see the
+  [measurement guide](cursors.md#rust-traversal-measurements).
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -736,9 +748,9 @@ Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
 `coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
 predicates, and expression DELETE and property SET/REMOVE targets are also complete.
-Next extend cursors through measured buffering bottlenecks, or add graph-value
-scalar operations and
-expression targets for other mutations.
+The first single-trail Rust cursor slice is also complete. Next broaden cursor
+shapes or graph-input loading where measurements justify it, or add graph-value
+scalar operations and expression targets for other mutations.
 Bulk node-upsert index maintenance and statement reuse are complete. Further
 performance work should follow a new profile, such as reachable-region shortest
 search or imports that change constrained keys; plan caching is not yet

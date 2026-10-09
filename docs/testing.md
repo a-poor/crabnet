@@ -462,6 +462,27 @@ process memory as the number of unique output rows changes.
 full-cursor, and first-row hydration on the same social graphs. The standalone
 hydration example measures large repeated outputs with sizeable entity payloads.
 
+## Rust traversal cursors
+
+`tests/read_cursor_traversal.rs` covers the first incremental Rust traversal
+slice: one deep/open-ended relationship and its endpoints with filters and
+projections. Twelve tests cover typed/path/list bags, parallel edges and cycles,
+directions, endpoint/edge predicates, empty and zero-hop results, DISTINCT,
+pagination, union counters, zero-page preflight, skipped-projection guards,
+volatile expressions, fallback boundaries, partial
+errors, hydration read-ahead, resource limits, snapshots, panic/drop cleanup,
+and transactional rollback. A unit oracle compares emitted trail order and
+state work with eager enumeration, and verifies producer memory charges are
+released on completion, early drop, and initialization failure.
+
+The existing cursor tests retain buffered coverage with WITH stages and
+shortest paths; eligible transaction cursor cases now assert Incremental.
+`examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
+edge chain in eager/full-cursor/first-row modes. The `cursor_traversal/*`
+Criterion cases use the same fixture. See the
+[measurement guide](cursors.md#rust-traversal-measurements) for fresh-process
+first-row latency, full-consumption time, and peak-RSS comparisons.
+
 ## Persistent application workload
 
 `examples/dependency_graph.rs` imports real Cargo metadata and supplies a

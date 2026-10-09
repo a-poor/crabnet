@@ -121,11 +121,11 @@ fn both_modes_match_eager_transaction_results_including_uncommitted_graph_values
         ),
         (
             "MATCH p=(:Start)-[:LINK*1..40]->() RETURN p,nodes(p),relationships(p)",
-            ReadMode::Buffered,
+            ReadMode::Incremental,
         ),
         (
             "MATCH p=(:Start)-[:LINK*]->() RETURN DISTINCT p SKIP $skip LIMIT $limit",
-            ReadMode::Buffered,
+            ReadMode::Incremental,
         ),
         (
             "MATCH p=shortestPath((:Start)-[:LINK*]->(:End)) RETURN p AS x UNION ALL RETURN null AS x",
@@ -247,14 +247,14 @@ fn errors_starting_buffered_or_cancelled_cursors_abort_before_returning() {
     let mut db = Database::in_memory().unwrap();
     for (query, options) in [
         (
-            "MATCH p=(:Start)-[:LINK*1..40]->() RETURN p",
+            "MATCH p=(:Start)-[:LINK*1..40]->() WITH * RETURN p",
             QueryOptions {
                 max_result_rows: Some(0),
                 ..QueryOptions::default()
             },
         ),
         (
-            "MATCH p=(:Start)-[:LINK*1..40]->() RETURN p",
+            "MATCH p=(:Start)-[:LINK*1..40]->() WITH * RETURN p",
             QueryOptions {
                 traversal: TraversalLimits {
                     max_states: 0,
@@ -579,7 +579,7 @@ fn preparation_and_cursor_start_failures_release_locks_immediately() {
             }
         };
         let query = if buffered {
-            "MATCH p=(:Earlier)-[:LINK*1..40]->() RETURN p"
+            "MATCH p=(:Earlier)-[:LINK*1..40]->() WITH * RETURN p"
         } else {
             "RETURN 1"
         };

@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    rc::Rc,
     sync::{
         Arc,
         atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering},
@@ -115,7 +116,7 @@ impl QueryControl {
 }
 
 pub(super) struct ExecutionContext {
-    pub(super) trails: RefCell<TrailBudget>,
+    pub(super) trails: Rc<RefCell<TrailBudget>>,
     pub(super) control: QueryControl,
 }
 
@@ -123,7 +124,10 @@ impl ExecutionContext {
     pub(super) fn new(options: &QueryOptions) -> Self {
         let control = QueryControl::new(options);
         Self {
-            trails: RefCell::new(TrailBudget::configured(&options.traversal, control.clone())),
+            trails: Rc::new(RefCell::new(TrailBudget::configured(
+                &options.traversal,
+                control.clone(),
+            ))),
             control,
         }
     }
@@ -131,7 +135,7 @@ impl ExecutionContext {
     #[cfg(test)]
     pub(super) fn with_trails(budget: TrailBudget) -> Self {
         Self {
-            trails: RefCell::new(budget),
+            trails: Rc::new(RefCell::new(budget)),
             ..Self::new(&QueryOptions::default())
         }
     }

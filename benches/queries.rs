@@ -14,6 +14,9 @@ use serde_json::json;
 #[path = "../examples/shortest_path_scaling/fixture.rs"]
 mod shortest_fixture;
 
+#[path = "../examples/cursor_traversal/fixture.rs"]
+mod traversal_cursor_fixture;
+
 /// Nodes created by one multi-pattern `CREATE`; also the community size.
 const COMMUNITY: usize = 250;
 /// Outgoing `KNOWS` edges per person inside its community.
@@ -828,6 +831,56 @@ fn bench_computed_merge_keys(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_traversal_cursor(c: &mut Criterion) {
+    let mut database = traversal_cursor_fixture::fixture(10).unwrap();
+    let options = traversal_cursor_fixture::options();
+    let parameters = Parameters::new();
+    let mut group = c.benchmark_group("cursor_traversal");
+    for mode in ["eager", "cursor", "first"] {
+        let expected = if mode == "first" {
+            1
+        } else {
+            traversal_cursor_fixture::potential_rows(10)
+        };
+        group.throughput(Throughput::Elements(expected as u64));
+        let mut consume = || {
+            let count = if mode == "eager" {
+                black_box(
+                    database
+                        .execute_with_options(
+                            traversal_cursor_fixture::QUERY,
+                            &parameters,
+                            &options,
+                        )
+                        .unwrap(),
+                )
+                .rows
+                .len()
+            } else {
+                let mut read = database
+                    .prepare_read_with_options(
+                        traversal_cursor_fixture::QUERY,
+                        &parameters,
+                        &options,
+                    )
+                    .unwrap();
+                assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
+                let cursor = read.cursor().unwrap();
+                cursor
+                    .take(if mode == "first" { 1 } else { usize::MAX })
+                    .fold(0, |count, row| {
+                        black_box(row.unwrap());
+                        count + 1
+                    })
+            };
+            assert_eq!(count, expected);
+        };
+        consume();
+        group.bench_function(mode, |b| b.iter(&mut consume));
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_planning,
@@ -836,6 +889,7 @@ criterion_group!(
     bench_shortest_scaling,
     bench_writes,
     bench_merge,
-    bench_computed_merge_keys
+    bench_computed_merge_keys,
+    bench_traversal_cursor
 );
 criterion_main!(benches);

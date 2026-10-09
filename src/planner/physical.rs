@@ -292,6 +292,25 @@ pub(crate) struct SqlFragment {
     pub(crate) output_shapes: Vec<OutputShape>,
     pub(crate) arguments: Vec<FragmentArgument>,
     pub(crate) inputs: Vec<ValueOperator>,
+    /// A distributive, at-most-one-row projection for a single trail input.
+    /// The eager fragment keeps its original SQL pagination.
+    pub(crate) trail_cursor: Option<Box<TrailCursorSpec>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TrailCursorSpec {
+    pub(crate) sql: String,
+    pub(crate) argument_count: usize,
+    pub(crate) offset: Option<ValueExpr>,
+    pub(crate) limit: Option<ValueExpr>,
+}
+
+#[derive(Clone)]
+pub(crate) struct PreparedTrailCursor {
+    pub(crate) sql: String,
+    pub(crate) argument_count: usize,
+    pub(crate) offset: usize,
+    pub(crate) limit: Option<usize>,
 }
 
 impl SqlFragment {
@@ -355,6 +374,26 @@ impl SqlFragment {
             output_shapes: self.output_shapes,
             arguments,
             inputs: prepared_inputs,
+            trail_cursor: self
+                .trail_cursor
+                .map(|cursor| {
+                    Ok::<_, Error>(Box::new(PreparedTrailCursor {
+                        sql: cursor.sql,
+                        argument_count: cursor.argument_count,
+                        offset: cursor
+                            .offset
+                            .as_ref()
+                            .map(|v| resolve_page(v, parameters))
+                            .transpose()?
+                            .unwrap_or(0),
+                        limit: cursor
+                            .limit
+                            .as_ref()
+                            .map(|v| resolve_page(v, parameters))
+                            .transpose()?,
+                    }))
+                })
+                .transpose()?,
         })
     }
 }
@@ -619,6 +658,7 @@ pub(crate) struct PreparedSqlFragment {
     pub(crate) output_shapes: Vec<OutputShape>,
     pub(crate) arguments: Vec<PreparedFragmentArgument>,
     pub(crate) inputs: Vec<PreparedValueOperator>,
+    pub(crate) trail_cursor: Option<Box<PreparedTrailCursor>>,
 }
 
 #[derive(Clone)]
@@ -670,6 +710,7 @@ mod tests {
             output_shapes: vec![OutputShape::Json],
             arguments,
             inputs,
+            trail_cursor: None,
         }
     }
 

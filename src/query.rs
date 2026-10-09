@@ -44,6 +44,7 @@ pub struct TraversalLimits {
     /// Total explored states across every traversal producer in one query.
     pub max_states: usize,
     /// Total compact JSON bytes passed from traversal producers to SQLite.
+    /// Incremental trails count the framing of each singleton input array.
     pub max_payload_bytes: usize,
     /// Peak retained traversal memory, using deterministic per-ID costs.
     /// This is an accounting budget, not a bound on process memory.

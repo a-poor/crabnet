@@ -31,14 +31,14 @@ drop(read); // releases the exclusive database borrow
 # Ok::<(), crabnet::Error>(())
 ```
 
-Inspect `mode()` before opening a cursor. `Incremental` means SQLite fragments
-without Rust producers, composed through `UNION ALL`, `UNION`, `RETURN DISTINCT`,
-pagination, and path/list hydration. Each advance yields at most one row, but can
+Inspect `mode()` before opening a cursor. `Incremental` includes SQLite fragments
+and eligible single Rust trail expansions, composed through `UNION ALL`,
+`UNION`, `RETURN DISTINCT`, pagination, and path/list hydration. Each advance yields at most one row, but can
 consume several duplicate or skipped input rows. SQLite may still buffer sorts,
 aggregates, or intermediate relations internally.
 `Buffered` means the existing executor completes the result when `cursor()`
-is called. Rust traversal producers use that fallback. A union with any buffered
-branch uses the fallback for the whole query.
+is called. Traversal shapes outside the slice below use that fallback. A union
+with any buffered branch uses the fallback for the whole query.
 
 An incremental `UNION ALL` visits branches from left to right, keeping duplicate
 rows and each branch's output types. All statements are prepared and parameters
@@ -56,8 +56,9 @@ union's duplicate policy. `SKIP` and `LIMIT` count unique rows after distinct;
 reaching a cursor's limit stops fetching that input, including runtime validation
 of its unread suffix. Whole-query parameter checks still happen at preparation.
 
-SQLite-produced paths, `nodes(p)`, `relationships(p)`, and legacy relationship
-lists hydrate incrementally after distinct, pagination, and union processing.
+Paths from eligible SQLite and Rust producers, `nodes(p)`, `relationships(p)`,
+and legacy relationship lists hydrate incrementally after distinct, pagination,
+and union processing.
 The first batch contains one surviving row; later batches contain up to 64.
 Each batch deduplicates required IDs, reuses directly projected entities, and
 loads the remainder with at most one node query and one relationship query.
@@ -84,6 +85,47 @@ A standalone incremental cursor pins a fresh snapshot at creation, even before
 its first advance. Drop idle cursors promptly: they can block other connections' commits.
 See the [complete contract](semantics.md#read-cursors) for buffering boundaries,
 partial errors, cancellation, and resource accounting.
+
+## Incremental Rust traversal
+
+A single `MATCH` with one deep/open-ended variable-length relationship and only
+its endpoint nodes can stream. Filters, scalar/entity/path projections, legacy
+relationship lists, DISTINCT, and final pagination are supported. For example:
+
+```cypher
+MATCH p=(:Start)-[:NEXT*]->(end)
+RETURN p, end.id
+LIMIT 10
+```
+
+The producer loads eligible edges and endpoint domains on first demand, then
+resumes the existing trail walk between rows. It retains those graph inputs and
+the search frontier, and sends one encoded trail through a cached SQLite
+projection at a time. Cycles remain relationship-unique; parallel relationships
+and duplicate result values keep their multiplicity. This removes the complete
+runtime-result relation from memory, not the graph input or traversal frontier.
+
+Global ORDER BY or aggregation over Rust trails, additional pattern joins,
+multiple traversal producers, OPTIONAL MATCH, WITH/UNWIND stages, and shortest
+paths still report `Buffered`. Small bounded traversals executed entirely by
+SQLite retain their existing behavior. Always inspect `mode()`.
+
+Early drop and a reached LIMIT stop further enumeration beyond hydration's
+current batch. LIMIT 0 starts no producer, but all parameters and page values
+are still validated at preparation. Ordinary SKIP suppresses projection
+expressions on discarded matched trails, while DISTINCT pagination evaluates
+projected values before deduplication. Skipped placeholder rows still count as
+SQL transfers. Errors can follow earlier rows and are
+terminal; transaction-scoped failures roll back earlier writes. The standalone
+snapshot is pinned at cursor creation, before graph loading begins.
+
+State and payload counters span all cursor advances and union branches. Payload
+accounting counts each singleton JSON array's framing, so full consumption can
+use more payload/work budget than one eager relation. Graph inputs and the
+frontier stay charged to retained traversal memory while paused; exhausted or
+dropped branches release that charge before another branch begins. Per-row SQL
+execution can cost more than a single batched query. The measurements below
+report both full consumption and early exit.
 
 ## Inside an application transaction
 
@@ -364,3 +406,66 @@ Measured executable SHA-256:
 `26f8bbebe86459c3df6bf4e0aac2e6165fdfdf64208a202b54619e43168be716`.
 Pre-change baseline SHA-256:
 `ac56a22e34ce1a1035ecca1c37ea5115613038077e40c8a9d42cee36437b8d49`.
+
+### Rust traversal measurements
+
+`examples/cursor_traversal.rs` builds a short chain with two parallel `NEXT`
+relationships per hop. At depth d there are exactly 2^d relationship-unique
+paths. Depth 10 produces 2,046 potential rows from 11 nodes / 20 edges; depth
+14 produces 32,766 from 15 nodes / 28 edges. The query returns path length and
+endpoint ID. Full consumption verifies the exact histogram at every depth;
+early exit verifies one one-hop row. This isolates growth of the result relation
+from graph-input growth. It does not measure shortest paths or hydrated paths.
+
+```sh
+cargo build --release --example cursor_traversal
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal eager 14
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 14
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 14
+cargo bench --bench queries -- cursor_traversal
+```
+
+Repeat the example with depth 10. Each measurement uses a fresh process and
+in-memory graph; build first, then run sequentially. The example explicitly
+allows 1,000,000 explored states and 1 GiB of cumulative serialized payload,
+with the default retained-memory budget. These are workload options, not new
+library defaults. Query and first-row timings include planning, snapshot setup,
+decoding and validation; query timing also includes cleanup. Fixture setup is
+reported separately. Process RSS includes the fixture and SQLite, not just
+cursor state. The Criterion group uses depth 10 for eager, full-cursor, and
+first-row cases and checks each consumed row count.
+
+Measured on 2026-10-08 with Rust 1.99.0, release builds, and macOS 26.5.1
+arm64. The baseline is commit `3932cfd`, with only the identical example and
+fixture copied into an isolated archive/target. Three fresh-process trials per
+engine, depth, and consumption mode alternated engine order and rotated mode
+order. Builds and tests finished before measurement. All 36 runs passed their
+row-count, endpoint, and depth-histogram checks. Baseline cursor reads reported
+`Buffered`; updated cursor reads reported `Incremental`.
+
+The table gives medians across trials, with before → after values. “First only”
+drops the cursor after one row; “Full cursor” drains it without collecting rows.
+
+| Potential rows | Consumption | First row (ms) | Complete query (ms) | Peak RSS (MiB) |
+| ---: | --- | ---: | ---: | ---: |
+| 2,046 | Full cursor | 37.723 → 0.458 | 37.803 → 43.583 | 14.094 → 6.766 |
+| 2,046 | First only | 36.452 → 0.421 | 36.515 → 0.431 | 14.047 → 6.625 |
+| 32,766 | Full cursor | 754.895 → 0.349 | 762.008 → 852.291 | 157.594 → 6.938 |
+| 32,766 | First only | 732.381 → 0.439 | 738.382 → 0.452 | 157.531 → 6.578 |
+
+Full-consumption medians increased about 15% at the smaller size and 12% at
+the larger size. Large-case ranges overlap: 752.9–951.9 ms before and
+836.1–1,032.4 ms after. Eager controls retained similar RSS (about 14.1 and
+157.6 MiB); their query medians were 38.1 → 37.7 ms and 747.7 → 802.7 ms,
+with substantial variation in the larger case. These observations support
+lower first-row latency and memory retention, without claiming a full-scan
+throughput improvement. Per-trail SQL execution has a cost.
+
+At 32,766 rows, first-only RSS ranged from 157.52–157.58 MiB before and
+6.56–6.66 MiB after; first-row latency ranged from 730.49–774.40 ms before
+and 0.37–0.78 ms after. These are local observations on a small graph with many
+paths, not a whole-query memory guarantee. Eligible graph inputs still load
+up front, individual paths can be large, and DISTINCT/hydration retain their
+own state. The [measurement record](measurements/cursor-traversal-2026-10-08.json)
+contains all trial reports, medians/ranges, binary and source hashes, and
+whole-process measurements.

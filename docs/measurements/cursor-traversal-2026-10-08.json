@@ -1,0 +1,2018 @@
+{
+  "date": "2026-10-08",
+  "baseline_commit": "3932cfd",
+  "baseline_changes": "Only identical examples/cursor_traversal.rs and examples/cursor_traversal/fixture.rs copied into an isolated archive and built with its own target directory.",
+  "updated_engine": "Working-tree incremental single Rust trail cursor projections with guarded SKIP, shared budgets and batched hydration",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "method": "Three sequential fresh-process trials per engine, depth and consumption mode; release builds. Engine order alternates and mode order rotates between trials. All builds/tests finished before measurements. Each process builds a fresh in-memory graph. Query timing includes planning, snapshot setup, decoding, validation and cleanup, excludes fixture setup. First-row latency is time until the first owned row reaches the consumer. Peak RSS and elapsed wall time cover the entire child process, including graph setup. Quick smoke measurements excluded.",
+  "fixture": "A chain with two parallel NEXT relationships per hop. Depth 10: 11 nodes/20 edges, 2046 paths. Depth 14: 15 nodes/28 edges, 32766 paths. Query returns length(p) and endpoint ID; full consumption verifies exact per-depth multiplicity 2^d; first mode verifies one one-hop result. Options allow 1000000 explored states and 1 GiB cumulative payload, retaining the default memory limit. Eligible edge inputs still load eagerly.",
+  "source_sha256": {
+    "src/planner/sqlite.rs": "b0c58a3b3bee98f39f7c7ffd641d3d1439a1989e212dac2178f4b576149e65bb",
+    "src/planner/physical.rs": "d495ff9eee485b2952792c4fcf4593f6597b935e9e74c929556aa0158528b1e9",
+    "src/database/cursor.rs": "6cdf306523992532a1f203cf3f7c67439bf125c5f2ee4a053fecce27e5b11b04",
+    "src/database/traversal.rs": "765a1e3fdf4ef5d9f01279f47594cf546566e6e417ca76c3dce08ba6ed617a80",
+    "src/database/resources.rs": "42a797e6d9b4d8a2cc97313194ea58a1e1c6c807aa306e83381828cefdf0c350",
+    "src/query.rs": "25f4b81d15c0ea2d12d61d0bf65f26a054d7c962ce64998c925c7d3da7e40245",
+    "examples/cursor_traversal.rs": "c1656f02b798881ae64663cddfb695dd29e6341852bfaaba3df68e1789ade463",
+    "examples/cursor_traversal/fixture.rs": "134fc6512e20c3a54fda261f7b6e68b2274911ef53f846b9a03852fdb2a102ef",
+    "scripts/measure_dependency_graph.py": "6eed5ce5eab274b6ed4a32a788309ead3f6a7a9d76f306e22d0c42974f6c969e"
+  },
+  "summary": [
+    {
+      "engine": "before",
+      "depth": 10,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.7798749999999997,
+        "min": 3.287,
+        "max": 23.128875
+      },
+      "first_row_ms": {
+        "median": 38.000042,
+        "min": 37.402041,
+        "max": 38.941042
+      },
+      "query_ms": {
+        "median": 38.062875000000005,
+        "min": 37.444083000000006,
+        "max": 39.039417
+      },
+      "elapsed_seconds": {
+        "median": 0.04919208399951458,
+        "min": 0.04818633300601505,
+        "max": 0.070958915996016
+      },
+      "peak_rss_bytes": {
+        "median": 14745600,
+        "min": 14729216,
+        "max": 14778368
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.6567079999999996,
+        "min": 2.943584,
+        "max": 3.7378340000000003
+      },
+      "first_row_ms": {
+        "median": 37.723082999999995,
+        "min": 37.144708,
+        "max": 38.862
+      },
+      "query_ms": {
+        "median": 37.802875,
+        "min": 37.221458,
+        "max": 38.96175
+      },
+      "elapsed_seconds": {
+        "median": 0.04773291700985283,
+        "min": 0.0477293329895474,
+        "max": 0.048717334007960744
+      },
+      "peak_rss_bytes": {
+        "median": 14778368,
+        "min": 14761984,
+        "max": 14778368
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.179,
+        "min": 3.02775,
+        "max": 3.187291
+      },
+      "first_row_ms": {
+        "median": 36.452375,
+        "min": 35.358208000000005,
+        "max": 36.471959
+      },
+      "query_ms": {
+        "median": 36.514875,
+        "min": 35.4865,
+        "max": 36.526042000000004
+      },
+      "elapsed_seconds": {
+        "median": 0.04532366700004786,
+        "min": 0.04520224999578204,
+        "max": 0.046173124996130355
+      },
+      "peak_rss_bytes": {
+        "median": 14729216,
+        "min": 14680064,
+        "max": 14761984
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.899375,
+        "min": 3.812833,
+        "max": 5.913042
+      },
+      "first_row_ms": {
+        "median": 37.619375,
+        "min": 36.892709,
+        "max": 38.136375
+      },
+      "query_ms": {
+        "median": 37.681332999999995,
+        "min": 36.959459,
+        "max": 38.258292
+      },
+      "elapsed_seconds": {
+        "median": 0.04916804200911429,
+        "min": 0.049132416999782436,
+        "max": 0.523183292010799
+      },
+      "peak_rss_bytes": {
+        "median": 14794752,
+        "min": 14761984,
+        "max": 14843904
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.782292,
+        "min": 3.112542,
+        "max": 4.086334
+      },
+      "first_row_ms": {
+        "median": 0.458167,
+        "min": 0.392917,
+        "max": 0.47966699999999995
+      },
+      "query_ms": {
+        "median": 43.5825,
+        "min": 41.820917,
+        "max": 44.375708
+      },
+      "elapsed_seconds": {
+        "median": 0.0537624999997206,
+        "min": 0.05248924999614246,
+        "max": 0.0539445419999538
+      },
+      "peak_rss_bytes": {
+        "median": 7094272,
+        "min": 7094272,
+        "max": 7110656
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.638375,
+        "min": 3.5140420000000003,
+        "max": 4.258708
+      },
+      "first_row_ms": {
+        "median": 0.421209,
+        "min": 0.417333,
+        "max": 0.4535
+      },
+      "query_ms": {
+        "median": 0.430584,
+        "min": 0.427125,
+        "max": 0.463667
+      },
+      "elapsed_seconds": {
+        "median": 0.011307667009532452,
+        "min": 0.010955792007734999,
+        "max": 0.012435917000402696
+      },
+      "peak_rss_bytes": {
+        "median": 6946816,
+        "min": 6815744,
+        "max": 6946816
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.8119579999999997,
+        "min": 3.424042,
+        "max": 3.980167
+      },
+      "first_row_ms": {
+        "median": 741.696917,
+        "min": 735.844792,
+        "max": 794.96275
+      },
+      "query_ms": {
+        "median": 747.700708,
+        "min": 743.808542,
+        "max": 800.4985839999999
+      },
+      "elapsed_seconds": {
+        "median": 0.7588063750008587,
+        "min": 0.7555358749959851,
+        "max": 0.8106609579990618
+      },
+      "peak_rss_bytes": {
+        "median": 165265408,
+        "min": 165216256,
+        "max": 165281792
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.6575409999999997,
+        "min": 3.170875,
+        "max": 4.112542
+      },
+      "first_row_ms": {
+        "median": 754.8952909999999,
+        "min": 744.87425,
+        "max": 946.785875
+      },
+      "query_ms": {
+        "median": 762.007625,
+        "min": 752.90125,
+        "max": 951.9320409999999
+      },
+      "elapsed_seconds": {
+        "median": 0.7721168340067379,
+        "min": 0.7644654579926282,
+        "max": 0.9621564580011182
+      },
+      "peak_rss_bytes": {
+        "median": 165249024,
+        "min": 151535616,
+        "max": 165281792
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.9244170000000005,
+        "min": 3.335208,
+        "max": 3.9850839999999996
+      },
+      "first_row_ms": {
+        "median": 732.3807919999999,
+        "min": 730.492667,
+        "max": 774.399
+      },
+      "query_ms": {
+        "median": 738.381625,
+        "min": 733.897833,
+        "max": 780.6799169999999
+      },
+      "elapsed_seconds": {
+        "median": 0.7508672500116518,
+        "min": 0.7446050409926102,
+        "max": 0.7905911249981727
+      },
+      "peak_rss_bytes": {
+        "median": 165183488,
+        "min": 165167104,
+        "max": 165232640
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 4.001875,
+        "min": 3.206209,
+        "max": 4.754625
+      },
+      "first_row_ms": {
+        "median": 796.623459,
+        "min": 778.7219170000001,
+        "max": 948.759083
+      },
+      "query_ms": {
+        "median": 802.7105,
+        "min": 784.0655840000001,
+        "max": 956.84775
+      },
+      "elapsed_seconds": {
+        "median": 0.8181123329995899,
+        "min": 0.7976855419983622,
+        "max": 0.9701674170064507
+      },
+      "peak_rss_bytes": {
+        "median": 165232640,
+        "min": 165216256,
+        "max": 165314560
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.1629169999999998,
+        "min": 3.064792,
+        "max": 4.692458
+      },
+      "first_row_ms": {
+        "median": 0.348916,
+        "min": 0.340542,
+        "max": 0.480833
+      },
+      "query_ms": {
+        "median": 852.290792,
+        "min": 836.077541,
+        "max": 1032.410666
+      },
+      "elapsed_seconds": {
+        "median": 0.8661646249965997,
+        "min": 0.8443635000003269,
+        "max": 1.0440965839952696
+      },
+      "peak_rss_bytes": {
+        "median": 7274496,
+        "min": 7176192,
+        "max": 7274496
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.52525,
+        "min": 3.274709,
+        "max": 5.1391670000000005
+      },
+      "first_row_ms": {
+        "median": 0.43895799999999996,
+        "min": 0.369083,
+        "max": 0.7765839999999999
+      },
+      "query_ms": {
+        "median": 0.45204099999999997,
+        "min": 0.377,
+        "max": 0.794542
+      },
+      "elapsed_seconds": {
+        "median": 0.010033457991085015,
+        "min": 0.009562207997078076,
+        "max": 0.013881709004635923
+      },
+      "peak_rss_bytes": {
+        "median": 6897664,
+        "min": 6881280,
+        "max": 6979584
+      }
+    }
+  ],
+  "trials": [
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 37.402041,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 37.444083000000006,
+        "read_mode": null,
+        "setup_ms": 23.128875,
+        "measurement": {
+          "elapsed_seconds": 0.070958915996016,
+          "peak_rss_bytes": 14745600,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "eager",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 38.862,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 38.96175,
+        "read_mode": "Buffered",
+        "setup_ms": 2.943584,
+        "measurement": {
+          "elapsed_seconds": 0.04773291700985283,
+          "peak_rss_bytes": 14761984,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "cursor",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "first_row_ms": 36.452375,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 36.514875,
+        "read_mode": "Buffered",
+        "setup_ms": 3.02775,
+        "measurement": {
+          "elapsed_seconds": 0.04532366700004786,
+          "peak_rss_bytes": 14761984,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "first",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 36.892709,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 36.959459,
+        "read_mode": null,
+        "setup_ms": 5.913042,
+        "measurement": {
+          "elapsed_seconds": 0.523183292010799,
+          "peak_rss_bytes": 14794752,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 0.392917,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 43.5825,
+        "read_mode": "Incremental",
+        "setup_ms": 4.086334,
+        "measurement": {
+          "elapsed_seconds": 0.0539445419999538,
+          "peak_rss_bytes": 7110656,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "first_row_ms": 0.421209,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 0.430584,
+        "read_mode": "Incremental",
+        "setup_ms": 3.5140420000000003,
+        "measurement": {
+          "elapsed_seconds": 0.010955792007734999,
+          "peak_rss_bytes": 6946816,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 0.458167,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 41.820917,
+        "read_mode": "Incremental",
+        "setup_ms": 3.782292,
+        "measurement": {
+          "elapsed_seconds": 0.05248924999614246,
+          "peak_rss_bytes": 7094272,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "first_row_ms": 0.417333,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 0.427125,
+        "read_mode": "Incremental",
+        "setup_ms": 3.638375,
+        "measurement": {
+          "elapsed_seconds": 0.012435917000402696,
+          "peak_rss_bytes": 6815744,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 38.136375,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 38.258292,
+        "read_mode": null,
+        "setup_ms": 3.812833,
+        "measurement": {
+          "elapsed_seconds": 0.04916804200911429,
+          "peak_rss_bytes": 14761984,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 37.144708,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 37.221458,
+        "read_mode": "Buffered",
+        "setup_ms": 3.6567079999999996,
+        "measurement": {
+          "elapsed_seconds": 0.0477293329895474,
+          "peak_rss_bytes": 14778368,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "cursor",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "first_row_ms": 36.471959,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 36.526042000000004,
+        "read_mode": "Buffered",
+        "setup_ms": 3.187291,
+        "measurement": {
+          "elapsed_seconds": 0.046173124996130355,
+          "peak_rss_bytes": 14729216,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "first",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 38.000042,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 38.062875000000005,
+        "read_mode": null,
+        "setup_ms": 3.287,
+        "measurement": {
+          "elapsed_seconds": 0.04818633300601505,
+          "peak_rss_bytes": 14778368,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "eager",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "first_row_ms": 35.358208000000005,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 35.4865,
+        "read_mode": "Buffered",
+        "setup_ms": 3.179,
+        "measurement": {
+          "elapsed_seconds": 0.04520224999578204,
+          "peak_rss_bytes": 14680064,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "first",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 38.941042,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 39.039417,
+        "read_mode": null,
+        "setup_ms": 3.7798749999999997,
+        "measurement": {
+          "elapsed_seconds": 0.04919208399951458,
+          "peak_rss_bytes": 14729216,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "eager",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 10,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 37.723082999999995,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 37.802875,
+        "read_mode": "Buffered",
+        "setup_ms": 3.7378340000000003,
+        "measurement": {
+          "elapsed_seconds": 0.048717334007960744,
+          "peak_rss_bytes": 14778368,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "cursor",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "first_row_ms": 0.4535,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 0.463667,
+        "read_mode": "Incremental",
+        "setup_ms": 4.258708,
+        "measurement": {
+          "elapsed_seconds": 0.011307667009532452,
+          "peak_rss_bytes": 6946816,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 37.619375,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 37.681332999999995,
+        "read_mode": null,
+        "setup_ms": 3.899375,
+        "measurement": {
+          "elapsed_seconds": 0.049132416999782436,
+          "peak_rss_bytes": 14843904,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 10,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 2046,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024
+        ],
+        "edges": 20,
+        "first_row_ms": 0.47966699999999995,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 2046,
+        "query_ms": 44.375708,
+        "read_mode": "Incremental",
+        "setup_ms": 3.112542,
+        "measurement": {
+          "elapsed_seconds": 0.0537624999997206,
+          "peak_rss_bytes": 7094272,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "10"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 794.96275,
+        "mode": "eager",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 800.4985839999999,
+        "read_mode": null,
+        "setup_ms": 3.424042,
+        "measurement": {
+          "elapsed_seconds": 0.8106609579990618,
+          "peak_rss_bytes": 165265408,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "eager",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 754.8952909999999,
+        "mode": "cursor",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 762.007625,
+        "read_mode": "Buffered",
+        "setup_ms": 3.6575409999999997,
+        "measurement": {
+          "elapsed_seconds": 0.7721168340067379,
+          "peak_rss_bytes": 165281792,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "cursor",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 28,
+        "first_row_ms": 732.3807919999999,
+        "mode": "first",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 738.381625,
+        "read_mode": "Buffered",
+        "setup_ms": 3.9850839999999996,
+        "measurement": {
+          "elapsed_seconds": 0.7508672500116518,
+          "peak_rss_bytes": 165232640,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "first",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 796.623459,
+        "mode": "eager",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 802.7105,
+        "read_mode": null,
+        "setup_ms": 4.001875,
+        "measurement": {
+          "elapsed_seconds": 0.8181123329995899,
+          "peak_rss_bytes": 165232640,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 0.348916,
+        "mode": "cursor",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 836.077541,
+        "read_mode": "Incremental",
+        "setup_ms": 3.1629169999999998,
+        "measurement": {
+          "elapsed_seconds": 0.8443635000003269,
+          "peak_rss_bytes": 7176192,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 28,
+        "first_row_ms": 0.369083,
+        "mode": "first",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 0.377,
+        "read_mode": "Incremental",
+        "setup_ms": 3.274709,
+        "measurement": {
+          "elapsed_seconds": 0.009562207997078076,
+          "peak_rss_bytes": 6979584,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 0.340542,
+        "mode": "cursor",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 852.290792,
+        "read_mode": "Incremental",
+        "setup_ms": 3.064792,
+        "measurement": {
+          "elapsed_seconds": 0.8661646249965997,
+          "peak_rss_bytes": 7274496,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 28,
+        "first_row_ms": 0.43895799999999996,
+        "mode": "first",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 0.45204099999999997,
+        "read_mode": "Incremental",
+        "setup_ms": 3.52525,
+        "measurement": {
+          "elapsed_seconds": 0.010033457991085015,
+          "peak_rss_bytes": 6881280,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 778.7219170000001,
+        "mode": "eager",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 784.0655840000001,
+        "read_mode": null,
+        "setup_ms": 3.206209,
+        "measurement": {
+          "elapsed_seconds": 0.7976855419983622,
+          "peak_rss_bytes": 165314560,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 744.87425,
+        "mode": "cursor",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 752.90125,
+        "read_mode": "Buffered",
+        "setup_ms": 4.112542,
+        "measurement": {
+          "elapsed_seconds": 0.7644654579926282,
+          "peak_rss_bytes": 165249024,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "cursor",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 28,
+        "first_row_ms": 730.492667,
+        "mode": "first",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 733.897833,
+        "read_mode": "Buffered",
+        "setup_ms": 3.9244170000000005,
+        "measurement": {
+          "elapsed_seconds": 0.7446050409926102,
+          "peak_rss_bytes": 165167104,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "first",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 741.696917,
+        "mode": "eager",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 747.700708,
+        "read_mode": null,
+        "setup_ms": 3.980167,
+        "measurement": {
+          "elapsed_seconds": 0.7588063750008587,
+          "peak_rss_bytes": 165281792,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "eager",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 28,
+        "first_row_ms": 774.399,
+        "mode": "first",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 780.6799169999999,
+        "read_mode": "Buffered",
+        "setup_ms": 3.335208,
+        "measurement": {
+          "elapsed_seconds": 0.7905911249981727,
+          "peak_rss_bytes": 165183488,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "first",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 735.844792,
+        "mode": "eager",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 743.808542,
+        "read_mode": null,
+        "setup_ms": 3.8119579999999997,
+        "measurement": {
+          "elapsed_seconds": 0.7555358749959851,
+          "peak_rss_bytes": 165216256,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "eager",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "depth": 14,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 946.785875,
+        "mode": "cursor",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 951.9320409999999,
+        "read_mode": "Buffered",
+        "setup_ms": 3.170875,
+        "measurement": {
+          "elapsed_seconds": 0.9621564580011182,
+          "peak_rss_bytes": 151535616,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
+          "command": [
+            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "cursor",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 28,
+        "first_row_ms": 0.7765839999999999,
+        "mode": "first",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 0.794542,
+        "read_mode": "Incremental",
+        "setup_ms": 5.1391670000000005,
+        "measurement": {
+          "elapsed_seconds": 0.013881709004635923,
+          "peak_rss_bytes": 6897664,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 948.759083,
+        "mode": "eager",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 956.84775,
+        "read_mode": null,
+        "setup_ms": 4.754625,
+        "measurement": {
+          "elapsed_seconds": 0.9701674170064507,
+          "peak_rss_bytes": 165216256,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "14"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "depth": 14,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32766,
+        "depth": 14,
+        "depth_histogram": [
+          0,
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 28,
+        "first_row_ms": 0.480833,
+        "mode": "cursor",
+        "nodes": 15,
+        "potential_rows": 32766,
+        "query_ms": 1032.410666,
+        "read_mode": "Incremental",
+        "setup_ms": 4.692458,
+        "measurement": {
+          "elapsed_seconds": 1.0440965839952696,
+          "peak_rss_bytes": 7274496,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "14"
+          ]
+        }
+      }
+    }
+  ],
+  "validation": {
+    "cargo test --all-targets": {
+      "tests_passed": 837,
+      "benchmark_smoke_cases_passed": 104
+    },
+    "cargo test --doc": {
+      "tests_passed": 11
+    },
+    "cargo clippy --all-targets -- -D warnings": "passed",
+    "cargo fmt --all -- --check": "passed",
+    "git diff --check": "passed",
+    "baseline_engine_sources_verified": true,
+    "identical_workload_sources_verified": true
+  }
+}

@@ -1,6 +1,8 @@
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet, VecDeque},
     io::{self, Write},
+    rc::Rc,
 };
 
 use rusqlite::{CachedStatement, Connection, ToSql, params_from_iter, types::Value as SqlValue};
@@ -658,6 +660,145 @@ fn enumerate_trails(
     rows.finish(traversal, budget)
 }
 
+/// Resumable version of the eager trail walk, preserving its seed and step
+/// order. Graph inputs and the frontier stay charged while the cursor pauses;
+/// only the current singleton JSON relation is encoded. A branch owns its
+/// budget charge and releases it even on early pagination, errors, or drop.
+pub(super) struct TrailStream {
+    budget: Rc<RefCell<TrailBudget>>,
+    checkpoint: usize,
+    traversal: usize,
+    minimum: usize,
+    maximum: usize,
+    inputs: Option<ExpansionInputs>,
+    adjacency: BTreeMap<String, Vec<TrailStep>>,
+    seed_index: usize,
+    pending: Vec<TrailState>,
+    expanding: Option<(TrailState, usize)>,
+}
+
+impl TrailStream {
+    pub(super) fn new(
+        connection: &Connection,
+        spec: &ResolvedTrailExpansion,
+        budget: Rc<RefCell<TrailBudget>>,
+    ) -> Result<Self> {
+        let checkpoint = budget.borrow().memory_checkpoint();
+        let mut stream = Self {
+            budget,
+            checkpoint,
+            traversal: spec.traversal,
+            minimum: spec.minimum,
+            maximum: 0,
+            inputs: None,
+            adjacency: BTreeMap::new(),
+            seed_index: 0,
+            pending: Vec::new(),
+            expanding: None,
+        };
+        {
+            let mut budget = stream.budget.borrow_mut();
+            stream.inputs = load_expansion_inputs(connection, spec, &mut budget)?;
+            if let Some(inputs) = &stream.inputs {
+                stream.maximum = spec
+                    .maximum
+                    .unwrap_or(inputs.edges.len())
+                    .min(inputs.edges.len());
+                if stream.minimum <= stream.maximum {
+                    stream.adjacency =
+                        adjacency(&inputs.edges, spec.direction, spec.traversal, &mut budget)?;
+                }
+            }
+        }
+        Ok(stream)
+    }
+
+    pub(super) fn next(&mut self) -> Result<Option<String>> {
+        let mut budget = self.budget.borrow_mut();
+        let Some(inputs) = &self.inputs else {
+            return Ok(None);
+        };
+        if self.minimum > self.maximum {
+            return Ok(None);
+        }
+        loop {
+            budget.control.check()?;
+            if let Some((state, remaining)) = &mut self.expanding {
+                if *remaining == 0 {
+                    budget.release(state_cost(state));
+                    self.expanding = None;
+                    continue;
+                }
+                *remaining -= 1;
+                let step = &self.adjacency[&state.end_node][*remaining];
+                if state.edge_ids.contains(&step.edge_id) {
+                    continue;
+                }
+                budget.admit(self.traversal)?;
+                let mut next = state.clone();
+                next.end_node.clone_from(&step.next_node);
+                next.edge_ids.push(step.edge_id.clone());
+                next.node_ids.push(step.next_node.clone());
+                budget.retain(self.traversal, state_cost(&next))?;
+                self.pending.push(next);
+                let next = self.pending.last().expect("just pushed");
+                if next.edge_ids.len() >= self.minimum
+                    && admits_end(inputs.end_domain.as_ref(), &next.end_node)
+                {
+                    return encode_single_trail(next, self.traversal, &mut budget).map(Some);
+                }
+            } else if let Some(state) = self.pending.pop() {
+                let steps = if state.edge_ids.len() < self.maximum {
+                    self.adjacency.get(&state.end_node).map_or(0, Vec::len)
+                } else {
+                    0
+                };
+                self.expanding = Some((state, steps));
+            } else if let Some(start) = inputs.seeds.get(self.seed_index) {
+                self.seed_index += 1;
+                let seed = TrailState {
+                    end_node: start.clone(),
+                    edge_ids: Vec::new(),
+                    node_ids: vec![start.clone()],
+                };
+                budget.retain(self.traversal, state_cost(&seed))?;
+                self.pending.push(seed);
+                if self.minimum == 0 {
+                    budget.admit(self.traversal)?;
+                    if admits_end(inputs.end_domain.as_ref(), start) {
+                        return encode_single_trail(
+                            self.pending.last().expect("just pushed"),
+                            self.traversal,
+                            &mut budget,
+                        )
+                        .map(Some);
+                    }
+                }
+            } else {
+                return Ok(None);
+            }
+        }
+    }
+}
+
+impl Drop for TrailStream {
+    fn drop(&mut self) {
+        // Streaming UNION visits branches sequentially and starts producers
+        // lazily, so no other live producer owns memory after this checkpoint.
+        self.budget.borrow_mut().release_to(self.checkpoint);
+    }
+}
+
+fn encode_single_trail(
+    state: &TrailState,
+    traversal: usize,
+    budget: &mut TrailBudget,
+) -> Result<String> {
+    let mut rows = EncodedRows::new(traversal, budget)?;
+    rows.push(&state.node_ids[0], state, traversal, budget)?;
+    rows.finish(traversal, budget)
+}
+
 /// Cache neighbor lists across tied prefixes, cycle searches, and seeds. The
 /// optional query fills a list only when its node is expanded; without it,
 /// `adjacency` is the complete eager source used for unconstrained searches.
@@ -1113,6 +1254,69 @@ mod tests {
         Database, Parameters,
         planner::{self, Plan, PreparedPhysicalOperator, PreparedValueOperator},
     };
+
+    #[test]
+    fn streaming_trails_preserve_eager_order_and_release_each_branch_charge() {
+        let mut database = Database::in_memory().unwrap();
+        database.execute("CREATE (a:S),(b:S),(c), (a)-[:R]->(b),(a)-[:R]->(b),(b)-[:R]->(c),(c)-[:R]->(a),(b)-[:R]->(b)").unwrap();
+        for pattern in [
+            "(:S)-[:R*0..40]->()",
+            "(:S)<-[:R*]-(b)",
+            "(:S)-[:R*]-(b)",
+            "(:S)-[:R*2..40]->(:S)",
+            "(:S)-[:NONE*0..]->()",
+        ] {
+            let Plan::Read(plan) =
+                planner::compile(&format!("MATCH p={pattern} RETURN length(p)")).unwrap()
+            else {
+                panic!()
+            };
+            let PreparedPhysicalOperator::Sqlite(fragment) =
+                plan.prepare(&Parameters::new()).unwrap().root
+            else {
+                panic!()
+            };
+            let PreparedValueOperator::TrailExpand { spec, .. } = &fragment.inputs[0] else {
+                panic!()
+            };
+            let mut eager_budget = TrailBudget::default();
+            let SqlValue::Text(expected) =
+                materialize_trails(&database.connection, spec, &mut eager_budget).unwrap()
+            else {
+                panic!()
+            };
+            let expected: Vec<Value> = serde_json::from_str(&expected).unwrap();
+            let budget = Rc::new(RefCell::new(TrailBudget::default()));
+            let mut stream = TrailStream::new(&database.connection, spec, budget.clone()).unwrap();
+            let mut actual = Vec::new();
+            let mut payload_bytes = 0;
+            while let Some(row) = stream.next().unwrap() {
+                payload_bytes += row.len();
+                let mut rows: Vec<Value> = serde_json::from_str(&row).unwrap();
+                assert_eq!(rows.len(), 1);
+                actual.append(&mut rows);
+            }
+            assert_eq!(actual, expected, "{pattern}");
+            assert_eq!(budget.borrow().state_used, eager_budget.state_used);
+            assert_eq!(budget.borrow().payload_used(), payload_bytes);
+            drop(stream);
+            assert_eq!(budget.borrow().memory_used(), 0);
+            // Successive union branches share cumulative work/payload, but
+            // release all graph/frontier memory, including on early drop.
+            let peak = budget.borrow().memory_peak();
+            budget.borrow_mut().memory_limit = peak;
+            let mut stream = TrailStream::new(&database.connection, spec, budget.clone()).unwrap();
+            assert!(stream.next().unwrap().is_some());
+            drop(stream);
+            assert_eq!(budget.borrow().memory_used(), 0);
+            let failed = Rc::new(RefCell::new(TrailBudget::default().with_memory_limit(0)));
+            assert!(matches!(
+                TrailStream::new(&database.connection, spec, failed.clone()),
+                Err(Error::ResourceLimit(_))
+            ));
+            assert_eq!(failed.borrow().memory_used(), 0);
+        }
+    }
 
     fn shortest_spec(query: &str) -> ResolvedTrailExpansion {
         let Plan::Read(plan) = planner::compile(query).unwrap() else {

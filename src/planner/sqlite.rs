@@ -15,7 +15,7 @@ use super::logical::{
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
-    SqlFragment, SqlParameter, TrailExpansionSpec, ValueOperator,
+    SqlFragment, SqlParameter, TrailCursorSpec, TrailExpansionSpec, ValueOperator,
 };
 #[cfg(test)]
 use super::physical::{PreparedValueOperator, TrailDirection};
@@ -193,14 +193,14 @@ fn compile_read_with_probes(
     let outputs = projection
         .expressions
         .iter()
-        .enumerate()
-        .map(|(index, expression)| {
-            compiler
-                .output_expression(expression)
-                .map(|(sql, shape)| (format!("{sql} AS c{index}"), shape))
-        })
+        .map(|expression| compiler.output_expression(expression))
         .collect::<Result<Vec<_>>>()?;
-    let (select, output_shapes): (Vec<_>, Vec<_>) = outputs.into_iter().unzip();
+    let (expressions, output_shapes): (Vec<_>, Vec<_>) = outputs.into_iter().unzip();
+    let select = expressions
+        .iter()
+        .enumerate()
+        .map(|(index, sql)| format!("{sql} AS c{index}"))
+        .collect::<Vec<_>>();
     let order_items = if !projection.order_by.is_empty() {
         let items = projection
             .order_by
@@ -217,11 +217,49 @@ fn compile_read_with_probes(
         None
     };
     // ORDER BY can introduce per-row sources such as rand(), too.
-    let mut sql = compiler.select_sql(&select);
+    let random_sources = std::mem::take(&mut compiler.random_sources);
+    let mut sql = compiler.select_sql_with_sources(&select, &random_sources);
     if let Some(ordering) = order_items {
         sql.push_str(" ORDER BY ");
         sql.push_str(&ordering);
     }
+
+    // Execute this projection once per yielded trail only when every outer
+    // scan is an endpoint joined by identity. In particular, optional joins,
+    // additional patterns/stages, global sorting, and aggregation cannot be
+    // distributed over singleton input relations.
+    let trail_cursor = (single_trail_projection(input)
+        && !aggregating
+        && projection.order_by.is_empty()
+        && compiler.ordering.is_none()
+        && matches!(
+            compiler.inputs.as_slice(),
+            [ValueOperator::TrailExpand { .. }]
+        ))
+    .then(|| {
+        // SQL OFFSET skips projection evaluation. Retain that guard when a
+        // cursor counts matching trails across singleton executions. The last
+        // cursor-only parameter suppresses output expressions for skipped rows.
+        let skip_parameter = compiler.bindings.len() + 1;
+        let select = expressions
+            .iter()
+            .enumerate()
+            .map(|(index, sql)| {
+                format!("CASE WHEN ?{skip_parameter} THEN NULL ELSE ({sql}) END AS c{index}")
+            })
+            .collect::<Vec<_>>();
+        Box::new(TrailCursorSpec {
+            sql: compiler.with_ctes(compiler.select_sql_with_sources(&select, &random_sources)),
+            argument_count: compiler.bindings.len(),
+            // DISTINCT already owns its pagination in the physical tree.
+            offset: (!projection.distinct)
+                .then(|| projection.offset.clone())
+                .flatten(),
+            limit: (!projection.distinct)
+                .then(|| projection.limit.clone())
+                .flatten(),
+        })
+    });
 
     if !projection.distinct && (projection.limit.is_some() || projection.offset.is_some()) {
         sql.push_str(" LIMIT ");
@@ -247,6 +285,7 @@ fn compile_read_with_probes(
             output_shapes,
             arguments: compiler.bindings,
             inputs: compiler.inputs,
+            trail_cursor,
         },
         distinct: projection.distinct,
         post_offset: projection
@@ -257,6 +296,50 @@ fn compile_read_with_probes(
             .distinct
             .then(|| projection.limit.clone())
             .flatten(),
+    })
+}
+
+fn single_trail_projection(input: &Input) -> bool {
+    let plan = match input {
+        Input::Match(plan) => plan,
+        Input::Pipeline(ReadPipeline { stages }) => match stages.as_slice() {
+            [ReadStage::Match(plan)] => plan,
+            _ => return false,
+        },
+        _ => return false,
+    };
+    let mut expansions = plan.operators.iter().filter_map(|operator| match operator {
+        MatchOperator::ExpandHybridVariableLength {
+            traversal,
+            left,
+            right,
+            ..
+        } => Some((*traversal, *left, *right)),
+        _ => None,
+    });
+    let Some((traversal, left, right)) = expansions.next() else {
+        return false;
+    };
+    if expansions.next().is_some() {
+        return false;
+    }
+    plan.operators.iter().all(|operator| match operator {
+        MatchOperator::ScanNode { slot }
+        | MatchOperator::HasLabel { slot, .. }
+        | MatchOperator::PropertyEquals { slot, .. } => *slot == left || *slot == right,
+        MatchOperator::ExpandHybridVariableLength { .. } | MatchOperator::Filter(_) => true,
+        MatchOperator::DistinctRelationships(uses) => uses
+            .iter()
+            .all(|item| *item == RelationshipUse::Traversal(traversal)),
+        MatchOperator::BindPath {
+            start, segments, ..
+        } => {
+            *start == left
+                && matches!(segments.as_slice(), [segment]
+                if segment.left == left && segment.right == right
+                    && segment.relationship == RelationshipUse::Traversal(traversal))
+        }
+        _ => false,
     })
 }
 
@@ -2096,8 +2179,12 @@ impl Compiler {
     }
 
     fn select_sql(&mut self, select: &[String]) -> String {
-        let mut sql = format!("SELECT {}", select.join(", "));
         let random_sources = std::mem::take(&mut self.random_sources);
+        self.select_sql_with_sources(select, &random_sources)
+    }
+
+    fn select_sql_with_sources(&self, select: &[String], random_sources: &[String]) -> String {
+        let mut sql = format!("SELECT {}", select.join(", "));
         if random_sources.is_empty() {
             if !self.from.is_empty() {
                 sql.push_str(" FROM ");

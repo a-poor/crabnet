@@ -1680,8 +1680,8 @@ as for every other query error.
 `PreparedRead::columns()` exposes ordered column names. `mode()` makes the
 execution strategy explicit before starting:
 
-- `ReadMode::Incremental`: a single SQLite fragment without Rust runtime
-  producers, or a tree of those fragments with UNION/UNION ALL, semantic DISTINCT,
+- `ReadMode::Incremental`: a SQLite fragment or eligible single Rust trail
+  projection, or a tree of those fragments with UNION/UNION ALL, semantic DISTINCT,
   pagination, and root path/list hydration. Each iterator advance produces at
   most one output row, but may decode multiple inputs while discarding duplicates
   or skipping rows.
@@ -1691,15 +1691,34 @@ execution strategy explicit before starting:
   traversals before producing the first row. Each individual value is decoded
   in full; this is not a whole-query memory cap.
 - `ReadMode::Buffered`: the existing eager executor runs at cursor creation.
-  Rust traversal producers use this mode. A union with any such boundary uses
-  it for the entire query. All rows and resource checks finish before the cursor
-  is returned; the cursor then owns the result buffer. This fallback preserves the existing operator order
-  and query-wide hydration behavior. Incremental Rust traversal is follow-up work.
+  Ineligible Rust traversal shapes use this mode. A union with any such boundary
+  uses it for the entire query. All rows and resource checks finish before the cursor
+  is returned; the cursor then owns the result buffer. This fallback preserves
+  the existing operator order and query-wide hydration behavior.
+
+Eligible Rust traversal is one MATCH with a single deep/open-ended relationship
+and its two endpoint nodes, followed by non-aggregating, unordered projections.
+Filters, path/relationship-list outputs, DISTINCT, and final pagination compose
+incrementally. Each trail produces at most one consuming SQL row. Additional
+joins, multiple producers, OPTIONAL MATCH, WITH/UNWIND stages, global sorting or
+aggregation, and shortest-path producers retain buffered execution. Eager
+execution and its SQL pagination are unchanged. Unordered pagination selects an
+unspecified subset; no cross-mode ordering guarantee is added.
+
+The producer starts on first demand, loading eligible edges and endpoint
+domains, then yielding singleton JSON relations from a resumable trail walk.
+Inputs and frontier remain in memory until producer completion or drop. A
+reached page limit stops enumeration; LIMIT 0 starts no producer. Ordinary
+SKIP suppresses discarded projection expressions while still charging matching
+placeholder rows as SQL transfers. DISTINCT pagination retains projection
+evaluation before deduplication. Hydration retains its existing read-ahead/error
+boundary. See the
+[traversal cursor guide](cursors.md#incremental-rust-traversal).
 
 Incremental `UNION ALL` visits branches from left to right and preserves bags,
 branch-local ordering, and each branch's output shapes. Empty branches are
-skipped when advancing. All branch statements are prepared and their parameters
-bound before fetching rows; SQLite execution of a branch begins only when
+skipped when advancing. All consuming branch statements are prepared and their
+static parameters resolved before fetching rows; SQLite execution of a branch begins only when
 reached. This retains statements and bindings proportional to branch count and
 parameter size, without collecting the union's output in Rust. A later branch's
 runtime error may follow rows yielded by earlier branches. Planning and missing
@@ -1835,7 +1854,9 @@ incremental accounting and partial-error behavior are described above.
 serialized traversal payload, and 256 MiB retained traversal accounting. All
 three limits are configurable, and zero is an actual limit. The state and
 payload counters are cumulative; retained memory is released as producers
-finish. These traversal-specific counters apply to Rust-backed traversal,
+finish or are dropped. Incremental trail projections count singleton-array
+framing in their cumulative payload bytes, retain graph/frontier charges while
+paused, and stop enumeration on early exit beyond hydration read-ahead. These traversal-specific counters apply to Rust-backed traversal,
 not the bounded recursive SQLite strategy.
 
 The remaining limits default to `None`:

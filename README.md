@@ -183,14 +183,17 @@ drop(read); // releases the database borrow
 
 `prepare_read_with` binds parameters; `prepare_read_with_options` also accepts
 `QueryOptions`. `columns()` and `mode()` are available before execution.
-SQLite fragments without Rust traversal inputs can stream through `UNION ALL`,
-`UNION`, `RETURN DISTINCT`, pagination, and path/list hydration. Hydration loads
+SQLite fragments and eligible single Rust trail expansions stream through
+`UNION ALL`, `UNION`, `RETURN DISTINCT`, pagination, and path/list hydration. Hydration loads
 one surviving row initially, then batches of up to 64, reusing entities within
 each batch. Distinct operators retain seen values and preserve typed equality;
 memory grows with the number and size of unique rows. Branches share one snapshot
 and resource budget; early drop skips the suffix beyond any hydration read-ahead.
-Rust traversal plans use `ReadMode::Buffered`, computing the complete result when
-the cursor starts. SQLite may still buffer internally for sorts or aggregates.
+A single deep/open-ended relationship between two endpoints can stream through
+filters and projections. It retains graph inputs and the search frontier, yielding
+paths on demand. Traversal sorts, aggregates, extra joins/stages, and shortest
+paths use `ReadMode::Buffered`, computing the complete result when the cursor
+starts. SQLite-only reads may still buffer internally for sorts or aggregates.
 
 Standalone incremental cursors retain a read snapshot. Drop them promptly after
 early exit to release locks. A later error can follow rows already yielded;
@@ -618,9 +621,10 @@ Trail and shortest-path expansion, pending-row shaping, and path hydration are
 deliberate hybrid boundaries. Whole-tree preparation resolves every static
 argument, deferred page value, and traversal filter across all `UNION`
 branches before any runtime producer or SQLite fragment runs. At execution,
-Rust materializes deep/open-ended trails or shortest-path BFS results for
-SQLite to consume, applies semantic row operators, and performs one final
-query-wide hydration pass for eager execution. Eligible cursors hydrate one
+Eager execution materializes deep/open-ended trails or shortest-path BFS results
+for SQLite to consume, applies semantic row operators, and performs one final
+query-wide hydration pass. Eligible traversal cursors send one trail at a time
+through a cached SQL projection. Eligible cursors hydrate one
 batch at a time. Direct entities seed each pass; remaining IDs use
 at most one node query and one edge query. With `RETURN DISTINCT`, `ORDER BY`
 is restricted to projected expressions or their aliases.

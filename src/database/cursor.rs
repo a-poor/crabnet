@@ -3,17 +3,22 @@ use std::{collections::VecDeque, iter::FusedIterator};
 mod distinct;
 use distinct::SeenRows;
 
-use rusqlite::{Connection, Rows, Statement, Transaction, TransactionBehavior, params_from_iter};
+use rusqlite::{
+    CachedStatement, Connection, Rows, Statement, Transaction, TransactionBehavior,
+    params_from_iter, types::Value as SqlValue,
+};
 
 use super::{
     Database, ExecutionContext, PathHydrator, PendingRow, decode_pending_row,
     execute_prepared_read_plan, finish_pending_row, transaction::TransactionState,
+    traversal::TrailStream,
 };
 use crate::{
     CypherValue, Error, Parameters, QueryOptions, Result,
     planner::{
-        self, Plan, PreparedFragmentArgument, PreparedPhysicalOperator, PreparedReadPlan,
-        PreparedSqlFragment, UnionKind,
+        self, OutputShape, Plan, PreparedFragmentArgument, PreparedPhysicalOperator,
+        PreparedReadPlan, PreparedSqlFragment, PreparedValueOperator, ResolvedTrailExpansion,
+        UnionKind,
     },
 };
 
@@ -21,12 +26,13 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReadMode {
-    /// SQLite fragments compose through UNION, DISTINCT, pagination,
-    /// and batch hydration without buffering the complete result.
+    /// SQLite fragments and eligible single-trail projections compose through
+    /// UNION, DISTINCT, pagination, and batch hydration without buffering the
+    /// complete result. Rust trails retain graph inputs and a search frontier.
     /// DISTINCT retains seen rows; hydration retains one batch of entities.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
     Incremental,
-    /// Rust operators require the existing eager executor. Cursor creation
+    /// The plan requires the existing eager executor. Cursor creation
     /// computes the complete result. Standalone reads release their snapshot
     /// before returning; an application transaction remains open.
     Buffered,
@@ -43,7 +49,7 @@ pub enum ReadMode {
 pub struct PreparedRead<'db> {
     connection: &'db Connection,
     plan: PreparedReadPlan,
-    statements: Vec<Statement<'db>>,
+    statements: Vec<Option<Statement<'db>>>,
     options: QueryOptions,
     parent: Option<&'db TransactionState>,
 }
@@ -134,8 +140,65 @@ struct FragmentRows<'read> {
     shapes: &'read [crate::planner::OutputShape],
 }
 
+struct TrailRows<'read> {
+    connection: &'read Connection,
+    statement: CachedStatement<'read>,
+    spec: &'read ResolvedTrailExpansion,
+    bindings: Vec<SqlValue>,
+    runtime_index: usize,
+    skip: usize,
+    shapes: &'read [OutputShape],
+    producer: Option<TrailStream>,
+    finished: bool,
+}
+
+impl TrailRows<'_> {
+    fn next(&mut self, context: &ExecutionContext) -> Result<Option<PendingRow>> {
+        if self.finished {
+            return Ok(None);
+        }
+        if self.producer.is_none() {
+            self.producer = Some(TrailStream::new(
+                self.connection,
+                self.spec,
+                context.trails.clone(),
+            )?);
+        }
+        loop {
+            let Some(encoded) = self.producer.as_mut().expect("started producer").next()? else {
+                self.producer = None;
+                self.finished = true;
+                return Ok(None);
+            };
+            self.bindings[self.runtime_index] = SqlValue::Text(encoded);
+            *self.bindings.last_mut().expect("cursor skip binding") =
+                SqlValue::Integer(i64::from(self.skip > 0));
+            let mut rows = self.statement.query(params_from_iter(&self.bindings))?;
+            let Some(row) = rows.next()? else {
+                continue;
+            };
+            context.record_sql_row(row, self.shapes.len())?;
+            let row = (self.skip == 0)
+                .then(|| decode_pending_row(row, self.shapes, context))
+                .transpose()?;
+            // Eligibility proves endpoint identity joins produce at most one
+            // row per trail. Fail closed if a future planner breaks that rule.
+            if rows.next()?.is_some() {
+                return Err(Error::Data(
+                    "streaming trail projection produced multiple rows".into(),
+                ));
+            }
+            if row.is_some() {
+                return Ok(row);
+            }
+            self.skip -= 1;
+        }
+    }
+}
+
 enum Stream<'read> {
     Sqlite(FragmentRows<'read>),
+    Trail(Box<TrailRows<'read>>),
     Union(VecDeque<Self>),
     Distinct {
         input: Box<Self>,
@@ -149,16 +212,11 @@ enum Stream<'read> {
 }
 
 impl<'read> Stream<'read> {
-    fn build(
-        plan: &PreparedPhysicalOperator,
-        fragments: &mut impl Iterator<Item = FragmentRows<'read>>,
-    ) -> Self {
+    fn build(plan: &PreparedPhysicalOperator, fragments: &mut impl Iterator<Item = Self>) -> Self {
         match plan {
-            PreparedPhysicalOperator::Sqlite(_) => Self::Sqlite(
-                fragments
-                    .next()
-                    .expect("each incremental fragment has a statement"),
-            ),
+            PreparedPhysicalOperator::Sqlite(_) => fragments
+                .next()
+                .expect("each incremental fragment has a source"),
             PreparedPhysicalOperator::SemanticDistinct { input } => Self::Distinct {
                 input: Box::new(Self::build(input, fragments)),
                 seen: SeenRows::default(),
@@ -217,6 +275,7 @@ impl<'read> Stream<'read> {
                 context.record_sql_row(row, shapes.len())?;
                 decode_pending_row(row, shapes, context).map(Some)
             }
+            Self::Trail(rows) => rows.next(context),
             Self::Union(branches) => {
                 while let Some(branch) = branches.front_mut() {
                     if let Some(row) = branch.next(context)? {
@@ -262,13 +321,15 @@ impl<'read> Stream<'read> {
 }
 
 /// Preserve branch order and accept a union only when every leaf can stream.
-/// Runtime producers keep the whole query on the eager fallback.
+/// Only the planner's single-trail projection can stream a runtime producer.
 fn incremental_fragments(root: &PreparedPhysicalOperator) -> Option<Vec<&PreparedSqlFragment>> {
     let mut pending = vec![root];
     let mut fragments = Vec::new();
     while let Some(operator) = pending.pop() {
         match operator {
-            PreparedPhysicalOperator::Sqlite(fragment) if fragment.inputs.is_empty() => {
+            PreparedPhysicalOperator::Sqlite(fragment)
+                if fragment.inputs.is_empty() || fragment.trail_cursor.is_some() =>
+            {
                 fragments.push(fragment);
             }
             PreparedPhysicalOperator::Union { left, right, .. } => {
@@ -363,11 +424,17 @@ impl<'db> PreparedRead<'db> {
                 .unwrap_or_default()
                 .into_iter()
                 .map(|fragment| {
-                    let statement = connection.prepare(&fragment.sql)?;
+                    let sql = fragment
+                        .trail_cursor
+                        .as_ref()
+                        .map_or(fragment.sql.as_str(), |cursor| cursor.sql.as_str());
+                    let statement = connection.prepare(sql)?;
                     if !statement.readonly() {
                         return Err(Error::Data("read fragment is not read-only".into()));
                     }
-                    Ok(statement)
+                    // Trail projections restart a cached statement per row.
+                    // Validate now; acquire its owned cursor handle on start.
+                    Ok(fragment.trail_cursor.is_none().then_some(statement))
                 })
                 .collect::<Result<Vec<_>>>()
         })?;
@@ -444,6 +511,47 @@ impl PreparedRead<'_> {
                     .iter_mut()
                     .zip(fragments)
                     .map(|(statement, fragment)| {
+                        if let Some(cursor) = &fragment.trail_cursor {
+                            let [PreparedValueOperator::TrailExpand { output, spec }] =
+                                fragment.inputs.as_slice()
+                            else {
+                                return Err(Error::Data("invalid streaming trail input".into()));
+                            };
+                            let mut runtime_index = None;
+                            let mut bindings = fragment
+                                .arguments
+                                .iter()
+                                .take(cursor.argument_count)
+                                .enumerate()
+                                .map(|(index, argument)| match argument {
+                                    PreparedFragmentArgument::Value(value) => Ok(value.clone()),
+                                    PreparedFragmentArgument::Runtime(slot) if slot == output => {
+                                        runtime_index = Some(index);
+                                        Ok(SqlValue::Null)
+                                    }
+                                    _ => Err(Error::Data("invalid streaming runtime slot".into())),
+                                })
+                                .collect::<Result<Vec<_>>>()?;
+                            bindings.push(SqlValue::Integer(0));
+                            let stream = Stream::Trail(Box::new(TrailRows {
+                                connection: self.connection,
+                                statement: self.connection.prepare_cached(&cursor.sql)?,
+                                spec,
+                                bindings,
+                                runtime_index: runtime_index.ok_or_else(|| {
+                                    Error::Data("missing streaming runtime slot".into())
+                                })?,
+                                skip: cursor.offset,
+                                shapes: &fragment.output_shapes,
+                                producer: None,
+                                finished: false,
+                            }));
+                            return Ok(Stream::Paginate {
+                                input: Box::new(stream),
+                                skip: 0,
+                                remaining: cursor.limit,
+                            });
+                        }
                         let bindings = fragment
                             .arguments
                             .iter()
@@ -454,10 +562,13 @@ impl PreparedRead<'_> {
                                 )),
                             })
                             .collect::<Result<Vec<_>>>()?;
-                        Ok(FragmentRows {
-                            rows: statement.query(params_from_iter(bindings))?,
+                        Ok(Stream::Sqlite(FragmentRows {
+                            rows: statement
+                                .as_mut()
+                                .expect("SQLite fragment statement")
+                                .query(params_from_iter(bindings))?,
                             shapes: &fragment.output_shapes,
-                        })
+                        }))
                     })
                     .collect::<Result<Vec<_>>>()?;
                 let (input, hydration) = match &self.plan.root {
