@@ -5,11 +5,8 @@ use serde_json::{Value, json};
 
 use super::{AppResult, model::Snapshot};
 
-// Project the key into a scalar slot so the MERGE matcher can probe the
-// property index instead of scanning Package nodes for a computed map access.
 const NODE_IMPORT: &str = "UNWIND $rows AS row
-    WITH row, row.id AS package_id
-    MERGE (p:Package {package_id: package_id}) ON CREATE SET p.reviewed = false
+    MERGE (p:Package {package_id: row.id}) ON CREATE SET p.reviewed = false
     SET p.name = row.name, p.version = row.version, p.workspace = row.workspace,
         p.generation = $generation";
 

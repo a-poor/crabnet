@@ -81,10 +81,12 @@ data, but advances generation bookkeeping and performs writes. Relationship
 uniqueness comes from the application's `MERGE` and snapshot model; it is not
 a database relationship constraint.
 
-The default batch size is 128, configurable from 1 through 1024. Both node and
-edge queries project lookup keys into scalar slots before matching; this lets
-the current planner use its property index. In particular, `MERGE` on a direct
-`row.id` map access currently takes a much slower scan path.
+The default batch size is 128, configurable from 1 through 1024. Node imports
+use `MERGE (p:Package {package_id: row.id})` directly: computed MERGE keys now
+use the property index without a separate scalar projection. Edge imports
+still project `row.source` and `row.target` into scalar aliases for indexed
+read matching. Computed probes are limited to MERGE so read filters preserve
+their error behavior when there are no candidate nodes.
 
 Queries use a 60-second cooperative deadline, cumulative materialization
 limits of 1,000,000 rows / 128 MiB, and final-result limits of 250,000 rows /
@@ -184,8 +186,8 @@ attempt reached the 60-second deadline, leaving zero nodes, edges, or
 uniqueness declarations after rollback. Projecting `row.id` into a scalar
 slot made the existing property-index probe applicable: first import improved
 about 5.1× and reimport about 14.1× at 1,000 packages. No engine changes were
-needed. Supporting index probes for additional deterministic computed keys is
-a concrete planner follow-up; this result does not establish that plan caching
+needed. The computed-key planner follow-up is now implemented, removing that
+query-shaping requirement. This result does not establish that plan caching
 is the principal bottleneck.
 
 Two performance questions now have evidence behind them. Node upserts still
@@ -203,3 +205,43 @@ workload verifies ordinary close/reopen and transactional rollback. The initial
 [incremental cursor API](cursors.md) is available for single SQLite fragments;
 this example still uses eager correctness snapshots, which contribute to the
 reported process RSS.
+
+### Computed MERGE keys: 2026-10-08 follow-up
+
+Computed MERGE keys now use indexed candidate lookups, with the exact typed
+comparison retained. This run compares the direct `row.id` query before and
+after the planner change, and the scalar-alias workaround on the updated
+engine. All variants retain the same edge-import aliases. The pre-change
+engine is commit `f82a8bd` with only the node-import query changed to the direct
+form; its 10,000-package case was not rerun.
+
+Three sequential fresh-process, fresh-file trials per variant and scale used
+the release profile, Rust 1.99.0, macOS 26.5.1 arm64, batch size 128, and 20
+samples per read query. Variant order rotated between trials; builds and test
+runs finished before measurement. All 15 runs passed the complete lifecycle
+checks, and every repeat import created zero nodes and relationships. The
+[measurement record](measurements/computed-merge-keys-2026-10-08.json) retains
+each trial, binary hashes, import phases, whole-process wall time and peak RSS.
+
+| Packages | Engine / node-import key | Initial import | Repeat import |
+| ---: | --- | ---: | ---: |
+| 1,000 | Before / direct `row.id` | 6,476.0 ms | 5,334.1 ms |
+| 1,000 | After / direct `row.id` | 1,888.3 ms | 571.8 ms |
+| 1,000 | After / projected scalar | 1,681.2 ms | 406.9 ms |
+| 10,000 | After / direct `row.id` | 19,807.7 ms | 7,905.9 ms |
+| 10,000 | After / projected scalar | 21,193.8 ms | 7,414.9 ms |
+
+The direct form improved about 3.4× for initial imports and 9.3× for repeat
+imports at 1,000 packages. Explicit projection still has lower medians at
+that size, particularly on repeat imports. At 10,000 packages, the direct
+and projected forms have overlapping trial ranges. Timings varied noticeably:
+10,000-package initial imports ranged from 18.4–24.5 seconds for direct keys
+and 20.3–24.8 seconds for projected keys. These are local observations;
+compare variants within this run rather than against the earlier session.
+
+The example now uses the direct node-import form. Computed read-filter
+probes remain separate work because evaluating a fallible key before a scan
+can introduce errors when no candidate nodes exist. Edge-import aliases
+therefore remain in place. The `merge_keys` Criterion group also compares
+direct and projected keys for first and repeat 1,000-row in-memory merges:
+`cargo bench --bench queries -- merge_keys`.

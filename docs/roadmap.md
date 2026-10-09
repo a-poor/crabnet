@@ -674,6 +674,23 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   removed an import scan bottleneck using the existing property index.
   Remaining node-upsert costs and shortest-path scaling deserve profiling
   before plan reuse or semantic-deduplication changes.
+- [x] **Computed property-index keys.** Small deterministic expressions such
+  as `row.id`, nested/dynamic indexing, arithmetic, selected scalar functions,
+  and CASE can now drive node-property probes in MERGE matchers.
+  Computed probe values and types are materialized inside the candidate-ID
+  relation so nested scalar subqueries do not run for every index entry.
+  The exact typed comparison and remaining pattern constraints stay in place;
+  volatile, candidate-dependent, iterating, and large operands keep their
+  existing plans. Read filters retain their original plans to preserve errors when
+  no candidate nodes exist. Two planner and six additional integration tests
+  cover eligibility, typed bags, nulls and guarded errors, work-budget evidence,
+  mutation re-matching, whole
+  patterns, and rollback. The dependency-graph node import uses direct map keys;
+  Criterion compares direct and projected keys for first and repeat imports.
+  [Release measurements](dependency-graph.md#computed-merge-keys-2026-10-08-follow-up)
+  show 3.4× faster initial and 9.3× faster repeat direct-key imports at 1,000
+  packages; the record also compares the alias workaround and 10,000-package
+  imports, including trial variability.
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and

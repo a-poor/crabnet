@@ -596,7 +596,7 @@ fn compile_merge_matcher(
         offset: None,
         limit: None,
     };
-    sqlite::compile_read(
+    sqlite::compile_merge_read(
         &Input::Rows {
             slots: bound,
             scalars: layout.scalar_slot_ids(),

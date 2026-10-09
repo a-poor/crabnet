@@ -188,7 +188,15 @@ end-to-end result test for user-visible semantics.
   `node_properties` index equals a recomputation from `nodes` after every
   kind of write and after a rolled-back statement, that indexed lookups keep
   Cypher equality across numeric, boolean, text, list, map, and null values,
-  and which query shapes are planned through the index.
+  and which query shapes are planned through the index. Two SQLite planner
+  tests cover computed MERGE probe eligibility, normalization/conditional plans,
+  and candidate-dependent/volatile/expensive exclusions. Integration coverage
+  includes nested/dynamic access, optional and correlated reads,
+  guarded errors, duplicate MERGE inputs and matches, whole-pattern matching,
+  re-matching after mutations, repeated imports, null keys, and transaction
+  rollback, and read-filter errors with empty candidate sets. A coarse
+  SQLite-work ceiling distinguishes indexed MERGE matching
+  from a label scan without asserting timings or exact instruction counts.
 - `tests/entity_values.rs` covers whole node and relationship result values,
   recursive properties, identity, and stored-direction endpoints.
 - `tests/write_semantics.rs` holds focused write result/state contracts that do

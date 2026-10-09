@@ -160,7 +160,23 @@ fn resolve_bindings(bindings: &[SqlParameter], parameters: &Parameters) -> Resul
 pub(crate) const ROWS_TABLE: &str = "_crabnet_rows";
 
 pub(crate) fn compile_read(input: &Input, projection: &Projection) -> Result<CompiledRead> {
+    compile_read_with_probes(input, projection, false)
+}
+
+/// Unlike a read filter, MERGE must evaluate its property keys even when no
+/// nodes match: they are needed to create the unmatched pattern. Only this
+/// scope may probe fallible computed keys before scanning candidates.
+pub(crate) fn compile_merge_read(input: &Input, projection: &Projection) -> Result<CompiledRead> {
+    compile_read_with_probes(input, projection, true)
+}
+
+fn compile_read_with_probes(
+    input: &Input,
+    projection: &Projection,
+    computed_probes: bool,
+) -> Result<CompiledRead> {
     let mut compiler = Compiler::new();
+    compiler.computed_probes = computed_probes;
     compiler.compile_input(input)?;
 
     let aggregating = projection.expressions.iter().any(Expr::contains_aggregate);
@@ -346,7 +362,10 @@ const PROPERTY_INDEX: &str = "_crabnet_property";
 
 /// Node slots scanned by `operators` that also carry an equality on one of
 /// their properties, which the property index can answer.
-fn property_indexed_nodes(operators: &[MatchOperator]) -> HashSet<SlotId> {
+fn property_indexed_nodes(
+    operators: &[MatchOperator],
+    computed: Option<&HashSet<SlotId>>,
+) -> HashSet<SlotId> {
     let scanned = operators
         .iter()
         .filter_map(|operator| match operator {
@@ -358,7 +377,7 @@ fn property_indexed_nodes(operators: &[MatchOperator]) -> HashSet<SlotId> {
         .iter()
         .flat_map(|operator| match operator {
             MatchOperator::PropertyEquals { slot, .. } => vec![*slot],
-            MatchOperator::Filter(expression) => indexable_equalities(expression)
+            MatchOperator::Filter(expression) => indexable_equalities(expression, computed)
                 .into_iter()
                 .map(|(slot, _, _)| slot)
                 .collect(),
@@ -371,37 +390,98 @@ fn property_indexed_nodes(operators: &[MatchOperator]) -> HashSet<SlotId> {
 /// The `entity.key = expected` conjuncts at the top of a filter whose other
 /// side is cheap, deterministic, and independent of that entity, so it can be
 /// compiled a second time as a property-index probe.
-fn indexable_equalities(expression: &Expr) -> Vec<(SlotId, &str, &Expr)> {
+fn indexable_equalities<'a>(
+    expression: &'a Expr,
+    computed: Option<&HashSet<SlotId>>,
+) -> Vec<(SlotId, &'a str, &'a Expr)> {
     match expression {
         Expr::Binary {
             left,
             operator: BinaryOp::And,
             right,
         } => {
-            let mut equalities = indexable_equalities(left);
-            equalities.extend(indexable_equalities(right));
+            let mut equalities = indexable_equalities(left, computed);
+            equalities.extend(indexable_equalities(right, computed));
             equalities
         }
         Expr::Binary {
             left,
             operator: BinaryOp::Equal,
             right,
-        } => property_probe(left, right)
+        } => property_probe(left, right, computed)
             .map(|(slot, key)| (slot, key, right.as_ref()))
-            .or_else(|| property_probe(right, left).map(|(slot, key)| (slot, key, left.as_ref())))
+            .or_else(|| {
+                property_probe(right, left, computed).map(|(slot, key)| (slot, key, left.as_ref()))
+            })
             .into_iter()
             .collect(),
         _ => Vec::new(),
     }
 }
 
-fn property_probe<'a>(property: &'a Expr, expected: &Expr) -> Option<(SlotId, &'a str)> {
-    match (property, expected) {
-        (Expr::Property(slot, _), Expr::Property(other, _)) if slot == other => None,
-        (Expr::Property(slot, key), Expr::Value(_) | Expr::Scalar(_) | Expr::Property(..)) => {
-            Some((*slot, key.as_str()))
+fn property_probe<'a>(
+    property: &'a Expr,
+    expected: &Expr,
+    computed: Option<&HashSet<SlotId>>,
+) -> Option<(SlotId, &'a str)> {
+    let Expr::Property(slot, key) = property else {
+        return None;
+    };
+    let eligible = match expected {
+        Expr::Value(_) | Expr::Scalar(_) => true,
+        Expr::Property(other, _) => other != slot,
+        _ => computed.is_some_and(|bound| probe_operand(expected, bound, &mut 32)),
+    };
+    eligible.then_some((*slot, key.as_str()))
+}
+
+/// Probes duplicate their operand beside the exact comparison. Admit only
+/// small scalar trees whose entity leaves were bound before the matcher.
+/// In particular, do not duplicate random calls, traversal, aggregates, or
+/// collection iteration. An already materialized scalar (even a projected
+/// random value) is safe to read again.
+fn probe_operand(expression: &Expr, bound: &HashSet<SlotId>, remaining: &mut usize) -> bool {
+    let Some(rest) = remaining.checked_sub(1) else {
+        return false;
+    };
+    *remaining = rest;
+    match expression {
+        Expr::Value(_) | Expr::Scalar(_) => true,
+        Expr::Property(slot, _) | Expr::ElementId(slot) | Expr::RelationshipType(slot) => {
+            bound.contains(slot)
         }
-        _ => None,
+        Expr::MapProperty { .. }
+        | Expr::Index { .. }
+        | Expr::Unary { .. }
+        | Expr::Binary { .. }
+        | Expr::IsNull { .. }
+        | Expr::Size(_)
+        | Expr::List(_)
+        | Expr::Map(_)
+        | Expr::Case { .. }
+        | Expr::Function {
+            function:
+                ScalarFunction::Coalesce
+                | ScalarFunction::ToInteger
+                | ScalarFunction::ToFloat
+                | ScalarFunction::ToString
+                | ScalarFunction::ToBoolean
+                | ScalarFunction::ToLower
+                | ScalarFunction::ToUpper
+                | ScalarFunction::Trim
+                | ScalarFunction::LTrim
+                | ScalarFunction::RTrim
+                | ScalarFunction::Abs
+                | ScalarFunction::Sign
+                | ScalarFunction::Ceil
+                | ScalarFunction::Floor
+                | ScalarFunction::Round,
+            ..
+        } => expression
+            .children()
+            .into_iter()
+            .all(|child| probe_operand(child, bound, remaining)),
+        _ => false,
     }
 }
 
@@ -534,6 +614,7 @@ impl From<(String, String)> for Scalar {
 }
 
 struct Compiler {
+    computed_probes: bool,
     entities: HashMap<SlotId, EntitySource>,
     scalars: HashMap<ScalarSlotId, String>,
     // Materialized grouping keys/aggregates or projections visible to
@@ -568,6 +649,7 @@ struct Compiler {
 impl Compiler {
     fn new() -> Self {
         Self {
+            computed_probes: false,
             entities: HashMap::new(),
             scalars: HashMap::new(),
             projected_scalars: Vec::new(),
@@ -710,7 +792,10 @@ impl Compiler {
     }
 
     fn compile_match(&mut self, plan: &MatchPlan) -> Result<()> {
-        let indexed = property_indexed_nodes(&plan.operators);
+        let bound = self
+            .computed_probes
+            .then(|| self.entities.keys().copied().collect());
+        let indexed = property_indexed_nodes(&plan.operators, bound.as_ref());
         // One probe per node is enough to drive its lookup; the remaining
         // equalities filter the probed nodes.
         let mut probed = HashSet::new();
@@ -869,15 +954,19 @@ impl Compiler {
                     self.compile_relationship_list_match(*traversal, *path)?;
                 }
                 MatchOperator::Filter(expression) => {
-                    for (slot, key, expected) in indexable_equalities(expression) {
+                    for (slot, key, expected) in indexable_equalities(expression, bound.as_ref()) {
                         if indexed.contains(&slot) && probed.insert(slot) {
                             let id = self.entity_field(slot, "id")?;
-                            let (expected, expected_type) = self.scalar_parts(expected)?;
-                            let prefilter = self.property_index_prefilter(
-                                &id,
-                                key,
-                                (&expected, &expected_type),
-                            );
+                            let (value, value_type) = self.scalar_parts(expected)?;
+                            let prefilter = if is_inline_operand(expected) {
+                                self.property_index_prefilter(&id, key, (&value, &value_type))
+                            } else {
+                                self.computed_property_index_prefilter(
+                                    &id,
+                                    key,
+                                    (&value, &value_type),
+                                )
+                            };
                             self.filters.push(prefilter);
                         }
                     }
@@ -4142,6 +4231,28 @@ impl Compiler {
         )
     }
 
+    /// Freeze a computed key inside the IN relation, so its scalar subqueries
+    /// do not run once per property-index entry. CROSS JOIN keeps the one-row
+    /// key ahead of the index, especially for the composite-presence branch.
+    /// Keep the node ID outside this scope so SQLite can still drive the node
+    /// scan from the candidate IDs.
+    fn computed_property_index_prefilter(
+        &mut self,
+        id: &str,
+        key: &str,
+        (expected, expected_type): (&str, &str),
+    ) -> String {
+        let key = self.push_binding(SqlParameter::Text(key.to_owned()));
+        format!(
+            "{id} IN (WITH _crabnet_probe AS MATERIALIZED \
+             (SELECT ({expected}) AS value, ({expected_type}) AS kind) \
+             SELECT {PROPERTY_INDEX}.node_id FROM _crabnet_probe CROSS JOIN node_properties AS {PROPERTY_INDEX} \
+             WHERE {PROPERTY_INDEX}.key = {key} AND {PROPERTY_INDEX}.value = _crabnet_probe.value \
+             UNION ALL SELECT {PROPERTY_INDEX}.node_id FROM _crabnet_probe CROSS JOIN node_properties AS {PROPERTY_INDEX} \
+             WHERE _crabnet_probe.kind IN ('array', 'object') AND {PROPERTY_INDEX}.key = {key})"
+        )
+    }
+
     /// The SQL value and type of a stored-value expression, for an index
     /// probe.
     fn probe_value(&mut self, value: &ValueExpr) -> (String, String) {
@@ -4376,6 +4487,81 @@ fn typed_sql_ordering(
 mod tests {
     use super::*;
     use crate::planner::lower;
+
+    // Exercise the same compiler mode as a MERGE matcher, with read syntax
+    // making both equality orientations and rejected self-dependencies easy
+    // to express. The integration work-budget test checks the actual MERGE route.
+    fn merge_scope_sql(source: &str) -> String {
+        let query = lower::lower(source).unwrap();
+        compile_merge_read(&query.input, query.projection.as_ref().unwrap())
+            .unwrap()
+            .sql
+            .clone()
+    }
+
+    #[test]
+    fn computed_key_lookups_are_planned_through_the_index() {
+        for expression in [
+            "row.id",
+            "row.nested.ids[-1]",
+            "row[$key]",
+            "coalesce(row.id, $fallback)",
+            "toLower(trim(row.id))",
+            "toInteger(row.id) + 1",
+            "-abs(row.id)",
+            "size(row.id)",
+            "[row.id, $extra]",
+            "{key: row.id}",
+            "CASE WHEN row.id IS NULL THEN $fallback ELSE row.id END",
+        ] {
+            for predicate in [
+                format!("p.package_id = {expression}"),
+                format!("{expression} = p.package_id AND p.enabled IS NOT NULL"),
+            ] {
+                let query =
+                    format!("UNWIND $rows AS row MATCH (p:Package) WHERE {predicate} RETURN p");
+                let physical = merge_scope_sql(&query);
+                assert!(
+                    physical.contains("node_properties AS _crabnet_property"),
+                    "{query} should probe the property index:\n{physical}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn probes_do_not_repeat_volatile_expensive_or_self_dependent_keys() {
+        for query in [
+            "MATCH (p) WHERE p.k = p.other + 1 RETURN p",
+            "MATCH (p) WHERE p.k = p.nested.key RETURN p",
+            "MATCH (p), (q) WHERE p.k = q.nested.key RETURN p",
+            "MATCH (p) WHERE p.k = $values[p.other] RETURN p",
+            "MATCH (p) WHERE p.k = coalesce($key, p.other) RETURN p",
+            "MATCH (p) WHERE p.k = CASE WHEN $flag THEN $key ELSE p.other END RETURN p",
+            "MATCH (p) WHERE p.k = rand() RETURN p",
+            "MATCH (p) WHERE p.k = {key: rand()}.key RETURN p",
+            "MATCH (p) WHERE p.k = [rand()][0] RETURN p",
+            "MATCH (p) WHERE p.k = toInteger(rand() * 10) RETURN p",
+            "MATCH (p) WHERE p.k = coalesce($key, rand()) RETURN p",
+            "MATCH (p) WHERE p.k = CASE WHEN $flag THEN $key ELSE rand() END RETURN p",
+            "MATCH (p) WHERE p.k = [x IN $values | x + 1] RETURN p",
+            "MATCH (p) WHERE p.k = range(1, $end) RETURN p",
+            "MATCH (p) WHERE p.k = $row.id OR p.other = 1 RETURN p",
+        ] {
+            let physical = merge_scope_sql(query);
+            assert!(
+                !physical.contains("node_properties"),
+                "{query}:\n{physical}"
+            );
+        }
+        // The WITH stage freezes the random value, so repeating its slot is safe.
+        let physical =
+            merge_scope_sql("WITH {id: rand()} AS row MATCH (p) WHERE p.k = row.id RETURN p");
+        assert!(physical.contains("node_properties"));
+        let physical =
+            merge_scope_sql("MATCH (q) WITH q MATCH (p) WHERE p.k = q.nested.key RETURN p");
+        assert!(physical.contains("node_properties"));
+    }
 
     #[test]
     fn generated_sql_uses_internal_aliases_and_bound_property_names() {

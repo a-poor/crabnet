@@ -434,6 +434,28 @@ comparable. A null or missing operand, or any incompatible or unsupported pair
 of value kinds, produces null. Crabnet does not coerce text to numbers or booleans to
 numbers for either equality or ordering.
 
+Node-property equalities may use the property index to obtain candidates
+before the exact typed comparison. In a `MERGE` matcher, small deterministic
+computed keys, including `row.id`, nested map/list access, arithmetic, scalar collections, `CASE`,
+`coalesce`, and selected numeric/conversion/string-normalization functions,
+can use this path without a separate `WITH` alias. The current planner limits
+these operands to 32 expression nodes and requires their entity references
+to be bound before the matcher. It excludes unmaterialized `rand()`,
+aggregates, traversal and collection iteration. Larger or other unsupported
+probe shapes still execute through
+their existing plans; this is an optimization boundary, not a new restriction
+on expressions. A previously projected random scalar is safe to reuse.
+List/map keys probe by property presence, then compare recursively; scalar
+keys probe by value, with the exact comparison still enforcing numeric and
+boolean distinctions. Probes never replace the remaining pattern constraints
+or deduplicate matches.
+
+Read filters retain their existing probe forms: literal/parameter values,
+scalar aliases, and direct properties of other entities. A computed read key
+can be projected with `WITH` to make it indexable. This boundary preserves
+error timing: a read with no candidate nodes need not evaluate a fallible map
+access, whereas MERGE needs the key to create an unmatched pattern.
+
 ## Pattern predicates and entity identity
 
 A fixed-length pattern in a boolean position, such as `WHERE (n)-[:KNOWS]->()`,

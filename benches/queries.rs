@@ -748,12 +748,52 @@ fn bench_merge(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_computed_merge_keys(c: &mut Criterion) {
+    let mut group = c.benchmark_group("merge_keys");
+    group.sample_size(10);
+    let rows = 1_000;
+    let parameters = params([(
+        "rows",
+        json!((0..rows).map(|id| json!({"id": id})).collect::<Vec<_>>()),
+    )]);
+    group.throughput(Throughput::Elements(rows));
+    for (name, query) in [
+        ("direct", "UNWIND $rows AS row MERGE (:Key {id: row.id})"),
+        (
+            "projected",
+            "UNWIND $rows AS row WITH row.id AS id MERGE (:Key {id: id})",
+        ),
+    ] {
+        let mut populated = Database::in_memory().unwrap();
+        let first = run_with(&mut populated, query, &parameters);
+        assert_eq!(first.summary.nodes_created, rows as usize);
+        let repeated = run_with(&mut populated, query, &parameters);
+        assert_eq!(repeated.summary.nodes_created, 0);
+        assert_eq!(
+            run(&mut populated, "MATCH (n:Key) RETURN count(n)").rows,
+            [vec![CypherValue::Integer(rows as i64)]]
+        );
+        group.bench_function(BenchmarkId::new(format!("{name}_created"), rows), |b| {
+            b.iter_batched(
+                || Database::in_memory().unwrap(),
+                |mut database| run_with(&mut database, query, &parameters),
+                BatchSize::SmallInput,
+            )
+        });
+        group.bench_function(BenchmarkId::new(format!("{name}_matched"), rows), |b| {
+            b.iter(|| run_with(&mut populated, query, &parameters))
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_planning,
     bench_reads,
     bench_traversal,
     bench_writes,
-    bench_merge
+    bench_merge,
+    bench_computed_merge_keys
 );
 criterion_main!(benches);

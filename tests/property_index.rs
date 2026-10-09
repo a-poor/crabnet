@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crabnet::{CypherValue, Database, Parameters, QueryResult};
+use crabnet::{CypherValue, Database, Error, Parameters, QueryOptions, QueryResult};
 use rusqlite::Connection;
 use serde_json::json;
 
@@ -180,7 +180,16 @@ fn indexed_lookups_keep_cypher_equality() {
         (json!(2), vec![]),
     ];
     for (value, expected) in cases {
-        for query in [inline, filtered, reversed] {
+        for query in [
+            inline,
+            filtered,
+            reversed,
+            "WITH {key: $value} AS row MATCH (v:V) WHERE v.k = row.key RETURN v.tag",
+            "MATCH (v:V) WHERE {nested: [$value]}.nested[0] = v.k RETURN v.tag",
+            "MATCH (v:V) WHERE v.k = {nested: [$value]}['nested'][-1] RETURN v.tag",
+            "MATCH (v:V) WHERE v.k = coalesce($value, null) RETURN v.tag",
+            "MATCH (v:V) WHERE v.k = CASE WHEN $value IS NULL THEN null ELSE $value END RETURN v.tag",
+        ] {
             assert_eq!(
                 tags(&mut database, query, value.clone()),
                 expected,
@@ -253,6 +262,298 @@ fn property_lookups_are_planned_through_the_index() {
         assert!(
             !physical.contains("node_properties"),
             "{query}:\n{physical}"
+        );
+    }
+}
+
+#[test]
+fn computed_merge_keys_preserve_typed_bags_and_repeated_imports() {
+    let values = json!([
+        {"id": 1}, {"id": 1.0}, {"id": true}, {"id": "1"},
+        {"id": [1.0, 2]}, {"id": {"a": 1.0}}, {"id": [1, 2]},
+        {"id": 0}, {"id": -0.0}, {"id": 9007199254740992_i64},
+        {"id": 9007199254740993_i64}, {"id": "new"}, {"id": "new"}
+    ]);
+    let parameters = Parameters::from([("rows".into(), values)]);
+    let mut observations = Vec::new();
+    for key in ["row.id", "row.nested.ids[-1]", "row[$key]", "key"] {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute("CREATE (:V {k: 1}), (:V {k: 1.0}), (:V {k: true}), (:Other {k: 'new'})")
+            .unwrap();
+        let mut parameters = parameters.clone();
+        parameters.insert("key".into(), json!("id"));
+        if key == "row.nested.ids[-1]" {
+            for row in parameters.get_mut("rows").unwrap().as_array_mut().unwrap() {
+                row["nested"] = json!({"ids": [null, row["id"]]});
+            }
+        }
+        let alias = if key == "key" {
+            "WITH row, row.id AS key"
+        } else {
+            ""
+        };
+        let query = format!(
+            "UNWIND $rows AS row {alias} MERGE (n:V {{k: {key}}}) \
+             ON CREATE SET n.hits = 1 ON MATCH SET n.hits = coalesce(n.hits, 0) + 1 \
+             RETURN n.k, n.hits"
+        );
+        let mut first = database.execute_with(&query, &parameters).unwrap();
+        assert_eq!(
+            first.rows.len(),
+            15,
+            "{key}: duplicate nodes must expand rows"
+        );
+        assert_eq!(first.summary.nodes_created, 7, "{key}");
+        let mut repeat = database.execute_with(&query, &parameters).unwrap();
+        assert_eq!(repeat.rows.len(), 15, "{key}");
+        assert_eq!(repeat.summary.nodes_created, 0, "{key}");
+        assert_eq!(
+            integers(&database.execute("MATCH (n:V) RETURN count(n)").unwrap()),
+            [10]
+        );
+        // Multiple matches have no defined order. Compare typed bags without
+        // collapsing duplicate input rows or equal numeric representations.
+        first.rows.sort_by_cached_key(|row| format!("{row:?}"));
+        repeat.rows.sort_by_cached_key(|row| format!("{row:?}"));
+        observations.push((first, repeat));
+    }
+    for pair in observations.windows(2) {
+        assert_eq!(pair[0], pair[1]);
+    }
+}
+
+#[test]
+fn computed_merge_keys_use_index_within_a_small_sqlite_work_budget() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("UNWIND range(1, 2000) AS id CREATE (:V {k: id})")
+        .unwrap();
+    let parameters = Parameters::from([(
+        "rows".into(),
+        json!([
+            {"id": 500, "nested": {"ids": [500]}, "text": "500"},
+            {"id": 1999, "nested": {"ids": [1999]}, "text": "1999"}
+        ]),
+    )]);
+    // A coarse ceiling proves the MERGE matcher does indexed work. This is
+    // deliberately far above two probes, but below scanning 2,000 nodes.
+    let options = QueryOptions {
+        max_sqlite_steps: Some(30_000),
+        ..QueryOptions::default()
+    };
+    for key in [
+        "row.id",
+        "row['id']",
+        "row.nested.ids[-1]",
+        "toInteger(row.text)",
+        "coalesce(row.missing, row.id)",
+        "(row.id - 1) + 1",
+    ] {
+        let result = database
+            .execute_with_options(
+                &format!("UNWIND $rows AS row MERGE (n:V {{k: {key}}}) RETURN n.k"),
+                &parameters,
+                &options,
+            )
+            .unwrap_or_else(|error| panic!("{key}: {error}"));
+        assert_eq!(integers(&result), [500, 1999]);
+        assert_eq!(result.summary.nodes_created, 0);
+    }
+}
+
+#[test]
+fn computed_key_errors_rollback_writes_and_property_indexes() {
+    let path = TemporaryDatabasePath::new();
+    let mut database = Database::open(&path.0).unwrap();
+    database.execute("CREATE (:V {k: 1})").unwrap();
+    for bad in [json!(3), json!("not a map"), json!(true), json!([])] {
+        let before = database.execute("MATCH (n) RETURN n ORDER BY n.k").unwrap();
+        let parameters = Parameters::from([("rows".into(), json!([{"id": 2}, bad]))]);
+        let mut transaction = database.transaction().unwrap();
+        transaction
+            .execute("MATCH (n:V) SET n.k = 10 CREATE (:Earlier {k: 99})")
+            .unwrap();
+        let error = transaction
+            .execute_with(
+                "UNWIND $rows AS row MERGE (n:V {k: row.id}) ON CREATE SET n.created = true",
+                &parameters,
+            )
+            .unwrap_err();
+        assert!(matches!(error, Error::Type(_)), "{error}");
+        assert!(matches!(
+            transaction.commit(),
+            Err(Error::TransactionAborted)
+        ));
+        assert_eq!(
+            database.execute("MATCH (n) RETURN n ORDER BY n.k").unwrap(),
+            before
+        );
+        assert_index_matches_nodes(&path);
+    }
+    let missing =
+        database.execute("UNWIND [{id: 2}] AS row MERGE (n:V {k: coalesce(row.id, $missing)})");
+    assert!(matches!(missing, Err(Error::MissingParameter(_))));
+    assert_index_matches_nodes(&path);
+}
+
+#[test]
+fn computed_keys_preserve_nulls_guards_and_correlated_matches() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:V {k: 1}), (:V {k: 2}), (:Source {nested: {id: 1}})")
+        .unwrap();
+    let parameters = Parameters::from([
+        (
+            "rows".into(),
+            json!([null, {}, {"id": null}, {"id": 1}, {"id": 1}]),
+        ),
+        ("bad".into(), json!(7)),
+    ]);
+    let query = "UNWIND $rows AS row OPTIONAL MATCH (n:V) WHERE n.k = row.id RETURN n.k";
+    let mut found = database.execute_with(query, &parameters).unwrap().rows;
+    found.sort_by_key(|row| row[0].as_i64());
+    assert_eq!(
+        found,
+        [
+            vec![json!(null)],
+            vec![json!(null)],
+            vec![json!(null)],
+            vec![json!(1)],
+            vec![json!(1)]
+        ]
+    );
+    for expression in [
+        "CASE WHEN $bad = 7 THEN 1 ELSE $bad.id END",
+        "coalesce(1, $bad.id)",
+    ] {
+        let result = database
+            .execute_with(
+                &format!("MATCH (n:V) WHERE n.k = {expression} RETURN n.k"),
+                &parameters,
+            )
+            .unwrap();
+        assert_eq!(integers(&result), [1]);
+    }
+    let joined = database
+        .execute("MATCH (s:Source), (n:V) WHERE n.k = s.nested.id RETURN n.k")
+        .unwrap();
+    assert_eq!(integers(&joined), [1]);
+    // Computed nulls never match; the existing MERGE contract creates nodes
+    // without the null-valued property on each invocation.
+    for _ in 0..2 {
+        let result = database
+            .execute_with(
+                "UNWIND $rows AS row MERGE (n:V {k: row.id}) RETURN n.k",
+                &parameters,
+            )
+            .unwrap();
+        assert_eq!(result.summary.nodes_created, 3);
+        assert_eq!(
+            result.rows,
+            [
+                vec![json!(null)],
+                vec![json!(null)],
+                vec![json!(null)],
+                vec![json!(1)],
+                vec![json!(1)]
+            ]
+        );
+    }
+    assert_eq!(
+        integers(&database.execute("MATCH (n:V) RETURN count(n)").unwrap()),
+        [8]
+    );
+    let empty = Parameters::from([("rows".into(), json!([]))]);
+    let result = database
+        .execute_with(
+            "UNWIND $rows AS row MERGE (n:V {k: row.id}) RETURN n",
+            &empty,
+        )
+        .unwrap();
+    assert!(result.rows.is_empty());
+    assert_eq!(result.summary.nodes_created, 0);
+}
+
+#[test]
+fn computed_probes_follow_mutations_and_match_whole_patterns() {
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE (:V {k: 1})").unwrap();
+    let result = database
+        .execute(
+            "UNWIND [{id: 1, next: 2}, {id: 2, next: 3}] AS row \
+         MERGE (n:V {k: row.id}) ON MATCH SET n.k = row.next RETURN n.k",
+        )
+        .unwrap();
+    assert_eq!(result.summary.nodes_created, 0);
+    assert_eq!(integers(&result), [2, 3]);
+    assert_eq!(
+        integers(&database.execute("MATCH (n:V) RETURN n.k").unwrap()),
+        [3]
+    );
+
+    // A node probe only supplies candidates. Labels, the second property,
+    // relationship type and properties, and every endpoint still constrain
+    // the whole-pattern match.
+    database
+        .execute(
+            "CREATE (:V {k: 4, tag: 'wrong'}), \
+                (a:V {k: 4, tag: 'ok'})-[:R {kind: 'x'}]->(:V {k: 5}), \
+                (a)-[:R {kind: 'x'}]->(:V {k: 5}), \
+                (a)-[:R {kind: 'wrong'}]->(:V {k: 5}), \
+                (a)-[:OTHER {kind: 'x'}]->(:V {k: 5}), \
+                (:Other {k: 4, tag: 'ok'})-[:R {kind: 'x'}]->(:V {k: 5})",
+        )
+        .unwrap();
+    let parameters = Parameters::from([(
+        "rows".into(),
+        json!([
+            {"id": 4, "tag": "ok", "kind": "x", "target": 5},
+            {"id": 4, "tag": "new", "kind": "x", "target": 6}
+        ]),
+    )]);
+    let query = "UNWIND $rows AS row \
+        MERGE (a:V {k: row.id, tag: row.tag})-[r:R {kind: row.kind}]->(b:V {k: row.target}) \
+        RETURN a.tag, b.k";
+    let first = database.execute_with(query, &parameters).unwrap();
+    assert_eq!(first.summary.nodes_created, 2);
+    assert_eq!(first.summary.relationships_created, 1);
+    assert_eq!(
+        first.rows,
+        [
+            vec![json!("ok"), json!(5)],
+            vec![json!("ok"), json!(5)],
+            vec![json!("new"), json!(6)]
+        ]
+    );
+    let repeat = database.execute_with(query, &parameters).unwrap();
+    assert_eq!(repeat.rows, first.rows);
+    assert_eq!(repeat.summary.nodes_created, 0);
+    assert_eq!(repeat.summary.relationships_created, 0);
+}
+
+#[test]
+fn read_filters_do_not_evaluate_computed_keys_without_candidates() {
+    for setup in ["RETURN 0", "CREATE (:Other {k: 1})", "CREATE (:V {k: 1})"] {
+        let mut database = Database::in_memory().unwrap();
+        database.execute(setup).unwrap();
+        let parameters = Parameters::from([("rows".into(), json!([7]))]);
+        let query = "UNWIND $rows AS row MATCH (n:V) WHERE n.k = row.id RETURN n.k";
+        let physical = crabnet::explain_physical(query).unwrap();
+        assert!(!physical.contains("node_properties"));
+        let result = database.execute_with(query, &parameters);
+        if setup == "CREATE (:V {k: 1})" {
+            assert!(matches!(result, Err(Error::Type(_))));
+        } else {
+            assert!(result.unwrap().rows.is_empty());
+        }
+        let guarded = "UNWIND $rows AS row MATCH (n:V) WHERE false AND n.k = row.id RETURN n.k";
+        assert!(
+            database
+                .execute_with(guarded, &parameters)
+                .unwrap()
+                .rows
+                .is_empty()
         );
     }
 }
