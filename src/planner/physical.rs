@@ -293,7 +293,7 @@ pub(crate) struct SqlFragment {
     pub(crate) arguments: Vec<FragmentArgument>,
     pub(crate) inputs: Vec<ValueOperator>,
     /// A distributive projection for a single trail input, optionally expanded
-    /// through one UNWIND before its at-most-one-row member consumer.
+    /// through UNWIND stages before its at-most-one-row member consumer.
     /// The eager fragment keeps its original SQL pagination.
     pub(crate) trail_cursor: Option<Box<TrailCursorSpec>>,
 }
@@ -302,7 +302,7 @@ pub(crate) struct SqlFragment {
 pub(crate) struct TrailCursorSpec {
     pub(crate) sql: String,
     pub(crate) arguments: Vec<FragmentArgument>,
-    pub(crate) unwind: Option<TrailUnwindSpec>,
+    pub(crate) unwinds: Vec<TrailUnwindSpec>,
     pub(crate) offset: Option<ValueExpr>,
     pub(crate) limit: Option<ValueExpr>,
 }
@@ -311,15 +311,16 @@ pub(crate) struct TrailCursorSpec {
 pub(crate) struct PreparedTrailCursor {
     pub(crate) sql: String,
     pub(crate) arguments: Vec<PreparedFragmentArgument>,
-    pub(crate) unwind: Option<TrailUnwindSpec>,
+    pub(crate) unwinds: Vec<TrailUnwindSpec>,
     pub(crate) offset: usize,
     pub(crate) limit: Option<usize>,
 }
 
 /// The input query returns one row of carried bindings followed by an encoded
 /// list. Its parameters precede the carried bindings and current member in the
-/// consumer's parameter vector. Only the list value, not its projected rows,
-/// is retained while the cursor advances through members.
+/// shared parameter vector. Each stage appends its own binding region, keeping
+/// ancestor values intact while descendants run. One list and input row per
+/// active stage are retained, rather than its complete set of projected rows.
 #[derive(Clone, Debug)]
 pub(crate) struct TrailUnwindSpec {
     pub(crate) sql: String,
@@ -405,7 +406,7 @@ impl SqlFragment {
                                 }
                             })
                             .collect::<Result<Vec<_>>>()?,
-                        unwind: cursor.unwind,
+                        unwinds: cursor.unwinds,
                         offset: cursor
                             .offset
                             .as_ref()

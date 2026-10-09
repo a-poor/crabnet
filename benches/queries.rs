@@ -833,7 +833,6 @@ fn bench_computed_merge_keys(c: &mut Criterion) {
 
 fn bench_traversal_cursor(c: &mut Criterion) {
     let options = traversal_cursor_fixture::options();
-    let parameters = params([("fanout", json!(128))]);
     for (group_name, sizes, query) in [
         (
             "cursor_traversal",
@@ -860,29 +859,43 @@ fn bench_traversal_cursor(c: &mut Criterion) {
             &[0][..],
             traversal_cursor_fixture::UNWIND_QUERY,
         ),
+        (
+            "cursor_traversal_unwind_chain_nodes",
+            &[0][..],
+            traversal_cursor_fixture::UNWIND_CHAIN_NODES_QUERY,
+        ),
+        (
+            "cursor_traversal_unwind_chain",
+            &[0][..],
+            traversal_cursor_fixture::UNWIND_CHAIN_QUERY,
+        ),
     ] {
+        let shape = if query == traversal_cursor_fixture::UNWIND_CHAIN_NODES_QUERY {
+            "unwind-chain-nodes"
+        } else if query == traversal_cursor_fixture::UNWIND_CHAIN_QUERY {
+            "unwind-chain"
+        } else if query == traversal_cursor_fixture::UNWIND_NODES_QUERY {
+            "unwind-nodes"
+        } else if query == traversal_cursor_fixture::UNWIND_QUERY {
+            "unwind"
+        } else {
+            "direct"
+        };
+        let depth = if shape == "unwind-chain" { 6 } else { 10 };
+        let fanout = if shape == "unwind-chain" { 8 } else { 128 };
+        let parameters = params([("fanout", json!(fanout))]);
         let mut group = c.benchmark_group(group_name);
         for &unrelated in sizes {
             let mut database = if unrelated == 0 {
-                traversal_cursor_fixture::fixture(10).unwrap()
+                traversal_cursor_fixture::fixture(depth).unwrap()
             } else {
-                traversal_cursor_fixture::fixture_with_unrelated(10, unrelated).unwrap()
+                traversal_cursor_fixture::fixture_with_unrelated(depth, unrelated).unwrap()
             };
             for mode in ["eager", "cursor", "first"] {
                 let expected = if mode == "first" {
                     1
                 } else {
-                    traversal_cursor_fixture::output_rows(
-                        10,
-                        if query == traversal_cursor_fixture::UNWIND_NODES_QUERY {
-                            "unwind-nodes"
-                        } else if query == traversal_cursor_fixture::UNWIND_QUERY {
-                            "unwind"
-                        } else {
-                            "direct"
-                        },
-                        128,
-                    )
+                    traversal_cursor_fixture::output_rows(depth, shape, fanout)
                 };
                 group.throughput(Throughput::Elements(expected as u64));
                 let mut consume = || {

@@ -1,0 +1,3339 @@
+{
+  "date": "2026-10-09",
+  "baseline_commit": "d6bbf6f",
+  "baseline_changes": "Only identical examples/cursor_traversal.rs and examples/cursor_traversal/fixture.rs copied into an isolated archive and built with its own target directory. Baseline sources and Cargo files checked against git, and both fixture copies checked byte-for-byte before measurement.",
+  "updated_engine": "Working-tree streaming single-trail cursors through chained dependent UNWINDs with plain WITH stages. An iterative stack retains one encoded list and frozen input row per active stage; exhausted frames release lists and bindings.",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "method": "Three sequential fresh-process trials per engine, fixture and consumption mode; release builds. Engine order alternates and mode order rotates between trials. All builds/tests finished before measurements. Each process builds a fresh in-memory graph. Query timing includes planning, snapshot setup, decoding, validation and cleanup, excludes fixture setup. First-row latency is time until the first owned row reaches the consumer. Peak RSS and elapsed wall time cover the entire child process, including graph setup.",
+  "fixture": "A chain with two parallel NEXT relationships per hop. Node-dependent expansion at depth 10 yields 2046 trails and 114686 rows: UNWIND nodes(p), then range(0,node.id). Two scalar ranges at depth 8, fanout 8 yield 510 trails and 32640 rows; depth 1, fanout 256 yields 2 trails and 131072 rows. Inner range bounds depend on the outer member. Plain WITH stages precede, separate and follow expansions. Full consumption checks per-depth multiplicity, both member sums and squared sums, and cross-products. First mode checks one one-hop result. Options allow 1000000 explored states and 1 GiB cumulative payload, retaining default traversal memory limit. Scalar final projections, no path hydration.",
+  "queries": {
+    "unwind-chain-nodes": "MATCH p=(:Start)-[:NEXT*]->(b) WITH p AS trail,b WHERE b.id >= 1 UNWIND nodes(trail) AS n WITH length(trail) AS hops,b.id AS endpoint,n.id AS source UNWIND range(0,source) AS member WITH hops,endpoint,source,member RETURN hops,endpoint,source,member",
+    "unwind-chain": "MATCH p=(:Start)-[:NEXT*]->(b) WITH length(p) AS hops,b.id AS endpoint UNWIND range(1,$fanout) AS source WITH hops,endpoint,source UNWIND range(source,source+$fanout-1) AS member WITH hops,endpoint,source,member RETURN hops,endpoint,source,member"
+  },
+  "source_sha256": {
+    "before": {
+      "Cargo.toml": "557ebb31090ae50ea6f9314a9d32ba653282d79203a09db728bb92daf0d176c4",
+      "Cargo.lock": "62ecc54c0470425e7555184d9883f8ae99395ec8445f79e3f36b4e1314c6e102",
+      "src/planner/sqlite.rs": "39d0cf34cc060aa37a980ac8666e0ad7918899ac8c47738cfe4032862d9e76d1",
+      "src/planner/physical.rs": "3e2ca5cde12aa7e487490b54c1ef8d4e1ca2f93dedb8b0e8ab2f2a27cf46d39c",
+      "src/database/cursor.rs": "48969c1b8cfc885256f2c869a0fab04e3a2c21414475c974747f5bb841a7f0f8",
+      "src/database/traversal.rs": "3eee35a16855f6cb92fdd08835fc57e50c0e948aba6a7406407d60e968924cba",
+      "src/database/resources.rs": "42a797e6d9b4d8a2cc97313194ea58a1e1c6c807aa306e83381828cefdf0c350",
+      "src/query.rs": "25f4b81d15c0ea2d12d61d0bf65f26a054d7c962ce64998c925c7d3da7e40245",
+      "examples/cursor_traversal.rs": "1590b13dff4e0cba5f7e85706aae83265db1e3c3bb42316b35a0fc7e76c6dbe2",
+      "examples/cursor_traversal/fixture.rs": "41a74c74ad2c407f0e6200ea3a25996da17c8a57d972a33bf47de33c81627e70",
+      "scripts/measure_dependency_graph.py": "6eed5ce5eab274b6ed4a32a788309ead3f6a7a9d76f306e22d0c42974f6c969e"
+    },
+    "after": {
+      "Cargo.toml": "557ebb31090ae50ea6f9314a9d32ba653282d79203a09db728bb92daf0d176c4",
+      "Cargo.lock": "62ecc54c0470425e7555184d9883f8ae99395ec8445f79e3f36b4e1314c6e102",
+      "src/planner/sqlite.rs": "3463f9906abcb3159e630c9fe5b04b67c98faa90c93d6537770b0bcab97230b6",
+      "src/planner/physical.rs": "992686bfcc1cba3e2beacc0be2894d1c7f4511b7e977315d96a530a855ab5047",
+      "src/database/cursor.rs": "e77a55823219221b794025430ed9e9ea16f089744d60e61495a025c5baae32e0",
+      "src/database/traversal.rs": "3eee35a16855f6cb92fdd08835fc57e50c0e948aba6a7406407d60e968924cba",
+      "src/database/resources.rs": "42a797e6d9b4d8a2cc97313194ea58a1e1c6c807aa306e83381828cefdf0c350",
+      "src/query.rs": "25f4b81d15c0ea2d12d61d0bf65f26a054d7c962ce64998c925c7d3da7e40245",
+      "examples/cursor_traversal.rs": "1590b13dff4e0cba5f7e85706aae83265db1e3c3bb42316b35a0fc7e76c6dbe2",
+      "examples/cursor_traversal/fixture.rs": "41a74c74ad2c407f0e6200ea3a25996da17c8a57d972a33bf47de33c81627e70",
+      "scripts/measure_dependency_graph.py": "6eed5ce5eab274b6ed4a32a788309ead3f6a7a9d76f306e22d0c42974f6c969e"
+    }
+  },
+  "summary": [
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.494292,
+        "min": 3.166,
+        "max": 5.386834
+      },
+      "first_row_ms": {
+        "median": 1355.255458,
+        "min": 1339.7898750000002,
+        "max": 1413.545
+      },
+      "query_ms": {
+        "median": 1363.191542,
+        "min": 1350.825542,
+        "max": 1427.861416
+      },
+      "elapsed_seconds": {
+        "median": 1.4415145840030164,
+        "min": 1.3657648339867592,
+        "max": 1.7679275840055197
+      },
+      "peak_rss_bytes": {
+        "median": 87982080,
+        "min": 87949312,
+        "max": 87998464
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.019667,
+        "min": 2.919458,
+        "max": 3.328458
+      },
+      "first_row_ms": {
+        "median": 1409.5273750000001,
+        "min": 1316.065333,
+        "max": 1506.993083
+      },
+      "query_ms": {
+        "median": 1419.852167,
+        "min": 1324.609833,
+        "max": 1519.612333
+      },
+      "elapsed_seconds": {
+        "median": 1.431728875002591,
+        "min": 1.3383128749846946,
+        "max": 1.5340342090057675
+      },
+      "peak_rss_bytes": {
+        "median": 87949312,
+        "min": 81100800,
+        "max": 88784896
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "mode": "first",
+      "setup_ms": {
+        "median": 2.983291,
+        "min": 2.857792,
+        "max": 6.798541
+      },
+      "first_row_ms": {
+        "median": 1372.8809580000002,
+        "min": 1320.835459,
+        "max": 1440.855333
+      },
+      "query_ms": {
+        "median": 1379.969916,
+        "min": 1327.254709,
+        "max": 1446.804542
+      },
+      "elapsed_seconds": {
+        "median": 1.3908924169954844,
+        "min": 1.3387134169752244,
+        "max": 1.4747686670161784
+      },
+      "peak_rss_bytes": {
+        "median": 87982080,
+        "min": 87949312,
+        "max": 88752128
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.372875,
+        "min": 3.07425,
+        "max": 7.694541
+      },
+      "first_row_ms": {
+        "median": 1301.45175,
+        "min": 1295.872833,
+        "max": 1413.969917
+      },
+      "query_ms": {
+        "median": 1309.3145,
+        "min": 1302.059708,
+        "max": 1420.3691250000002
+      },
+      "elapsed_seconds": {
+        "median": 1.3213816669886,
+        "min": 1.3159335829841439,
+        "max": 1.813788083003601
+      },
+      "peak_rss_bytes": {
+        "median": 87932928,
+        "min": 87916544,
+        "max": 88129536
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.17025,
+        "min": 3.0460000000000003,
+        "max": 3.3310000000000004
+      },
+      "first_row_ms": {
+        "median": 1.414125,
+        "min": 1.2574999999999998,
+        "max": 2.881667
+      },
+      "query_ms": {
+        "median": 1206.4035840000001,
+        "min": 1196.512667,
+        "max": 1261.435625
+      },
+      "elapsed_seconds": {
+        "median": 1.2189020840160083,
+        "min": 1.2112888749979902,
+        "max": 1.2720142080215737
+      },
+      "peak_rss_bytes": {
+        "median": 7503872,
+        "min": 7372800,
+        "max": 7520256
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.134708,
+        "min": 2.992542,
+        "max": 3.139541
+      },
+      "first_row_ms": {
+        "median": 1.314667,
+        "min": 1.300458,
+        "max": 2.029542
+      },
+      "query_ms": {
+        "median": 1.328125,
+        "min": 1.32425,
+        "max": 2.0502089999999997
+      },
+      "elapsed_seconds": {
+        "median": 0.015741707989946008,
+        "min": 0.014201416983269155,
+        "max": 0.017428292019758373
+      },
+      "peak_rss_bytes": {
+        "median": 7307264,
+        "min": 7192576,
+        "max": 7307264
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.079208,
+        "min": 3.005167,
+        "max": 3.154042
+      },
+      "first_row_ms": {
+        "median": 355.8125,
+        "min": 340.11995900000005,
+        "max": 369.376334
+      },
+      "query_ms": {
+        "median": 359.779083,
+        "min": 344.037709,
+        "max": 372.78754200000003
+      },
+      "elapsed_seconds": {
+        "median": 0.3820430000196211,
+        "min": 0.3630710419965908,
+        "max": 0.38472154198097996
+      },
+      "peak_rss_bytes": {
+        "median": 28753920,
+        "min": 28672000,
+        "max": 28803072
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 4.249208,
+        "min": 3.018042,
+        "max": 4.867292
+      },
+      "first_row_ms": {
+        "median": 335.29354099999995,
+        "min": 333.303084,
+        "max": 338.157666
+      },
+      "query_ms": {
+        "median": 337.629416,
+        "min": 335.735709,
+        "max": 341.281208
+      },
+      "elapsed_seconds": {
+        "median": 0.3528376249887515,
+        "min": 0.35204879101365805,
+        "max": 0.3571467089932412
+      },
+      "peak_rss_bytes": {
+        "median": 28786688,
+        "min": 28737536,
+        "max": 28835840
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.63725,
+        "min": 3.300625,
+        "max": 4.496542
+      },
+      "first_row_ms": {
+        "median": 328.069,
+        "min": 312.64799999999997,
+        "max": 337.305959
+      },
+      "query_ms": {
+        "median": 330.30320800000004,
+        "min": 314.456916,
+        "max": 339.24529199999995
+      },
+      "elapsed_seconds": {
+        "median": 0.3472652089840267,
+        "min": 0.32522645901190117,
+        "max": 0.3541520830185618
+      },
+      "peak_rss_bytes": {
+        "median": 28803072,
+        "min": 28688384,
+        "max": 28819456
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 3.054166,
+        "min": 2.724917,
+        "max": 5.01725
+      },
+      "first_row_ms": {
+        "median": 317.88158300000003,
+        "min": 294.123917,
+        "max": 373.681375
+      },
+      "query_ms": {
+        "median": 319.89475,
+        "min": 296.12575000000004,
+        "max": 378.946958
+      },
+      "elapsed_seconds": {
+        "median": 0.3300900839967653,
+        "min": 0.31170033299713396,
+        "max": 0.3935802500054706
+      },
+      "peak_rss_bytes": {
+        "median": 28835840,
+        "min": 28672000,
+        "max": 28917760
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 3.018917,
+        "min": 2.953167,
+        "max": 3.021959
+      },
+      "first_row_ms": {
+        "median": 2.179792,
+        "min": 2.1697499999999996,
+        "max": 2.202666
+      },
+      "query_ms": {
+        "median": 338.397875,
+        "min": 299.799375,
+        "max": 414.01354200000003
+      },
+      "elapsed_seconds": {
+        "median": 0.34947595800622366,
+        "min": 0.31209854199551046,
+        "max": 0.42734254099195823
+      },
+      "peak_rss_bytes": {
+        "median": 7782400,
+        "min": 7569408,
+        "max": 7798784
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "mode": "first",
+      "setup_ms": {
+        "median": 3.099458,
+        "min": 2.832417,
+        "max": 4.979082999999999
+      },
+      "first_row_ms": {
+        "median": 2.192542,
+        "min": 2.157125,
+        "max": 4.033125
+      },
+      "query_ms": {
+        "median": 2.211125,
+        "min": 2.170917,
+        "max": 4.063041
+      },
+      "elapsed_seconds": {
+        "median": 0.015016165998531505,
+        "min": 0.01456387501093559,
+        "max": 0.01707187498686835
+      },
+      "peak_rss_bytes": {
+        "median": 7585792,
+        "min": 7585792,
+        "max": 7634944
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 2.1247089999999997,
+        "min": 2.0804590000000003,
+        "max": 3.888917
+      },
+      "first_row_ms": {
+        "median": 1200.018084,
+        "min": 1134.743334,
+        "max": 1303.4399589999998
+      },
+      "query_ms": {
+        "median": 1208.063417,
+        "min": 1148.162459,
+        "max": 1310.909875
+      },
+      "elapsed_seconds": {
+        "median": 1.2203111250128131,
+        "min": 1.1641137080150656,
+        "max": 1.323822124977596
+      },
+      "peak_rss_bytes": {
+        "median": 85065728,
+        "min": 83918848,
+        "max": 85196800
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 2.158125,
+        "min": 1.9897909999999999,
+        "max": 2.269833
+      },
+      "first_row_ms": {
+        "median": 1148.687542,
+        "min": 1122.473833,
+        "max": 1168.694
+      },
+      "query_ms": {
+        "median": 1158.673459,
+        "min": 1144.2140000000002,
+        "max": 1176.450208
+      },
+      "elapsed_seconds": {
+        "median": 1.1702047919970937,
+        "min": 1.1553230420104228,
+        "max": 1.1882888749823906
+      },
+      "peak_rss_bytes": {
+        "median": 85196800,
+        "min": 85049344,
+        "max": 85213184
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "mode": "first",
+      "setup_ms": {
+        "median": 2.5029589999999997,
+        "min": 2.05175,
+        "max": 4.520708
+      },
+      "first_row_ms": {
+        "median": 1192.204125,
+        "min": 1183.738,
+        "max": 1257.5212080000001
+      },
+      "query_ms": {
+        "median": 1200.8867910000001,
+        "min": 1191.027792,
+        "max": 1263.856167
+      },
+      "elapsed_seconds": {
+        "median": 1.213556917005917,
+        "min": 1.2060823329957202,
+        "max": 1.2901090419909451
+      },
+      "peak_rss_bytes": {
+        "median": 85278720,
+        "min": 85098496,
+        "max": 85311488
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "mode": "eager",
+      "setup_ms": {
+        "median": 2.032791,
+        "min": 2.012042,
+        "max": 2.081583
+      },
+      "first_row_ms": {
+        "median": 1173.386708,
+        "min": 1167.3313329999999,
+        "max": 1189.1335000000001
+      },
+      "query_ms": {
+        "median": 1186.4944580000001,
+        "min": 1178.1684160000002,
+        "max": 1204.719125
+      },
+      "elapsed_seconds": {
+        "median": 1.1982405410089996,
+        "min": 1.189049749984406,
+        "max": 1.2185656660003588
+      },
+      "peak_rss_bytes": {
+        "median": 85131264,
+        "min": 85114880,
+        "max": 85393408
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "mode": "cursor",
+      "setup_ms": {
+        "median": 2.2967920000000004,
+        "min": 2.104167,
+        "max": 2.4695
+      },
+      "first_row_ms": {
+        "median": 2.2872090000000003,
+        "min": 2.2329160000000003,
+        "max": 2.4577090000000004
+      },
+      "query_ms": {
+        "median": 977.252583,
+        "min": 973.39225,
+        "max": 1130.96175
+      },
+      "elapsed_seconds": {
+        "median": 0.9987932919757441,
+        "min": 0.9884328749903943,
+        "max": 1.1489315000071656
+      },
+      "peak_rss_bytes": {
+        "median": 7356416,
+        "min": 7290880,
+        "max": 7405568
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "mode": "first",
+      "setup_ms": {
+        "median": 2.0930419999999996,
+        "min": 2.016333,
+        "max": 2.423417
+      },
+      "first_row_ms": {
+        "median": 2.364959,
+        "min": 2.2697089999999998,
+        "max": 2.416625
+      },
+      "query_ms": {
+        "median": 2.37675,
+        "min": 2.284209,
+        "max": 2.43125
+      },
+      "elapsed_seconds": {
+        "median": 0.013056583004072309,
+        "min": 0.012391666998155415,
+        "max": 0.013486791984178126
+      },
+      "peak_rss_bytes": {
+        "median": 7503872,
+        "min": 7225344,
+        "max": 7520256
+      }
+    }
+  ],
+  "trials": [
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1355.255458,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1363.191542,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": null,
+        "setup_ms": 5.386834,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.7679275840055197,
+          "peak_rss_bytes": 87982080,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1409.5273750000001,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1419.852167,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Buffered",
+        "setup_ms": 2.919458,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.431728875002591,
+          "peak_rss_bytes": 88784896,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1440.855333,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1446.804542,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Buffered",
+        "setup_ms": 6.798541,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.4747686670161784,
+          "peak_rss_bytes": 87949312,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1413.969917,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1420.3691250000002,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": null,
+        "setup_ms": 7.694541,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.813788083003601,
+          "peak_rss_bytes": 87916544,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1.2574999999999998,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1196.512667,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Incremental",
+        "setup_ms": 3.0460000000000003,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2112888749979902,
+          "peak_rss_bytes": 7520256,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1.300458,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1.328125,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Incremental",
+        "setup_ms": 2.992542,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.017428292019758373,
+          "peak_rss_bytes": 7192576,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 2.881667,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1206.4035840000001,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Incremental",
+        "setup_ms": 3.3310000000000004,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2189020840160083,
+          "peak_rss_bytes": 7372800,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1.314667,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1.32425,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Incremental",
+        "setup_ms": 3.134708,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.015741707989946008,
+          "peak_rss_bytes": 7307264,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1295.872833,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1302.059708,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": null,
+        "setup_ms": 3.372875,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.3159335829841439,
+          "peak_rss_bytes": 88129536,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1506.993083,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1519.612333,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Buffered",
+        "setup_ms": 3.019667,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.5340342090057675,
+          "peak_rss_bytes": 81100800,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1320.835459,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1327.254709,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Buffered",
+        "setup_ms": 2.857792,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.3387134169752244,
+          "peak_rss_bytes": 87982080,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1413.545,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1427.861416,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": null,
+        "setup_ms": 3.494292,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.4415145840030164,
+          "peak_rss_bytes": 87998464,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1372.8809580000002,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1379.969916,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Buffered",
+        "setup_ms": 2.983291,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.3908924169954844,
+          "peak_rss_bytes": 88752128,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1339.7898750000002,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1350.825542,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": null,
+        "setup_ms": 3.166,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.3657648339867592,
+          "peak_rss_bytes": 87949312,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1316.065333,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1324.609833,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Buffered",
+        "setup_ms": 3.328458,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.3383128749846946,
+          "peak_rss_bytes": 87949312,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 2.029542,
+        "mode": "first",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 2.0502089999999997,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Incremental",
+        "setup_ms": 3.139541,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.014201416983269155,
+          "peak_rss_bytes": 7307264,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1301.45175,
+        "mode": "eager",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1309.3145,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": null,
+        "setup_ms": 3.07425,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.3213816669886,
+          "peak_rss_bytes": 87932928,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain-nodes",
+      "depth": 10,
+      "fanout": 128,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 114686,
+        "depth": 10,
+        "depth_histogram": [
+          0,
+          6,
+          24,
+          80,
+          240,
+          672,
+          1792,
+          4608,
+          11520,
+          28160,
+          67584
+        ],
+        "edges": 20,
+        "fanout": 128,
+        "first_row_ms": 1.414125,
+        "mode": "cursor",
+        "nodes": 11,
+        "potential_rows": 114686,
+        "potential_trails": 2046,
+        "query_ms": 1261.435625,
+        "reachable_edges": 20,
+        "reachable_nodes": 11,
+        "read_mode": "Incremental",
+        "setup_ms": 3.17025,
+        "shape": "unwind-chain-nodes",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2720142080215737,
+          "peak_rss_bytes": 7503872,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "10",
+            "0",
+            "unwind-chain-nodes",
+            "128"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 340.11995900000005,
+        "mode": "eager",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 344.037709,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": null,
+        "setup_ms": 3.154042,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3630710419965908,
+          "peak_rss_bytes": 28753920,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 338.157666,
+        "mode": "cursor",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 341.281208,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Buffered",
+        "setup_ms": 4.249208,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.35204879101365805,
+          "peak_rss_bytes": 28835840,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 337.305959,
+        "mode": "first",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 339.24529199999995,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Buffered",
+        "setup_ms": 4.496542,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3541520830185618,
+          "peak_rss_bytes": 28688384,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 294.123917,
+        "mode": "eager",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 296.12575000000004,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": null,
+        "setup_ms": 5.01725,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.31170033299713396,
+          "peak_rss_bytes": 28917760,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 2.202666,
+        "mode": "cursor",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 338.397875,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Incremental",
+        "setup_ms": 2.953167,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.34947595800622366,
+          "peak_rss_bytes": 7798784,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 2.192542,
+        "mode": "first",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 2.211125,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Incremental",
+        "setup_ms": 2.832417,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.01456387501093559,
+          "peak_rss_bytes": 7585792,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 2.179792,
+        "mode": "cursor",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 414.01354200000003,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Incremental",
+        "setup_ms": 3.018917,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.42734254099195823,
+          "peak_rss_bytes": 7569408,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 2.157125,
+        "mode": "first",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 2.170917,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Incremental",
+        "setup_ms": 3.099458,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.01707187498686835,
+          "peak_rss_bytes": 7634944,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 373.681375,
+        "mode": "eager",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 378.946958,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": null,
+        "setup_ms": 2.724917,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3935802500054706,
+          "peak_rss_bytes": 28672000,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 333.303084,
+        "mode": "cursor",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 335.735709,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Buffered",
+        "setup_ms": 4.867292,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3528376249887515,
+          "peak_rss_bytes": 28737536,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 328.069,
+        "mode": "first",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 330.30320800000004,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Buffered",
+        "setup_ms": 3.63725,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3472652089840267,
+          "peak_rss_bytes": 28819456,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 369.376334,
+        "mode": "eager",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 372.78754200000003,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": null,
+        "setup_ms": 3.079208,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.38472154198097996,
+          "peak_rss_bytes": 28672000,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 312.64799999999997,
+        "mode": "first",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 314.456916,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Buffered",
+        "setup_ms": 3.300625,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.32522645901190117,
+          "peak_rss_bytes": 28803072,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 355.8125,
+        "mode": "eager",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 359.779083,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": null,
+        "setup_ms": 3.005167,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3820430000196211,
+          "peak_rss_bytes": 28803072,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 335.29354099999995,
+        "mode": "cursor",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 337.629416,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Buffered",
+        "setup_ms": 3.018042,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3571467089932412,
+          "peak_rss_bytes": 28786688,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 4.033125,
+        "mode": "first",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 4.063041,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Incremental",
+        "setup_ms": 4.979082999999999,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.015016165998531505,
+          "peak_rss_bytes": 7585792,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 317.88158300000003,
+        "mode": "eager",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 319.89475,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": null,
+        "setup_ms": 3.054166,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.3300900839967653,
+          "peak_rss_bytes": 28835840,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 8,
+      "fanout": 8,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 32640,
+        "depth": 8,
+        "depth_histogram": [
+          0,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          8192,
+          16384
+        ],
+        "edges": 16,
+        "fanout": 8,
+        "first_row_ms": 2.1697499999999996,
+        "mode": "cursor",
+        "nodes": 9,
+        "potential_rows": 32640,
+        "potential_trails": 510,
+        "query_ms": 299.799375,
+        "reachable_edges": 16,
+        "reachable_nodes": 9,
+        "read_mode": "Incremental",
+        "setup_ms": 3.021959,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.31209854199551046,
+          "peak_rss_bytes": 7782400,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "8",
+            "0",
+            "unwind-chain",
+            "8"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1303.4399589999998,
+        "mode": "eager",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1310.909875,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": null,
+        "setup_ms": 2.1247089999999997,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.323822124977596,
+          "peak_rss_bytes": 83918848,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1148.687542,
+        "mode": "cursor",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1158.673459,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Buffered",
+        "setup_ms": 1.9897909999999999,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.1702047919970937,
+          "peak_rss_bytes": 85196800,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          1
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1257.5212080000001,
+        "mode": "first",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1263.856167,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Buffered",
+        "setup_ms": 4.520708,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2901090419909451,
+          "peak_rss_bytes": 85098496,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 1,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1189.1335000000001,
+        "mode": "eager",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1204.719125,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": null,
+        "setup_ms": 2.081583,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2185656660003588,
+          "peak_rss_bytes": 85131264,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 1,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 2.4577090000000004,
+        "mode": "cursor",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1130.96175,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Incremental",
+        "setup_ms": 2.2967920000000004,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.1489315000071656,
+          "peak_rss_bytes": 7405568,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 1,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          1
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 2.364959,
+        "mode": "first",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 2.37675,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Incremental",
+        "setup_ms": 2.016333,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.013056583004072309,
+          "peak_rss_bytes": 7503872,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 2.2872090000000003,
+        "mode": "cursor",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 973.39225,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Incremental",
+        "setup_ms": 2.4695,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.9987932919757441,
+          "peak_rss_bytes": 7290880,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          1
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 2.2697089999999998,
+        "mode": "first",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 2.284209,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Incremental",
+        "setup_ms": 2.0930419999999996,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.013486791984178126,
+          "peak_rss_bytes": 7225344,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1173.386708,
+        "mode": "eager",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1186.4944580000001,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": null,
+        "setup_ms": 2.032791,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.1982405410089996,
+          "peak_rss_bytes": 85393408,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 2,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1168.694,
+        "mode": "cursor",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1176.450208,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Buffered",
+        "setup_ms": 2.158125,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.1882888749823906,
+          "peak_rss_bytes": 85213184,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 2,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          1
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1183.738,
+        "mode": "first",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1191.027792,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Buffered",
+        "setup_ms": 2.5029589999999997,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2060823329957202,
+          "peak_rss_bytes": 85311488,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 2,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1134.743334,
+        "mode": "eager",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1148.162459,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": null,
+        "setup_ms": 3.888917,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.1641137080150656,
+          "peak_rss_bytes": 85196800,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          1
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1192.204125,
+        "mode": "first",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1200.8867910000001,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Buffered",
+        "setup_ms": 2.05175,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.213556917005917,
+          "peak_rss_bytes": 85278720,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "first",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1200.018084,
+        "mode": "eager",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1208.063417,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": null,
+        "setup_ms": 2.0804590000000003,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.2203111250128131,
+          "peak_rss_bytes": 85065728,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "eager",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "before",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1122.473833,
+        "mode": "cursor",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1144.2140000000002,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Buffered",
+        "setup_ms": 2.269833,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.1553230420104228,
+          "peak_rss_bytes": 85049344,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "1487097e86df3425b925ba15c7dc71e38ecdb274e85176085b370d78cddc9bac",
+          "command": [
+            "/private/tmp/crabnet-unwind-chain-baseline-law5c5i8/target/release/examples/cursor_traversal",
+            "cursor",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 3,
+      "mode": "first",
+      "report": {
+        "consumed_rows": 1,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          1
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 2.416625,
+        "mode": "first",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 2.43125,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Incremental",
+        "setup_ms": 2.423417,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.012391666998155415,
+          "peak_rss_bytes": 7520256,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "first",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 3,
+      "mode": "eager",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 1167.3313329999999,
+        "mode": "eager",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 1178.1684160000002,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": null,
+        "setup_ms": 2.012042,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 1.189049749984406,
+          "peak_rss_bytes": 85114880,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "eager",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    },
+    {
+      "engine": "after",
+      "shape": "unwind-chain",
+      "depth": 1,
+      "fanout": 256,
+      "trial": 3,
+      "mode": "cursor",
+      "report": {
+        "consumed_rows": 131072,
+        "depth": 1,
+        "depth_histogram": [
+          0,
+          131072
+        ],
+        "edges": 2,
+        "fanout": 256,
+        "first_row_ms": 2.2329160000000003,
+        "mode": "cursor",
+        "nodes": 2,
+        "potential_rows": 131072,
+        "potential_trails": 2,
+        "query_ms": 977.252583,
+        "reachable_edges": 2,
+        "reachable_nodes": 2,
+        "read_mode": "Incremental",
+        "setup_ms": 2.104167,
+        "shape": "unwind-chain",
+        "unrelated_edges": 0,
+        "measurement": {
+          "elapsed_seconds": 0.9884328749903943,
+          "peak_rss_bytes": 7356416,
+          "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+          "architecture": "arm64",
+          "binary_sha256": "8ce81f2fd784e9fc94661b83e345d189c59aa9507cfac5170c2d3acdae02117e",
+          "command": [
+            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "cursor",
+            "1",
+            "0",
+            "unwind-chain",
+            "256"
+          ]
+        }
+      }
+    }
+  ]
+}

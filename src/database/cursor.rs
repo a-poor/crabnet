@@ -27,9 +27,10 @@ use crate::{
 #[non_exhaustive]
 pub enum ReadMode {
     /// SQLite fragments and eligible single-trail projections, including
-    /// one UNWIND and rowwise WITH stages, compose through UNION, DISTINCT,
+    /// UNWIND and rowwise WITH stages, compose through UNION, DISTINCT,
     /// pagination, and batch hydration without buffering the
-    /// complete result. Rust trails retain graph inputs and a search frontier.
+    /// complete result. Rust trails retain graph inputs and a search frontier;
+    /// UNWIND retains one input row and list per active expansion stage.
     /// DISTINCT retains seen rows; hydration retains one batch of entities.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
     Incremental,
@@ -151,7 +152,8 @@ struct TrailRows<'read> {
     shapes: &'read [OutputShape],
     producer: Option<TrailStream<'read>>,
     finished: bool,
-    unwind: Option<UnwindRows<'read>>,
+    unwinds: Vec<UnwindRows<'read>>,
+    active_unwind: Option<usize>,
 }
 
 struct UnwindRows<'read> {
@@ -171,7 +173,7 @@ impl UnwindRows<'_> {
             .unwrap_or(remaining)
             .trim_start();
         if remaining.is_empty() || remaining.starts_with(']') {
-            self.list.clear();
+            self.list = String::new();
             self.position = 0;
             return Ok(None);
         }
@@ -204,16 +206,27 @@ impl TrailRows<'_> {
             )?);
         }
         loop {
-            if let Some(unwind) = &mut self.unwind {
+            if let Some(index) = self.active_unwind {
+                let unwind = &mut self.unwinds[index];
                 if let Some(member) = unwind.next_member(context)? {
                     self.bindings[unwind.argument_count + unwind.carried_count] = member;
-                    if let Some(row) = self.project(context)? {
+                    if index + 1 < self.unwinds.len() {
+                        self.start_unwind(index + 1, context)?;
+                    } else if let Some(row) = self.project(context)? {
                         return Ok(Some(row));
                     }
-                    continue;
+                } else {
+                    // Pop this frame without changing its ancestors' bindings
+                    // or list positions. All descendant frames are exhausted.
+                    self.bindings
+                        [unwind.argument_count..=unwind.argument_count + unwind.carried_count]
+                        .fill(SqlValue::Null);
+                    if index + 1 == self.unwinds.len() {
+                        self.statement.clear_bindings();
+                    }
+                    self.active_unwind = index.checked_sub(1);
                 }
-                self.bindings[unwind.argument_count..=unwind.argument_count + unwind.carried_count]
-                    .fill(SqlValue::Null);
+                continue;
             }
             let Some(encoded) = self.producer.as_mut().expect("started producer").next()? else {
                 self.producer = None;
@@ -221,32 +234,60 @@ impl TrailRows<'_> {
                 return Ok(None);
             };
             self.bindings[self.runtime_index] = SqlValue::Text(encoded);
-            if let Some(unwind) = &mut self.unwind {
-                let mut rows = unwind
-                    .statement
-                    .query(params_from_iter(&self.bindings[..unwind.argument_count]))?;
-                if let Some(row) = rows.next()? {
-                    context.record_sql_row(row, unwind.carried_count + 1)?;
-                    for index in 0..unwind.carried_count {
-                        self.bindings[unwind.argument_count + index] = row.get(index)?;
-                    }
-                    unwind.list = row.get(unwind.carried_count)?;
-                    if !unwind.list.starts_with('[') {
-                        return Err(Error::Data("streaming UNWIND input is not an array".into()));
-                    }
-                    unwind.position = 1;
-                    if rows.next()?.is_some() {
-                        return Err(Error::Data(
-                            "streaming UNWIND input produced multiple rows".into(),
-                        ));
-                    }
-                }
-                continue;
-            }
-            if let Some(row) = self.project(context)? {
+            if !self.unwinds.is_empty() {
+                self.start_unwind(0, context)?;
+            } else if let Some(row) = self.project(context)? {
                 return Ok(Some(row));
             }
         }
+    }
+
+    fn start_unwind(&mut self, index: usize, context: &ExecutionContext) -> Result<()> {
+        // Each input query references only the immediately preceding frozen
+        // scope plus any static parameters introduced since then.
+        let unused_prefix = index
+            .checked_sub(1)
+            .map_or(0, |parent| self.unwinds[parent].argument_count);
+        let unwind = &mut self.unwinds[index];
+        let null = SqlValue::Null;
+        // A WITH may discard the highest-numbered binding. The logical input
+        // boundary still reserves that slot, but SQLite expects only as many
+        // parameters as this particular statement references.
+        let parameter_count = unwind.statement.parameter_count();
+        if parameter_count > unwind.argument_count {
+            return Err(Error::Data(
+                "streaming UNWIND input references later-stage bindings".into(),
+            ));
+        }
+        {
+            let mut rows = unwind.statement.query(params_from_iter(
+                self.bindings[..parameter_count]
+                    .iter()
+                    .enumerate()
+                    .map(|(i, value)| if i < unused_prefix { &null } else { value }),
+            ))?;
+            if let Some(row) = rows.next()? {
+                context.record_sql_row(row, unwind.carried_count + 1)?;
+                for column in 0..unwind.carried_count {
+                    self.bindings[unwind.argument_count + column] = row.get(column)?;
+                }
+                unwind.list = row.get(unwind.carried_count)?;
+                if !unwind.list.starts_with('[') {
+                    return Err(Error::Data("streaming UNWIND input is not an array".into()));
+                }
+                unwind.position = 1;
+                if rows.next()?.is_some() {
+                    return Err(Error::Data(
+                        "streaming UNWIND input produced multiple rows".into(),
+                    ));
+                }
+            }
+        }
+        // The frozen row now owns the needed values. Release SQLite's copies
+        // so an exhausted inner frame cannot retain an earlier parent scope.
+        unwind.statement.clear_bindings();
+        self.active_unwind = Some(index);
+        Ok(())
     }
 
     fn project(&mut self, context: &ExecutionContext) -> Result<Option<PendingRow>> {
@@ -254,7 +295,7 @@ impl TrailRows<'_> {
             SqlValue::Integer(i64::from(self.skip > 0));
         // The member query has no references to the input query's parameters.
         // Avoid copying a large list parameter into SQLite again per member.
-        let unused_prefix = self.unwind.as_ref().map_or(0, |u| u.argument_count);
+        let unused_prefix = self.unwinds.last().map_or(0, |u| u.argument_count);
         let null = SqlValue::Null;
         let mut rows =
             self.statement
@@ -521,13 +562,12 @@ impl<'db> PreparedRead<'db> {
                     if !statement.readonly() {
                         return Err(Error::Data("read fragment is not read-only".into()));
                     }
-                    if let Some(unwind) = fragment
-                        .trail_cursor
-                        .as_ref()
-                        .and_then(|cursor| cursor.unwind.as_ref())
-                        && !connection.prepare(&unwind.sql)?.readonly()
-                    {
-                        return Err(Error::Data("UNWIND input is not read-only".into()));
+                    if let Some(cursor) = &fragment.trail_cursor {
+                        for unwind in &cursor.unwinds {
+                            if !connection.prepare(&unwind.sql)?.readonly() {
+                                return Err(Error::Data("UNWIND input is not read-only".into()));
+                            }
+                        }
                     }
                     // Trail projections restart a cached statement per row.
                     // Validate now; acquire its owned cursor handle on start.
@@ -641,9 +681,10 @@ impl PreparedRead<'_> {
                                 shapes: &fragment.output_shapes,
                                 producer: None,
                                 finished: false,
-                                unwind: cursor
-                                    .unwind
-                                    .as_ref()
+                                active_unwind: None,
+                                unwinds: cursor
+                                    .unwinds
+                                    .iter()
                                     .map(|unwind| -> Result<_> {
                                         Ok(UnwindRows {
                                             statement: self
@@ -655,7 +696,7 @@ impl PreparedRead<'_> {
                                             position: 0,
                                         })
                                     })
-                                    .transpose()?,
+                                    .collect::<Result<Vec<_>>>()?,
                             }));
                             return Ok(Stream::Paginate {
                                 input: Box::new(stream),

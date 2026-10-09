@@ -224,7 +224,7 @@ fn compile_read_with_probes(
         sql.push_str(&ordering);
     }
 
-    // Only rowwise stages and one UNWIND distribute over singleton trails.
+    // Rowwise WITH and UNWIND stages distribute over singleton trails.
     let trail_cursor = (single_trail_projection(input)
         && !aggregating
         && projection.order_by.is_empty()
@@ -235,7 +235,7 @@ fn compile_read_with_probes(
         ))
     .then(|| -> Result<_> {
         let mut member_compiler;
-        let (cursor_compiler, expressions, random_sources, unwind) =
+        let (cursor_compiler, expressions, random_sources, unwinds) =
             if let Input::Pipeline(pipeline) = input
                 && let Some(index) = pipeline
                     .stages
@@ -244,20 +244,30 @@ fn compile_read_with_probes(
             {
                 member_compiler = Compiler::new();
                 member_compiler.compile_stages(&pipeline.stages[..index])?;
-                let ReadStage::Unwind(stage) = &pipeline.stages[index] else {
-                    unreachable!()
-                };
-                let unwind = member_compiler.compile_cursor_unwind(stage)?;
-                member_compiler.compile_stages(&pipeline.stages[index + 1..])?;
+                let mut unwinds = Vec::new();
+                for stage in &pipeline.stages[index..] {
+                    match stage {
+                        ReadStage::Unwind(stage) => {
+                            unwinds.push(member_compiler.compile_cursor_unwind(stage)?)
+                        }
+                        ReadStage::With(stage) => member_compiler.compile_with(stage)?,
+                        _ => unreachable!("eligible cursor stages are WITH or UNWIND"),
+                    }
+                }
                 let expressions = projection
                     .expressions
                     .iter()
                     .map(|e| member_compiler.output_expression(e).map(|(sql, _)| sql))
                     .collect::<Result<Vec<_>>>()?;
                 let random_sources = std::mem::take(&mut member_compiler.random_sources);
-                (&member_compiler, expressions, random_sources, Some(unwind))
+                (&member_compiler, expressions, random_sources, unwinds)
             } else {
-                (&compiler, expressions.clone(), random_sources.clone(), None)
+                (
+                    &compiler,
+                    expressions.clone(),
+                    random_sources.clone(),
+                    Vec::new(),
+                )
             };
         // SQL OFFSET skips projection evaluation. Retain that guard when a
         // cursor counts matching trails across singleton executions. The last
@@ -274,7 +284,7 @@ fn compile_read_with_probes(
             sql: cursor_compiler
                 .with_ctes(cursor_compiler.select_sql_with_sources(&select, &random_sources)),
             arguments: cursor_compiler.bindings.clone(),
-            unwind,
+            unwinds,
             // DISTINCT already owns its pagination in the physical tree.
             offset: (!projection.distinct)
                 .then(|| projection.offset.clone())
@@ -339,16 +349,11 @@ fn single_trail_projection(input: &Input) -> bool {
         Input::Match(plan) => plan,
         Input::Pipeline(ReadPipeline { stages }) => match stages.as_slice() {
             [ReadStage::Match(plan), following @ ..]
-                if following
-                    .iter()
-                    .filter(|s| matches!(s, ReadStage::Unwind(_)))
-                    .count()
-                    <= 1
-                    && following.iter().all(|stage| match stage {
-                        ReadStage::With(stage) => rowwise_with(stage),
-                        ReadStage::Unwind(stage) => !stage.expression.contains_aggregate(),
-                        _ => false,
-                    }) =>
+                if following.iter().all(|stage| match stage {
+                    ReadStage::With(stage) => rowwise_with(stage),
+                    ReadStage::Unwind(stage) => !stage.expression.contains_aggregate(),
+                    _ => false,
+                }) =>
             {
                 plan
             }

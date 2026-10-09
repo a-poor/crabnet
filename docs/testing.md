@@ -504,6 +504,16 @@ transfer/result/traversal limits, preflight, hydration-batch rollback, read-only
 snapshots, cancellation, reuse and cleanup. The parity matrix also guards JSON
 null normalization for entity UNWIND in eager and cursor execution.
 
+`tests/read_cursor_traversal_unwind_chain.rs` adds eleven tests for chained
+expansions with dependent scalar/entity/nested lists and plain WITH stages.
+Four levels exercise scope drops, shadowing, filters, empty lists and backtracking;
+volatile aliases refresh only in their own scope. Tests cover input-list/WITH/
+RETURN errors, skipped projection guards, final DISTINCT/UNION/pages, zero-page
+preflight, cumulative work, exact input/consumer transfer accounting, byte limits,
+hydration across parent-member boundaries, rollback versus early exit, and
+cancellation/deadlines plus snapshot cleanup on error/drop/exhaustion/panic.
+Intermediate global stages and additional joins retain explicit fallback tests.
+
 The existing cursor tests retain buffered coverage with WITH DISTINCT stages and
 shortest paths; eligible transaction cursor cases now assert Incremental.
 `examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
@@ -520,6 +530,11 @@ with WITH stages on both sides. Full consumption checks each depth's row count,
 member sum and squared sum; first-row consumption checks one one-hop result.
 The scalar range accepts a fanout argument, defaulting to 128. Criterion adds
 `cursor_traversal_unwind_nodes/*` and `cursor_traversal_unwind/*`.
+The `unwind-chain-nodes` shape follows each path node with `range(0,n.id)`;
+`unwind-chain` expands two ranges, with inner bounds depending on the outer member.
+Full consumption checks row multiplicity, both member sums/squared sums, and their
+cross-products per depth. Matching Criterion groups exercise both chains; fresh
+process comparisons report first-row latency, full consumption, and peak RSS.
 
 ## Persistent application workload
 

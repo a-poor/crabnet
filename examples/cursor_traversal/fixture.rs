@@ -15,10 +15,27 @@ pub const UNWIND_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
     UNWIND range(1,$fanout) AS member
     WITH hops,endpoint,member RETURN hops,endpoint,member";
 
+pub const UNWIND_CHAIN_NODES_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH p AS trail,b WHERE b.id >= 1
+    UNWIND nodes(trail) AS n
+    WITH length(trail) AS hops,b.id AS endpoint,n.id AS source
+    UNWIND range(0,source) AS member
+    WITH hops,endpoint,source,member RETURN hops,endpoint,source,member";
+pub const UNWIND_CHAIN_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH length(p) AS hops,b.id AS endpoint
+    UNWIND range(1,$fanout) AS source
+    WITH hops,endpoint,source
+    UNWIND range(source,source+$fanout-1) AS member
+    WITH hops,endpoint,source,member RETURN hops,endpoint,source,member";
+
 pub fn output_rows(depth: usize, shape: &str, fanout: usize) -> usize {
     match shape {
         "unwind-nodes" => (1..=depth).map(|hops| (1 << hops) * (hops + 1)).sum(),
         "unwind" => potential_rows(depth) * fanout,
+        "unwind-chain-nodes" => (1..=depth)
+            .map(|hops| (1 << hops) * (hops + 1) * (hops + 2) / 2)
+            .sum(),
+        "unwind-chain" => potential_rows(depth) * fanout * fanout,
         _ => potential_rows(depth),
     }
 }

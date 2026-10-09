@@ -90,7 +90,7 @@ partial errors, cancellation, and resource accounting.
 
 A single `MATCH` with one deep/open-ended variable-length relationship and only
 its endpoint nodes can stream. Filters, scalar/entity/path projections, legacy
-relationship lists, one `UNWIND`, plain `WITH` chains, final DISTINCT, and final
+relationship lists, chained `UNWIND`, plain `WITH` chains, final DISTINCT, and final
 pagination are supported. For example:
 
 ```cypher
@@ -119,17 +119,22 @@ relation, while graph inputs and the traversal frontier still consume memory.
 
 Each following `WITH` may rename bindings, compute expressions, carry typed
 entities/paths/lists, and filter rows. Without UNWIND, these stages produce zero
-or one final row per admitted trail. With one UNWIND, the stages before it and
-the list expression run once per trail; following stages run once per member.
-A projected random value is reused by its aliases in that scope. Filters do not
-refund traversal work or payload.
+or one final row per admitted trail. With chained UNWINDs, each list expression
+and its preceding WITH stages run once per incoming row. Inner lists can depend
+on outer members. Following stages run once per member; the cursor exhausts an
+inner list before advancing its parent. A projected random value is reused by
+its aliases in that scope, including while resuming an inner expansion. Filters
+do not refund traversal work or payload.
 
 For example, `MATCH p=(:Start)-[:NEXT*]->() UNWIND nodes(p) AS n RETURN n`
 streams nodes while retaining repeated identities and parallel-trail multiplicity.
 Scalar, entity, and nested graph lists retain their types and null members;
 empty, null, and non-list inputs yield no members. The cursor retains one
-encoded list and the live bindings from its input row, then decodes each member
-as needed. Bare `nodes(p)`/`relationships(p)` carry identities and fetch each
+encoded list and the live bindings from its input row for each active expansion,
+then decodes members as needed. Returning to an outer stage preserves its frozen
+values and list position. Exhausted stages release their list and carried bindings;
+retention grows with active nesting and value sizes, rather than the complete
+expanded result. Bare `nodes(p)`/`relationships(p)` carry identities and fetch each
 member's entity record on demand. List construction itself still runs in full:
 `range(...)`, comprehensions, and computed entity lists can allocate a large
 single value before the first member is returned. This is not a whole-query
@@ -137,9 +142,20 @@ memory cap. Each frozen input row, including the list, is charged to SQL
 transfer row/byte limits before copying; consuming rows are charged separately.
 Traversal memory limits continue to cover graph inputs and the frontier.
 
+Dependent expansions can stop at an early final limit, for example:
+
+```cypher
+MATCH p=(:Start)-[:NEXT*]->()
+UNWIND nodes(p) AS n
+WITH n WHERE n.active = true
+UNWIND n.tags AS tag
+RETURN n, tag
+LIMIT 10
+```
+
 Global ORDER BY or aggregation over Rust trails, additional pattern joins,
-multiple traversal producers, OPTIONAL MATCH, multiple UNWIND stages, and
-shortest paths still report `Buffered`. A `WITH` containing DISTINCT, aggregation, ordering, SKIP, or
+multiple traversal producers, OPTIONAL MATCH, and shortest paths still report
+`Buffered`. A `WITH` containing DISTINCT, aggregation, ordering, SKIP, or
 LIMIT also forces buffering, even for SKIP 0 or LIMIT 0. Stages preceding the
 initial MATCH remain outside this streaming shape. Small bounded traversals
 executed entirely by SQLite retain their existing behavior. Inspect `mode()`.
@@ -701,3 +717,72 @@ Use `eager`, `cursor`, and `first` for all-row eager execution, all-row cursor
 consumption, and one-row consumption followed by drop. Criterion adds
 `cursor_traversal_unwind_nodes/{eager,cursor,first}` and
 `cursor_traversal_unwind/{eager,cursor,first}`, using depth 10 and range fanout 128.
+
+## Chained UNWIND measurements
+
+A 2026-10-09 release comparison uses baseline `d6bbf6f` and this implementation.
+The baseline is an isolated archive with its own target directory; both engines
+use identical example/fixture sources. Three sequential fresh-process trials
+per engine, fixture, and mode alternate engine order and rotate mode order.
+All builds and tests finished before measurement. The
+[54 raw trials](measurements/cursor-unwind-chain-2026-10-09.json) record commands,
+source/binary hashes, compiler/platform, medians, and ranges.
+
+The parallel-edge fixture expands two dependent lists with plain WITH stages
+before, between, and after them:
+
+- Node-dependent ranges at depth 10: `nodes(p)`, then `range(0,n.id)`, producing
+  114,686 rows from 2,046 trails.
+- Scalar ranges at depth 8, fanout 8: `range(1,$fanout)`, then
+  `range(source,source+$fanout-1)`, producing 32,640 rows from 510 trails.
+- The same scalar ranges at depth 1, fanout 256: 131,072 rows from two trails.
+
+Full consumption checks each depth's row count, both members' sums and squared
+sums, and their cross-products. First-row mode checks one one-hop result, then
+drops the cursor. Final outputs are scalars, so these cases exclude path hydration.
+
+Medians show **before → after**. Total query time includes planning, snapshot
+setup, decoding, consumer checks, and cleanup. First-row timing stops when the
+first owned row reaches the consumer. Both exclude graph setup; peak RSS covers
+the entire process, including setup.
+
+| Expansion | Mode | First row ms | Total ms | Peak RSS MiB |
+| --- | --- | ---: | ---: | ---: |
+| Node ranges, depth 10 | eager | 1355.255 → 1301.452 | 1363.192 → 1309.314 | 83.906 → 83.859 |
+| Node ranges, depth 10 | cursor | 1409.527 → 1.414 | 1419.852 → 1206.404 | 83.875 → 7.156 |
+| Node ranges, depth 10 | first | 1372.881 → 1.315 | 1379.970 → 1.328 | 83.906 → 6.969 |
+| Ranges 8×8, depth 8 | eager | 355.812 → 317.882 | 359.779 → 319.895 | 27.422 → 27.500 |
+| Ranges 8×8, depth 8 | cursor | 335.294 → 2.180 | 337.629 → 338.398 | 27.453 → 7.422 |
+| Ranges 8×8, depth 8 | first | 328.069 → 2.193 | 330.303 → 2.211 | 27.469 → 7.234 |
+| Ranges 256×256, depth 1 | eager | 1200.018 → 1173.387 | 1208.063 → 1186.494 | 81.125 → 81.188 |
+| Ranges 256×256, depth 1 | cursor | 1148.688 → 2.287 | 1158.673 → 977.253 | 81.250 → 7.016 |
+| Ranges 256×256, depth 1 | first | 1192.204 → 2.365 | 1200.887 → 2.377 | 81.328 → 7.156 |
+
+Both cursor modes were Buffered before this change and are Incremental after it.
+For node-dependent ranges, first-row consumption falls from about 1.37 seconds
+to 1.3 ms, with process RSS falling from about 84 MiB to 7 MiB. The 256×256 case
+falls from about 1.19 seconds to 2.4 ms and from 81 MiB to 7 MiB. The 8×8 case
+falls from 328 ms to 2.2 ms and from 27 MiB to 7 MiB.
+
+Full-cursor medians fall about 15% for node ranges and 16% for the 256×256 case;
+the 8×8 case is essentially unchanged (338 ms). Its trial ranges overlap and
+vary substantially; eager controls vary too. These samples do not establish a
+general throughput gain.
+Per-member SQL execution remains a cost. Each active stage still constructs and
+retains its complete input list and live bindings; nesting and large values can
+raise memory use. These results demonstrate avoiding the complete expanded
+result buffer, rather than a whole-query memory cap.
+
+Reproduce with the shared example and process runner:
+
+```sh
+cargo build --release --example cursor_traversal
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 10 0 unwind-chain-nodes
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 8 0 unwind-chain 8
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 1 0 unwind-chain 256
+```
+
+Use `eager`, `cursor`, and `first` for all-row eager execution, full cursor
+consumption, and one-row consumption followed by drop. Criterion adds
+`cursor_traversal_unwind_chain_nodes/{eager,cursor,first}` at depth 10 and
+`cursor_traversal_unwind_chain/{eager,cursor,first}` at depth 6 with fanout 8.

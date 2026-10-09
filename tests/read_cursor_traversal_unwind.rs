@@ -134,10 +134,10 @@ fn unwind_final_distinct_union_and_pagination_compose() {
 }
 
 #[test]
-fn unwind_keeps_global_and_multiple_expansions_buffered() {
+fn unwind_keeps_global_stages_and_joins_buffered() {
     let mut db = fixture();
     for query in [
-        "MATCH p=(:S)-[:R*]->() UNWIND [1,2] AS x UNWIND [x] AS y RETURN y",
+        "MATCH p=(:S)-[:R*]->() UNWIND [1,2] AS x WITH DISTINCT x UNWIND [x] AS y RETURN y",
         "MATCH p=(:S)-[:R*]->() WITH DISTINCT p UNWIND nodes(p) AS n RETURN n",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n RETURN n",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH n ORDER BY n.x RETURN n",
