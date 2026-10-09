@@ -190,14 +190,16 @@ each batch. Distinct operators retain seen values and preserve typed equality;
 memory grows with the number and size of unique rows. Branches share one snapshot
 and resource budget; early drop skips the suffix beyond any hydration read-ahead.
 A single deep/open-ended relationship between two endpoints can stream through
-filters, projections, chained `UNWIND`, and `WITH SKIP/LIMIT` between expansions.
+filters, projections, chained `UNWIND`, and `WITH DISTINCT/SKIP/LIMIT` between
+expansions.
 Intermediate pages count across incoming rows and stop upstream work at their
-limit after downstream expansions finish for admitted rows.
+limit after downstream expansions finish for admitted rows. WITH DISTINCT
+compares projected values before pagination, retaining a seen set per stage.
 With a same-clause start label or inline property, it
 loads indexed neighbors as nodes are expanded and caches them for the active
 producer. Unconstrained starts load eligible edges up front. Endpoint domains,
 cached neighbors, and the search frontier remain in memory while paused.
-Traversal sorts, aggregates, intermediate DISTINCT, extra joins,
+Traversal sorts, aggregates, extra joins,
 and shortest paths use `ReadMode::Buffered`, computing the complete result when the cursor
 starts. SQLite-only reads may still buffer internally for sorts or aggregates.
 
@@ -606,17 +608,17 @@ The planner is deliberately small and layered:
   row plan in `planner/logical.rs`.
 - `planner/sqlite.rs` generates parameterized `SqlFragment` values. Each
   read-only `WITH` boundary becomes a CTE carrying projected entity, path,
-  and scalar slots. `WITH DISTINCT` materializes projections and ranks rows by
-  typed semantic keys before pagination. Explicit traversal bounds through 32 become recursive CTEs;
+  and scalar slots. `WITH DISTINCT` materializes projections; eager SQL ranks
+  typed semantic keys before pagination, while eligible trail cursors compare
+  keys in per-stage seen sets. Explicit traversal bounds through 32 become recursive CTEs;
   deep, open-ended, and shortest-path traversals instead declare typed runtime
   inputs consumed through branch-local runtime slots.
 - `planner/physical.rs` connects SQLite fragments to explicit
   `trail-expand`, `shortest-expand`, semantic-distinct, pagination, union,
   and batch-hydration operators. Static parameters and runtime-slot arguments
   retain their exact SQLite placeholder order.
-  Each supported read branch currently has one consuming SQL fragment; a
-  future SQL-to-Rust-row-to-SQL construct will require a multi-fragment
-  extension.
+  Each eager read branch has one consuming SQL fragment. Eligible trail cursors
+  split its projection into resumable SQL stages for UNWIND, DISTINCT, and pages.
 - `database.rs` prepares the complete physical tree before executing it, then
   evaluates its SQL and Rust operators into pending typed cells under one
   deferred snapshot and one query-wide traversal resource budget. Mutations

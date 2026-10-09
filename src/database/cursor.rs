@@ -9,9 +9,9 @@ use rusqlite::{
 };
 
 use super::{
-    Database, ExecutionContext, PathHydrator, PendingRow, decode_pending_row,
-    execute_prepared_read_plan, finish_pending_row, transaction::TransactionState,
-    traversal::TrailStream,
+    Database, ExecutionContext, PathHydrator, PendingRow, decode_pending_columns,
+    decode_pending_row, execute_prepared_read_plan, finish_pending_row,
+    transaction::TransactionState, traversal::TrailStream,
 };
 use crate::{
     CypherValue, Error, Parameters, QueryOptions, Result,
@@ -27,12 +27,12 @@ use crate::{
 #[non_exhaustive]
 pub enum ReadMode {
     /// SQLite fragments and eligible single-trail projections, including
-    /// UNWIND and WITH projection/filter/pagination stages, compose through
+    /// UNWIND and WITH projection/filter/DISTINCT/pagination stages, compose through
     /// UNION, DISTINCT, pagination, and batch hydration without buffering the
     /// complete result. Rust trails retain graph inputs and a search frontier;
     /// UNWIND retains one input row and list per active expansion stage.
     /// Intermediate pages retain one admitted row and pagination counters.
-    /// DISTINCT retains seen rows; hydration retains one batch of entities.
+    /// Each DISTINCT stage retains seen rows; hydration retains one batch of entities.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
     Incremental,
     /// The plan requires the existing eager executor. Cursor creation
@@ -162,12 +162,18 @@ struct TrailStageRows<'read> {
     argument_count: usize,
     carried_count: usize,
     state: TrailStageState,
+    distinct: Option<StageDistinct<'read>>,
+}
+
+struct StageDistinct<'read> {
+    columns: &'read [(usize, OutputShape)],
+    seen: SeenRows,
 }
 
 enum TrailStageState {
     Unwind(UnwindRows),
     Page {
-        skip_index: usize,
+        skip_index: Option<usize>,
         skip: usize,
         remaining: Option<usize>,
         pending: bool,
@@ -307,7 +313,9 @@ impl TrailRows<'_> {
             .map_or(0, |parent| self.stages[parent].argument_count);
         let stage = &mut self.stages[index];
         if let TrailStageState::Page {
-            skip_index, skip, ..
+            skip_index: Some(skip_index),
+            skip,
+            ..
         } = stage.state
         {
             self.bindings[skip_index] = SqlValue::Integer(i64::from(skip > 0));
@@ -333,35 +341,44 @@ impl TrailRows<'_> {
                 let count = stage.carried_count
                     + usize::from(matches!(stage.state, TrailStageState::Unwind(_)));
                 context.record_sql_row(row, count.max(1))?;
-                let admitted = match &mut stage.state {
-                    TrailStageState::Unwind(unwind) => {
-                        unwind.list = row.get(stage.carried_count)?;
-                        if !unwind.list.starts_with('[') {
-                            return Err(Error::Data(
-                                "streaming UNWIND input is not an array".into(),
-                            ));
-                        }
-                        unwind.position = 1;
-                        true
+                let unique = match &mut stage.distinct {
+                    Some(distinct) => {
+                        let key =
+                            decode_pending_columns(row, distinct.columns.iter().copied(), context)?;
+                        distinct.seen.insert(&key, context)?
                     }
-                    TrailStageState::Page {
-                        skip,
-                        remaining,
-                        pending,
-                        ..
-                    } => {
-                        if *skip > 0 {
-                            *skip -= 1;
-                            false
-                        } else {
-                            if let Some(remaining) = remaining {
-                                *remaining -= 1;
+                    None => true,
+                };
+                let admitted = unique
+                    && match &mut stage.state {
+                        TrailStageState::Unwind(unwind) => {
+                            unwind.list = row.get(stage.carried_count)?;
+                            if !unwind.list.starts_with('[') {
+                                return Err(Error::Data(
+                                    "streaming UNWIND input is not an array".into(),
+                                ));
                             }
-                            *pending = true;
+                            unwind.position = 1;
                             true
                         }
-                    }
-                };
+                        TrailStageState::Page {
+                            skip,
+                            remaining,
+                            pending,
+                            ..
+                        } => {
+                            if *skip > 0 {
+                                *skip -= 1;
+                                false
+                            } else {
+                                if let Some(remaining) = remaining {
+                                    *remaining -= 1;
+                                }
+                                *pending = true;
+                                true
+                            }
+                        }
+                    };
                 if admitted {
                     for column in 0..stage.carried_count {
                         self.bindings[stage.argument_count + column] = row.get(column)?;
@@ -785,6 +802,12 @@ impl PreparedRead<'_> {
                                                 .prepare_cached(&stage.sql)?,
                                             argument_count: stage.argument_count,
                                             carried_count: stage.carried_count,
+                                            distinct: stage.distinct.as_ref().map(|columns| {
+                                                StageDistinct {
+                                                    columns,
+                                                    seen: SeenRows::default(),
+                                                }
+                                            }),
                                             state: match &stage.page {
                                                 Some(page) => TrailStageState::Page {
                                                     skip_index: page.skip_index,

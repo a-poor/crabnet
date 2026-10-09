@@ -98,18 +98,18 @@ fn with_chains_preserve_typed_bags_scopes_paths_and_empty_inputs() {
 fn non_rowwise_stages_and_other_producers_remain_buffered() {
     let mut db = fixture();
     for query in [
-        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b RETURN p,b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b ORDER BY 1 RETURN p,b",
         "MATCH p=(:S)-[:R*]->(b) WITH length(p) AS x ORDER BY x RETURN x",
-        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b SKIP 0 RETURN p,b",
-        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b LIMIT 0 RETURN p,b",
-        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b SKIP 1 LIMIT 2 WITH b RETURN b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b ORDER BY 1 SKIP 0 RETURN p,b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b ORDER BY 1 LIMIT 0 RETURN p,b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b ORDER BY 1 SKIP 1 LIMIT 2 WITH b RETURN b",
         "MATCH p=(:S)-[:R*]->(b) WITH count(*) AS x WITH x+1 AS y RETURN y",
         "MATCH p=(:S)-[:R*]->(b) WITH head(collect(b)) AS n WITH n RETURN n",
         "MATCH p=(:S)-[:R*]->(b) WITH b RETURN count(*)",
         "MATCH p=(:S)-[:R*]->(b) WITH b RETURN b ORDER BY b.x",
         "MATCH p=(:S)-[:R*]->(b) WITH b MATCH (n) RETURN n,b",
         "MATCH p=(:S)-[:R*]->(b) WITH b OPTIONAL MATCH (b)-[:R]->(c) RETURN b,c",
-        "MATCH p=(:S)-[:R*]->(b) WITH p UNWIND nodes(p) AS n WITH DISTINCT n UNWIND [n] AS m RETURN m",
+        "MATCH p=(:S)-[:R*]->(b) WITH p UNWIND nodes(p) AS n WITH DISTINCT n ORDER BY 1 UNWIND [n] AS m RETURN m",
         "WITH 1 AS x MATCH p=(:S)-[:R*]->(b) WITH p,x RETURN p,x",
         "MATCH p=(:S)-[:R*]->(b)-[:R*]->(c) WITH p RETURN p",
         "MATCH p=shortestPath((:S)-[:R*]->(b)) WITH p RETURN p",

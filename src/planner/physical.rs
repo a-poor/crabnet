@@ -292,8 +292,8 @@ pub(crate) struct SqlFragment {
     pub(crate) output_shapes: Vec<OutputShape>,
     pub(crate) arguments: Vec<FragmentArgument>,
     pub(crate) inputs: Vec<ValueOperator>,
-    /// A distributive projection for a single trail input, optionally expanded
-    /// through UNWIND and pagination stages before its rowwise consumer.
+    /// A single-trail cursor pipeline with optional UNWIND, DISTINCT, and
+    /// pagination stages before its rowwise consumer.
     /// The eager fragment keeps its original SQL pagination.
     pub(crate) trail_cursor: Option<Box<TrailCursorSpec>>,
 }
@@ -327,11 +327,16 @@ pub(crate) struct TrailStageSpec<Page = ValueExpr> {
     pub(crate) argument_count: usize,
     pub(crate) carried_count: usize,
     pub(crate) page: Option<TrailPage<Page>>,
+    /// Columns in the frozen scope that form the projected DISTINCT key.
+    /// A path and its node/relationship lists can share a column but decode
+    /// with different shapes. Hidden incoming bindings are never key columns.
+    pub(crate) distinct: Option<Vec<(usize, OutputShape)>>,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct TrailPage<Page> {
-    pub(crate) skip_index: usize,
+    /// Ordinary page projection guard; DISTINCT must evaluate skipped keys.
+    pub(crate) skip_index: Option<usize>,
     pub(crate) offset: Option<Page>,
     pub(crate) limit: Option<Page>,
 }
@@ -342,6 +347,7 @@ impl TrailStageSpec {
             sql: self.sql,
             argument_count: self.argument_count,
             carried_count: self.carried_count,
+            distinct: self.distinct,
             page: self
                 .page
                 .map(|page| -> Result<_> {

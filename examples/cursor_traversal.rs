@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if !(2..=5).contains(&args.len()) || !matches!(args[0].as_str(), "eager" | "cursor" | "first") {
         return Err(
-            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with|unwind-nodes|unwind|unwind-chain-nodes|unwind-chain|page-trails|page-members|page-all] [fanout:1..100000]"
+            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with|unwind-nodes|unwind|unwind-chain-nodes|unwind-chain|page-trails|page-members|page-all|distinct-entities|distinct-unique|distinct-page] [fanout:1..100000]"
                 .into(),
         );
     }
@@ -37,6 +37,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             | "page-trails"
             | "page-members"
             | "page-all"
+            | "distinct-entities"
+            | "distinct-unique"
+            | "distinct-page"
     ) {
         return Err("unknown query shape; see usage for supported shapes".into());
     }
@@ -50,6 +53,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     if shape == "page-trails" && depth == 1 {
         return Err("page-trails needs depth >= 2 for a nonempty page".into());
+    }
+    if shape == "distinct-page" && depth < 3 {
+        return Err("distinct-page needs depth >= 3 for a nonempty page".into());
     }
     println!(
         "{}",
@@ -82,6 +88,9 @@ fn measure(
         "page-trails" => fixture::PAGE_TRAILS_QUERY,
         "page-members" => fixture::PAGE_MEMBERS_QUERY,
         "page-all" => fixture::PAGE_ALL_QUERY,
+        "distinct-entities" => fixture::DISTINCT_ENTITIES_QUERY,
+        "distinct-unique" => fixture::DISTINCT_UNIQUE_QUERY,
+        "distinct-page" => fixture::DISTINCT_PAGE_QUERY,
         _ => fixture::QUERY,
     };
     let parameters = Parameters::from([
@@ -140,7 +149,10 @@ fn measure(
             ]) {
                 *sum += value;
             }
-        } else if shape.starts_with("unwind") || shape.starts_with("page-") {
+        } else if shape.starts_with("unwind")
+            || shape.starts_with("page-")
+            || shape.starts_with("distinct-")
+        {
             let CypherValue::Integer(member) = row[2] else {
                 panic!("invalid member")
             };
@@ -180,7 +192,7 @@ fn measure(
     let consumed_rows: usize = histogram.iter().sum();
     if mode == "first" {
         assert_eq!(consumed_rows, 1);
-        if !shape.starts_with("page-") {
+        if !shape.starts_with("page-") && !shape.starts_with("distinct-") {
             assert_eq!(histogram[1], 1);
         }
     } else {
@@ -207,17 +219,24 @@ fn measure(
             }
             let last = match shape {
                 "unwind-nodes" => hops,
-                "unwind" | "page-all" => fanout,
+                "unwind" | "page-all" | "distinct-entities" | "distinct-unique"
+                | "distinct-page" => fanout,
                 _ => 0,
             } as u128;
             let multiplier = match shape {
                 "unwind-nodes" => hops + 1,
-                "unwind" | "page-all" => fanout,
+                "unwind" | "page-all" | "distinct-entities" | "distinct-unique"
+                | "distinct-page" => fanout,
                 "unwind-chain-nodes" => (hops + 1) * (hops + 2) / 2,
                 "unwind-chain" => fanout * fanout,
                 _ => 1,
             };
-            assert_eq!(*count, (1 << hops) * multiplier);
+            let representatives = match shape {
+                "distinct-entities" => 1,
+                "distinct-page" => usize::from(*count > 0),
+                _ => 1 << hops,
+            };
+            assert_eq!(*count, representatives * multiplier);
             if shape.starts_with("unwind-chain") {
                 let mut expected = [0u128; 5];
                 let sources = if shape == "unwind-chain-nodes" {
@@ -249,12 +268,15 @@ fn measure(
                     chain_checks[hops],
                     expected.map(|value| value * (1 << hops))
                 );
-            } else if shape.starts_with("unwind") || shape == "page-all" {
+            } else if shape.starts_with("unwind")
+                || shape == "page-all"
+                || shape.starts_with("distinct-")
+            {
                 assert_eq!(
                     member_checks[hops],
                     (
-                        (1 << hops) * last * (last + 1) / 2,
-                        (1 << hops) * last * (last + 1) * (2 * last + 1) / 6
+                        representatives as u128 * last * (last + 1) / 2,
+                        representatives as u128 * last * (last + 1) * (2 * last + 1) / 6
                     )
                 );
             }
@@ -363,6 +385,28 @@ mod tests {
                             1
                         } else {
                             fixture::output_rows(depth, shape, 8)
+                        }
+                    );
+                    if mode != "eager" {
+                        assert_eq!(report["read_mode"], "Incremental");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn intermediate_distinct_preserves_unique_keys_and_downstream_bags() {
+        for shape in ["distinct-entities", "distinct-unique", "distinct-page"] {
+            for depth in [3, 5] {
+                for mode in ["eager", "cursor", "first"] {
+                    let report = measure(mode, depth, 0, shape, 4).unwrap();
+                    assert_eq!(
+                        report["consumed_rows"],
+                        if mode == "first" {
+                            1
+                        } else {
+                            fixture::output_rows(depth, shape, 4)
                         }
                     );
                     if mode != "eager" {

@@ -524,7 +524,16 @@ zero pages preflight without execution. Exact transfer budgets, cumulative
 union work, hydration rollback, prepared reuse, cancellation, and read-only
 snapshot release on drop/exhaustion/error/panic are covered.
 
-The existing cursor tests retain buffered coverage with WITH DISTINCT stages and
+`tests/read_cursor_traversal_distinct.rs` adds twelve tests for intermediate
+DISTINCT across parent lists, independent stage/branch seen sets, complete-row
+typed keys and numeric representatives, entities/nested values, path and
+path-list keys sharing storage, hidden incoming filter scope, empty scopes,
+volatile aliases, unique-row pages, early exit, projection errors, zero-page
+preflight, exact duplicate/skip transfer budgets, hydration rollback, and
+read-only snapshot/control cleanup. Full bags compare with eager execution;
+unordered path pages compare to the cursor's own complete stream.
+
+The existing cursor tests retain buffered coverage with ordered WITH stages and
 shortest paths; eligible transaction cursor cases now assert Incremental.
 `examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
 edge chain in eager/full-cursor/first-row modes. The `cursor_traversal/*`
@@ -551,6 +560,12 @@ Bounded pages validate scalar-member bags independently of which unordered
 trails were selected; the pass-through page also checks the depth histogram.
 Matching `cursor_traversal_page_{trails,members,all}/*` Criterion groups cover
 eager, full cursor, and first-row consumption.
+The `distinct-entities`, `distinct-unique`, and `distinct-page` shapes exercise
+duplicate-heavy node keys, unique path keys, and a limited DISTINCT stage.
+Counts, per-depth member sums/squared sums, and valid member bounds guard the
+result bags without assuming unordered representative order. Matching
+`cursor_traversal_distinct_{entities,unique,page}/*` Criterion cases cover all
+three consumption modes; measurements report the retained-key cost explicitly.
 
 ## Persistent application workload
 

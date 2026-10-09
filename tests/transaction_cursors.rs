@@ -247,14 +247,14 @@ fn errors_starting_buffered_or_cancelled_cursors_abort_before_returning() {
     let mut db = Database::in_memory().unwrap();
     for (query, options) in [
         (
-            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT * RETURN p",
+            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT * ORDER BY 1 RETURN p",
             QueryOptions {
                 max_result_rows: Some(0),
                 ..QueryOptions::default()
             },
         ),
         (
-            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT * RETURN p",
+            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT * ORDER BY 1 RETURN p",
             QueryOptions {
                 traversal: TraversalLimits {
                     max_states: 0,
@@ -264,7 +264,7 @@ fn errors_starting_buffered_or_cancelled_cursors_abort_before_returning() {
             },
         ),
         (
-            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT p UNWIND ['bad'] AS v RETURN p,v[0]",
+            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT p ORDER BY 1 UNWIND ['bad'] AS v RETURN p,v[0]",
             QueryOptions::default(),
         ),
     ] {
@@ -579,7 +579,7 @@ fn preparation_and_cursor_start_failures_release_locks_immediately() {
             }
         };
         let query = if buffered {
-            "MATCH p=(:Earlier)-[:LINK*1..40]->() WITH DISTINCT * RETURN p"
+            "MATCH p=(:Earlier)-[:LINK*1..40]->() WITH DISTINCT * ORDER BY 1 RETURN p"
         } else {
             "RETURN 1"
         };

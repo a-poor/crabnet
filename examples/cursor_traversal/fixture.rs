@@ -40,6 +40,16 @@ pub const PAGE_ALL_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
     UNWIND range(1,$fanout) AS member
     WITH hops,endpoint,member SKIP 0 RETURN hops,endpoint,member";
 
+pub const DISTINCT_ENTITIES_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->()
+    UNWIND nodes(p) AS n WITH DISTINCT n WHERE n.id>0
+    UNWIND range(1,$fanout) AS member RETURN n.id AS hops,n.id AS endpoint,member";
+pub const DISTINCT_UNIQUE_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH DISTINCT p,b UNWIND range(1,$fanout) AS member
+    RETURN length(p) AS hops,b.id AS endpoint,member";
+pub const DISTINCT_PAGE_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->()
+    UNWIND nodes(p) AS n WITH DISTINCT n SKIP 2 LIMIT 10 WHERE n.id>0
+    UNWIND range(1,$fanout) AS member RETURN n.id AS hops,n.id AS endpoint,member";
+
 pub fn output_rows(depth: usize, shape: &str, fanout: usize) -> usize {
     match shape {
         "unwind-nodes" => (1..=depth).map(|hops| (1 << hops) * (hops + 1)).sum(),
@@ -51,6 +61,9 @@ pub fn output_rows(depth: usize, shape: &str, fanout: usize) -> usize {
         "page-trails" => potential_rows(depth).saturating_sub(2).min(10) * fanout,
         "page-members" => fanout * fanout,
         "page-all" => potential_rows(depth) * fanout,
+        "distinct-entities" => depth * fanout,
+        "distinct-unique" => potential_rows(depth) * fanout,
+        "distinct-page" => depth.saturating_sub(2).min(10) * fanout,
         _ => potential_rows(depth),
     }
 }

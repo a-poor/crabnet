@@ -522,16 +522,23 @@ fn decode_pending_row(
     shapes: &[OutputShape],
     context: &ExecutionContext,
 ) -> Result<PendingRow> {
-    shapes
-        .iter()
-        .enumerate()
+    decode_pending_columns(row, shapes.iter().copied().enumerate(), context)
+}
+
+fn decode_pending_columns(
+    row: &rusqlite::Row<'_>,
+    columns: impl IntoIterator<Item = (usize, OutputShape)>,
+    context: &ExecutionContext,
+) -> Result<PendingRow> {
+    columns
+        .into_iter()
         .map(|(index, shape)| {
             context.check()?;
             decode_pending_output(
                 row.get_ref(index)?
                     .as_str()
                     .map_err(rusqlite::Error::from)?,
-                *shape,
+                shape,
             )
         })
         .collect()

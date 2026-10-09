@@ -4,10 +4,13 @@ This is a living plan for an experimental embedded property-graph database. It
 is intentionally a direction of travel rather than a compatibility promise.
 Update it when implementation work teaches us something better.
 
-The next main milestone is **usable inside a real embedded Rust application**
-(milestone 10). Its checklist below is the active task list. Conformance and
-optimization continue to support that work; broad temporal compatibility is
-deferred until an application needs it.
+The core engine and application foundations are implemented for a substantial,
+documented subset. The next main milestone is **a validated downstream Rust
+application pilot** (milestone 10), followed by **production qualification for
+a defined supported configuration** (milestone 11). Close the current
+implementation/validation cycle, then let the pilot's requirements drive
+further engine work. Conformance and measured optimization support these gates;
+expanding the query language is a separate backlog.
 
 ## Project posture
 
@@ -16,14 +19,19 @@ deferred until an application needs it.
 - Schema compatibility remains experimental. Version 5 preserves the upgrades
   from main's versions 1–4; migrations and index backfills run atomically.
   Unreleased branch-only formats may require recreating the database.
-- Git provides recovery. Code should be clear enough to support the next
-  experiment, not preserved merely because it already exists.
+- A pilot pins its Crabnet version and records its API and storage assumptions.
+  Changes affecting an adopted pilot need an explicit upgrade or rebuild path.
+  Completing the pilot does not itself establish a stable public API or storage
+  compatibility promise; milestone 11 defines those commitments.
+- Use repository history to recover earlier code and the documented backup and
+  recovery workflow for database files. Keep code clear enough to support the
+  next experiment.
 - Correct results or a structured plan-time rejection are both acceptable.
   Plausible but incorrect results are not.
 
 ## Where we are
 
-Crabnet already has more than a greenfield skeleton:
+The implemented baseline includes:
 
 - openCypher text is parsed by the in-house parser, bound, and lowered into a
   slot-based logical row plan;
@@ -40,15 +48,16 @@ Crabnet already has more than a greenfield skeleton:
   matching compose through that read pipeline with explicit bag, type, and
   null-extension semantics;
 - legacy variable-length traversal uses recursive SQLite CTEs for explicit
-  maxima through 32 and Rust relationship-unique trail enumeration materialized
-  as JSON for larger or omitted maxima;
+  maxima through 32 and Rust relationship-unique trail enumeration for larger
+  or omitted maxima. Eligible cursors stream encoded singleton trails; eager
+  execution and buffered cursor shapes materialize runtime JSON relations;
 - mandatory read-only fixed, variable-length, and mixed patterns can bind public
   typed paths, including zero-hop values; SQLite carries ordered IDs into
-  pending cells, which Rust shapes before one query-wide batch hydration pass
-  on a shared deferred snapshot;
+  pending cells, which Rust shapes before query-wide hydration in eager reads
+  or bounded row batches in eligible cursors, on a shared snapshot;
 - fresh legacy relationship variables, including deep/open-ended forms, bind
   traversal-ordered typed relationship lists with zero-hop `[]` through the same
-  query-wide identity shaping and hydration;
+  identity shaping and hydration pipeline;
 - legacy `shortestPath` and `allShortestPaths` factors use Rust BFS over one
   variable-length relationship to select one deterministic but unspecified
   minimum trail or all tied unweighted minimum trails per endpoint pair. Lower
@@ -62,16 +71,38 @@ Crabnet already has more than a greenfield skeleton:
 - matched node and relationship properties support direct `SET`/`REMOVE` plus
   literal/parameter whole-map replacement and merge;
 - matched `DELETE` and `DETACH DELETE` deduplicate targets across the input bag,
-  report actual storage-row counters, and roll back atomically; and
-- unsupported, semantic, parse, data, and missing-parameter failures are
-  distinguished.
+  report actual storage-row counters, and roll back atomically;
+- `MERGE`, application-managed node uniqueness constraints, and transactions
+  spanning multiple queries support import/update workflows with read-your-writes
+  and rollback on query failure;
+- prepared reads expose incremental or buffered execution before starting.
+  Eligible single-trail cursors compose through `WITH` projections, filters,
+  DISTINCT and pagination, chained `UNWIND`, final DISTINCT/UNION, and batched
+  hydration. Constrained starts load neighbors on demand. The corresponding
+  implementation entries below record each slice and its validation;
+- query options bound traversal work and retained traversal state, SQL work,
+  transfers, and results, with cooperative cancellation and deadlines. These
+  counters do not constitute a whole-query memory cap;
+- file opening modes, lock contention, atomic migrations, validated backup and
+  restore, and process-termination recovery have local-file coverage; and
+- structured errors distinguish planning, type/data, constraint, resource,
+  cancellation, and contention failures.
 
-The current executor is already a hybrid: SQLite materializes match rows and
-compact path identities, while Rust enumerates deep/open-ended trails or runs
-shortest-path BFS and feeds fully materialized JSON relations back into SQLite,
-applies semantic row shaping, batch-hydrates surviving graph values, and
-executes mutations. We should grow that design instead of restarting from a
-read-only architecture.
+The executor combines parameterized SQLite fragments with Rust traversal,
+semantic row shaping, and hydration. Incremental reads retain their snapshot
+until exhaustion, error, or drop; eager and ineligible cursor shapes buffer.
+Global traversal sorting/aggregation, additional joins, multiple producers,
+and shortest-path output still have buffering boundaries. SQLite can also
+materialize internally. The supported concurrency contract is independent,
+serially used connections on local files with DELETE rollback journaling and
+one writer at a time. Long-lived cursors can block commits.
+
+The dependency-graph example exercises a full persistent lifecycle and has
+recorded measurements at 1,000 and 10,000 packages. It supplies regression and
+benchmark evidence for a downstream pilot. API/schema stability, a qualified
+platform matrix, and power-loss/disk-I/O failure behavior remain explicit work.
+See [coverage.md](coverage.md), [semantics.md](semantics.md), and
+[cursors.md](cursors.md) for the current supported surface and limits.
 
 ## Design principles
 
@@ -108,13 +139,18 @@ Cypher text
   -> typed Cypher rows and mutation summary
 ```
 
-Plans should eventually have a deliberate, stable text rendering. That gives
-tests a useful boundary and can later power an `EXPLAIN` facility.
+Logical and physical explanations already exist and provide a useful test and
+diagnostic boundary. Their text format remains experimental; stabilize it only
+as part of an explicit application or public compatibility requirement.
 
 ## Milestones
 
 Each milestone should leave the supported subset documented and the full suite
 green. The order is intentional, but discoveries may move individual features.
+Completed milestones and checked implementation entries record the behavior at
+the time each slice landed; later entries may extend their original boundaries.
+Use the current-state summary and coverage/semantics documents for today's
+contract. Unchecked pilot and qualification items below are the remaining gates.
 
 ### 1. Make the current contract explicit
 
@@ -454,7 +490,8 @@ Concurrent external-writer semantics remain a non-goal.
   hand-computed peaks and exact boundaries; executor tests show the charge
   released between `UNION` branches.
 - The openCypher TCK slice is green. The complete openCypher 2024.3 suite is
-  vendored and runs in normal CI against pinned `allowlist.txt` and
+  vendored and runs through `cargo test --test tck` and the normal all-targets
+  test command against pinned `allowlist.txt` and
   `exclusions.txt` files that must agree with observed behavior in both
   directions. More than half of the expanded scenarios pass; every other
   scenario carries a generated reason, dominated by unsupported functions,
@@ -470,8 +507,38 @@ failures are reproducible, and optimizations preserve plan/result contracts.
 ### 10. Application usability — in progress
 
 The goal is one real Rust application that can import a graph, query it,
-update it atomically, and reopen it with predictable behavior. Keep the
-existing semantic tests and pinned TCK outcomes green throughout this work.
+update it atomically, and reopen it with predictable behavior. The implemented
+foundations below support that goal; the remaining gate is a downstream pilot
+with recorded acceptance criteria. Keep the existing semantic tests and pinned
+TCK outcomes green throughout this work.
+
+#### Pilot completion checklist
+
+- [ ] **Record a validated pilot baseline.** Finish the current implementation
+  and validation cycle, including streaming WITH DISTINCT, and pin the revision
+  with its required test/check results and relevant measurements.
+- [ ] **Select and define one downstream application.** Name an actual Rust
+  consumer of the library and record its required queries, data sizes and
+  distributions, mutation mix, concurrency, and file setup. Set latency,
+  peak-memory, and sustained-run duration or operation-count targets before
+  the acceptance run. Reuse the dependency-graph example's fixtures and checks
+  where useful.
+- [ ] **Exercise the public application lifecycle.** Integrate import,
+  parameterized queries, updates, transactions, constraints, resource limits,
+  reopening, and backup/restore as required by the application. Record which
+  reads buffer and how the application handles busy, cancelled, and failed
+  operations. The repository example alone does not complete this pilot.
+- [ ] **Run and record the sustained workload.** Verify expected graph/results
+  throughout repeated import/update/read cycles; exercise cancellation, failed
+  writes, process interruption, reopening, and restoration of a real backup.
+  Record tail latency, peak RSS, and contention under the declared workload.
+  Turn every correctness or operational failure into a reproducible regression.
+- [ ] **Review the pilot report.** Keep a versioned report in `docs/`, linked
+  here, with the application/version, commands, workload, acceptance results,
+  and remaining restrictions. Resolve defects in the required contract and
+  demonstrate the declared targets before closing this milestone.
+
+#### Implemented foundations
 
 - [x] **Transactions spanning multiple queries — complete.**
   `Database::transaction()` exposes parameterized execution, read-your-writes,
@@ -770,45 +837,102 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   The shared example and Criterion groups cover caps before/between expansions
   and full consumption through a pass-through page; see the
   [comparison](cursors.md#intermediate-pagination-measurements).
+- [x] **Intermediate DISTINCT in Rust traversal cursors.** WITH DISTINCT
+  compares projected typed keys across all incoming rows, then applies its
+  SKIP/LIMIT and resumes downstream expansions. Independent stage seen sets
+  preserve identity and numeric/recursive equivalence; projected aliases and
+  WHERE scope match eager lowering. Twelve tests cover bags, shared path-key
+  storage, empty scopes, volatile/error behavior, budgets, hydration rollback,
+  preflight, snapshots, and cleanup. Duplicate-heavy, unique-key, and early-page
+  fixtures measure retained state and consumption; see the
+  [comparison](cursors.md#intermediate-distinct-measurements).
 
-Gate: the example completes its lifecycle using the public API, documented
-failure paths preserve graph state, persistent data survives reopening, and
-the workload has reproducible performance and resource measurements.
+Gate: the named downstream pilot meets its recorded correctness, recovery,
+resource, and performance criteria through the public API, with reproducible
+evidence and no unresolved defects in its required contract. Additional Cypher
+features are required only when the pilot depends on them. The experimental
+designation remains until the release commitments below are qualified.
+
+### 11. Production qualification — planned
+
+Qualify a release for an explicit query subset and operating configuration.
+The pilot supplies application evidence; this milestone establishes repeatable
+release checks and compatibility commitments. Basic automation can begin while
+the pilot runs.
+
+- [ ] **Define the supported configuration.** Record supported operating systems,
+  Rust toolchains, SQLite build/configuration, local-file assumptions, and
+  concurrency limits. Start with the tested DELETE-journal contract. WAL,
+  network filesystems, and other configurations require their own evidence if
+  added to the support matrix.
+- [ ] **Set API and storage compatibility policy.** Define versioning,
+  deprecations, the supported schema-upgrade range, and recovery or rebuild
+  procedures when an upgrade cannot proceed. Test release-to-release upgrades
+  and backup/restore using retained fixtures from supported versions. Document
+  downgrade limitations and the application's rollback procedure.
+- [ ] **Verify automated release checks.** No checked-in CI configuration was
+  present in the 2026-10-09 roadmap audit; existing references to CI are not
+  evidence of an automated platform matrix. Verify any external pipeline or
+  add repository-owned configuration. Run the required tests, pinned TCK,
+  doctests, formatting, and Clippy on the declared platforms; give expensive
+  workloads an explicit scheduled or release gate. Preserve commands/results.
+- [ ] **Qualify failure behavior and durability claims.** Add reproducible
+  disk-full and I/O fault tests for writes, commit, migration, backup, and
+  restore. Exercise corruption detection and failed-open/restore behavior.
+  Use a documented fault model to test power-loss/torn-write recovery before
+  claiming it; current process-termination tests cover a narrower failure model.
+  Keep unqualified storage configurations outside the supported contract.
+- [ ] **Close correctness gaps in the declared surface.** Resolve known
+  wrong-answer cases, including NaN where supported, and document or reject
+  unsupported inputs. Review error-semantics deviations explicitly. Add
+  deterministic differential tests against a pinned reference for supported
+  queries, preserving bags and minimizing failures into local regressions.
+  Broad temporal or procedure compatibility is not a prerequisite unless it
+  belongs to the chosen surface.
+- [ ] **Publish a reproducible qualification record.** Repeat sustained workload,
+  contention, resource-limit, upgrade, and restore checks for the release
+  candidate. Review package metadata/licensing and dependencies, record known
+  limitations and measured regressions, and provide release/upgrade notes.
+  Link the evidence before making a stable or production-support claim.
+
+Gate: a named release meets all declared support and compatibility commitments,
+with repeatable automated checks, failure/recovery evidence, and a reviewed
+qualification report. Qualification applies to that recorded subset and
+configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-Multi-query transactions, `WITH DISTINCT`, and entity collection/expansion
-(`collect(n)`, `collect(DISTINCT n)`, and `UNWIND`) are complete, as is `UNWIND`
-for path-function and legacy relationship lists. Aggregate expressions such
-as `count(*) + 1` and application node uniqueness constraints are also complete.
-Caller-controlled query resources and the dependency-graph application/workload
-are complete for eager execution. Opening options and reader/writer contention
-are complete for local files with rollback journaling, as are process-termination
-recovery and backup/restore. The first incremental read slice is complete for
-eligible SQLite fragments composed through UNION/UNION ALL, semantic DISTINCT,
-pagination, and batched path/list hydration, with explicit buffering,
-retained-state, and cursor/snapshot rules.
-The same cursor API is available inside application transactions, with fresh
-per-cursor counters, reads of earlier writes, and immediate rollback on errors.
-Keep the example, cursor, and persistence tests as application regression coverage.
-Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
-collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
-`coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
-predicates, and expression DELETE and property SET/REMOVE targets are also complete.
-Single-trail Rust cursors, constrained neighbor loading, and following plain
-WITH projections/filters/pagination around chained UNWINDs are complete. Next broaden cursor shapes or
-unconstrained graph-input loading where
-measurements justify it, or add graph-value
-scalar operations and expression targets for other mutations.
-Bulk node-upsert index maintenance and statement reuse are complete. Further
-performance work should follow a new profile, such as reachable-region shortest
-search or imports that change constrained keys; plan caching is not yet
-justified by this workload.
-Track completion in milestone 10 rather than a separate
-TODO file.
-Fix correctness regressions as they appear and keep reviewing TCK changes;
-temporal support and broad differential testing remain follow-up conformance
-work rather than prerequisites for this usability milestone.
+1. Close the current intermediate WITH DISTINCT implementation/validation
+   cycle and record the pilot baseline. Preserve eager semantics and explicit
+   retained-state/resource boundaries.
+2. Select and validate the milestone 10 downstream pilot. Prioritize defects,
+   unsupported required queries, and measured performance problems it exposes.
+   Keep the example, cursor, persistence, and pinned TCK tests as regressions.
+3. Qualify the supported release under milestone 11. Establish automation early;
+   make compatibility and durability claims only when their gates are met.
+
+Correctness regressions remain immediate work throughout. Track pilot and
+qualification completion in their checklists instead of adding every new engine
+feature to milestone 10.
+
+### Feature follow-ups
+
+These extend capability and are not automatic pilot or release blockers. Promote
+an item into a gate when a concrete application requirement or measurement
+justifies it:
+
+- Broader traversal cursor shapes: sorting/aggregation, additional joins,
+  multiple producers, shortest-path output, and unconstrained graph-input
+  loading. Retain explicit buffering where streaming is not implemented.
+- Further graph-value scalar functions and ordering, and expression targets
+  for whole-map and label mutations.
+- Temporal types/functions, procedures, and broader Cypher compatibility.
+  Continue reviewing pinned TCK outcomes as each supported slice changes.
+- Composite/relationship constraints, Cypher schema DDL, and additional storage
+  configurations where an application needs them.
+- Further performance work supported by a new profile, such as imports that
+  change constrained keys or reachable-region shortest search. Plan caching
+  remains unproven by the current workload.
 
 ## Milestone 9 implementation notes
 

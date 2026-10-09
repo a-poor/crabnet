@@ -1698,14 +1698,14 @@ execution strategy explicit before starting:
 
 Eligible Rust traversal is one MATCH with a single deep/open-ended relationship
 and its two endpoint nodes, followed by non-aggregating, unordered projections
-and filters, including chained UNWINDs and WITH pagination between expansions.
+and filters, including chained UNWINDs and WITH DISTINCT/pagination between
+expansions.
 Filters, path/relationship-list outputs, DISTINCT, and final pagination compose
 incrementally. Each trail produces at most one consuming SQL row without UNWIND,
 or one per surviving member with it. Additional joins, multiple producers,
 OPTIONAL MATCH, global sorting or aggregation,
-and shortest-path producers retain buffered execution. Any WITH DISTINCT,
-aggregation, ORDER BY, or a stage before the initial MATCH,
-also retains buffering. Eager
+and shortest-path producers retain buffered execution. WITH aggregation or
+ORDER BY, or a stage before the initial MATCH, also retains buffering. Eager
 execution and its SQL pagination are unchanged. Unordered pagination selects an
 unspecified subset; no cross-mode ordering guarantee is added.
 
@@ -1746,8 +1746,8 @@ these values are outside the retained traversal-memory counter. See the
 
 Each intermediate WITH page owns offset/limit counters across all incoming
 trails and UNWIND members, rather than resetting them for each parent. WHERE
-runs before pagination. SKIP suppresses this WITH's projection, but not its
-filter or preceding stages. A matching skipped row transfers a placeholder;
+runs before pagination. Without DISTINCT, SKIP suppresses this WITH's projection,
+but not its filter or preceding stages. A matching skipped row transfers a placeholder;
 an admitted row transfers its frozen projected bindings. Both count against
 SQL transfer limits before copying; filtered inputs do not. Admitted rows
 remain counted even when later filters or empty lists produce no output.
@@ -1756,6 +1756,22 @@ admitted row, then stops all upstream work. LIMIT 0 anywhere in the eligible
 pipeline avoids producer execution, while all parameters/pages still preflight.
 Page frames retain one row and counters, sharing snapshot, cancellation,
 hydration, error/rollback, and cumulative resource rules with other stages.
+
+WITH DISTINCT evaluates the projection once before its modifiers, preserving
+incoming variables for WHERE and dropping them before constructing the key.
+Only projected columns participate in typed semantic equality. Each stage's
+seen set spans trails and parent lists, retains the first encountered
+representative, and is independent of other stages and UNION branches. Path,
+node-list, and relationship-list keys compare their respective ordered
+identities even when carried in the same encoded column; compact path keys
+are compared before hydration. SKIP/LIMIT count unique rows, with skipped
+keys retained to reject subsequent duplicates. DISTINCT projections still
+evaluate on skipped inputs. Duplicate and skipped matching rows spend SQL
+transfer budgets before decoding/copying but do not count as final outputs.
+Retained seen rows grow with key count and size, outside the traversal-memory
+counter. Completion/error/drop releases them; each new cursor starts empty.
+Eager window ranking and incremental first encounters can select different
+unordered page subsets. No cross-mode ordering guarantee is introduced.
 
 Incremental `UNION ALL` visits branches from left to right and preserves bags,
 branch-local ordering, and each branch's output shapes. Empty branches are

@@ -90,7 +90,7 @@ partial errors, cancellation, and resource accounting.
 
 A single `MATCH` with one deep/open-ended variable-length relationship and only
 its endpoint nodes can stream. Filters, scalar/entity/path projections, legacy
-relationship lists, chained `UNWIND`, `WITH` projections/filters/pagination,
+relationship lists, chained `UNWIND`, `WITH` projections/filters/DISTINCT/pagination,
 final DISTINCT, and final pagination are supported. For example:
 
 ```cypher
@@ -128,8 +128,9 @@ do not refund traversal work or payload.
 
 Intermediate `WITH SKIP/LIMIT` counts matching incoming rows across trails and
 parent lists, with independent counters for each page. Its WHERE filter runs
-before pagination. SKIP suppresses that WITH's projection on discarded rows;
-earlier WITH/UNWIND computations and the page's filter still run and can fail.
+before pagination. Without DISTINCT, SKIP suppresses that WITH's projection on
+discarded rows; earlier WITH/UNWIND computations and the page's filter still run
+and can fail.
 Each admitted row freezes its projected bindings once, preserving volatile
 aliases while downstream expansions run. At the limit, those expansions finish
 before upstream production stops. Empty or filtered downstream results do not
@@ -150,6 +151,38 @@ including skipped placeholders, counts as a SQL transfer; filtered inputs do
 not. Downstream UNWIND inputs and final projections are charged separately.
 Without ORDER BY, pagination selects an unspecified subset and introduces no
 ordering guarantee between eager and cursor execution.
+
+`WITH DISTINCT` evaluates its projection once, applies WHERE using the projected
+aliases and incoming scope, then deduplicates only the projected columns.
+Each stage retains its own seen set across all trails and parent lists, keeping
+the first representative encountered by that cursor. Keys use the same typed
+equivalence as final DISTINCT: exact numeric equality, recursive lists/maps,
+entity identity, and ordered path/list identities. A path and its node or
+relationship list can share storage while contributing different key values.
+Compact path keys do not require hydration. Ordinary maps remain distinct from
+graph records with similar fields.
+
+SKIP/LIMIT on WITH DISTINCT count unique rows. Skipped unique keys remain in
+the seen set so their later duplicates cannot reappear. DISTINCT projections
+are evaluated even for skipped rows; duplicate and skipped inputs count toward
+SQL transfer limits before key decoding/copying. Filtered inputs do not transfer
+a row. Aliases remain frozen while downstream stages run; a reached limit
+drains admitted expansions before stopping ancestors. LIMIT 0 still avoids
+producer execution after preflight. For example:
+
+```cypher
+MATCH p=(:Start)-[:NEXT*]->()
+UNWIND nodes(p) AS n
+WITH DISTINCT n LIMIT 10
+UNWIND n.tags AS tag
+RETURN n, tag
+```
+
+Seen-set memory grows with the number and size of unique projected rows,
+including skipped keys. This retained state is outside the traversal-memory
+counter; cumulative transfer limits still apply. Stage/branch completion,
+errors, and cursor drop release it. Eager window ranking may emit another
+unordered order and therefore choose another paginated subset.
 
 For example, `MATCH p=(:Start)-[:NEXT*]->() UNWIND nodes(p) AS n RETURN n`
 streams nodes while retaining repeated identities and parallel-trail multiplicity.
@@ -180,7 +213,7 @@ LIMIT 10
 
 Global ORDER BY or aggregation over Rust trails, additional pattern joins,
 multiple traversal producers, OPTIONAL MATCH, and shortest paths still report
-`Buffered`. A `WITH` containing DISTINCT, aggregation, or ordering also forces
+`Buffered`. A `WITH` containing aggregation or ordering also forces
 buffering, including when combined with pagination. Stages preceding the
 initial MATCH remain outside this streaming shape. Small bounded traversals
 executed entirely by SQLite retain their existing behavior. Inspect `mode()`.
@@ -887,3 +920,85 @@ Use `eager`, `cursor`, and `first` for all-row eager execution, full cursor
 consumption, and one-row consumption followed by drop. Criterion adds
 `cursor_traversal_page_{trails,members,all}/{eager,cursor,first}`, all at depth 10;
 fanout is 128 for the bounded pages and 32 for the pass-through page.
+
+## Intermediate DISTINCT measurements
+
+A 2026-10-09 release comparison uses baseline `0b57317` and the intermediate
+WITH DISTINCT implementation. The baseline is an isolated archive with its own
+target directory and identical example/fixture sources. Three sequential
+fresh-process trials per engine, fixture, and mode alternate engine order and
+rotate mode order. All builds and checks finished before measurement. The
+[54 raw trials](measurements/cursor-with-distinct-2026-10-09.json) include commands,
+source/binary hashes, compiler/platform, medians, and ranges. Baseline sources
+were checked against the commit, fixture copies were compared byte-for-byte,
+and source hashes were checked again after the trials.
+
+The parallel-edge chain supports three DISTINCT shapes:
+
+- `distinct-entities`: depth 10, with 2,046 trails and 20,480 path-node members,
+  including start nodes filtered out by WHERE. WITH DISTINCT n retains ten
+  node keys, then a range of 32 members produces 320 output rows.
+- `distinct-unique`: depth 12, with 8,190 unique path/endpoint keys. WITH
+  DISTINCT p,b precedes a range of four members, producing 32,760 output rows.
+- `distinct-page`: depth 12, with 8,190 potential trails and 98,304 path-node
+  members before filtering. WITH DISTINCT n SKIP 2 LIMIT 10 precedes a range
+  of 128 members, producing 1,280 rows from ten admitted keys. The cursor stops
+  upstream traversal when this page is filled and its expansions finish.
+
+Full consumption checks per-depth counts, member sums/squared sums, and member
+bounds. Unordered pages check total cardinality and each selected key's member
+bag without requiring the same node IDs across modes. First-row consumption
+checks one result without assuming its depth. Final outputs are scalars, so
+these cases exclude hydration; path keys stay compact in the seen set.
+
+Medians show **before → after**. Query timings include planning, snapshot setup,
+decoding, per-row validation, and cleanup, excluding graph setup. First-row time
+ends when the consumer receives its first owned row. Peak RSS covers the whole
+process, including graph setup.
+
+| DISTINCT keys | Mode | First row ms | Total ms | Peak RSS MiB |
+| --- | --- | ---: | ---: | ---: |
+| Duplicate-heavy nodes | eager | 1451.391 → 1306.336 | 1451.406 → 1306.347 | 25.547 → 25.484 |
+| Duplicate-heavy nodes | cursor | 1137.514 → 0.837 | 1137.532 → 1049.813 | 25.391 → 7.141 |
+| Duplicate-heavy nodes | first | 1194.418 → 1.151 | 1194.435 → 1.163 | 25.453 → 6.812 |
+| Unique paths/endpoints | eager | 2659.886 → 2901.607 | 2668.966 → 2904.695 | 67.500 → 65.766 |
+| Unique paths/endpoints | cursor | 3224.444 → 1.427 | 3227.710 → 3552.494 | 63.094 → 35.672 |
+| Unique paths/endpoints | first | 2543.344 → 0.726 | 2546.054 → 0.736 | 67.562 → 6.672 |
+| Node page, SKIP 2 LIMIT 10 | eager | 8143.577 → 8343.231 | 8143.609 → 8343.265 | 52.484 → 52.547 |
+| Node page, SKIP 2 LIMIT 10 | cursor | 8068.792 → 1.049 | 8069.049 → 6.468 | 52.500 → 6.891 |
+| Node page, SKIP 2 LIMIT 10 | first | 6942.929 → 1.086 | 6942.959 → 1.098 | 53.719 → 6.828 |
+
+Both cursor modes were Buffered before and are Incremental after the change.
+First-row consumption falls from about 1.19 seconds to 1.2 ms for node keys,
+2.54 seconds to 0.7 ms for unique paths, and 6.94 seconds to 1.1 ms for the page.
+The limited page's full-cursor median falls from 8.07 seconds to 6.5 ms, with
+process RSS falling from 52.5 MiB to 6.9 MiB. It stops upstream work once the
+unique-row limit is satisfied and avoids buffering the complete result.
+
+Full consumption still has costs. The duplicate-heavy cursor median falls
+about 8%, from 1,138 to 1,050 ms, while the unique-key median rises about 10%,
+from 3,228 to 3,552 ms. Unique-key trial ranges are 2,239–4,041 ms before and
+3,341–3,660 ms after. Ranges overlap substantially and eager controls vary too;
+these small samples do not establish a general throughput gain or an exact
+slowdown for other workloads. Per-input SQL execution and scope transfer remain
+costs even when most keys are duplicates.
+
+Seen sets retain every unique key, including skipped ones. Full consumption
+with 8,190 path/endpoint keys uses about 36 MiB, compared with 6.7 MiB when
+consuming one row. This is still below the buffered cursor's 63 MiB median,
+but demonstrates growth with retained keys. Each active UNWIND also retains its
+complete input list. These results do not imply a whole-query memory cap.
+
+Reproduce with the shared example and process runner:
+
+```sh
+cargo build --release --example cursor_traversal
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 10 0 distinct-entities 32
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 12 0 distinct-unique 4
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 12 0 distinct-page 128
+```
+
+Use `eager`, `cursor`, and `first` for all-row eager execution, full cursor
+consumption, and one-row consumption followed by drop. Criterion adds
+`cursor_traversal_distinct_{entities,unique,page}/{eager,cursor,first}`, using
+the same depth and fanout values as these measurements.

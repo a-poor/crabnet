@@ -225,8 +225,8 @@ fn compile_read_with_probes(
         sql.push_str(&ordering);
     }
 
-    // Rowwise WITH stages distribute over singleton trails. UNWIND and pages
-    // become resumable cursor stages with counters shared across input rows.
+    // Rowwise WITH stages distribute over singleton trails. UNWIND, DISTINCT,
+    // and pages become cursor stages with state shared across incoming rows.
     let trail_cursor = (single_trail_projection(input)
         && !aggregating
         && projection.order_by.is_empty()
@@ -242,7 +242,7 @@ fn compile_read_with_probes(
         ) = input
             && let Some(index) = pipeline.stages.iter().position(|s| {
                 matches!(s, ReadStage::Unwind(_))
-                    || matches!(s, ReadStage::With(w) if w.offset.is_some() || w.limit.is_some())
+                    || matches!(s, ReadStage::With(w) if w.distinct || w.offset.is_some() || w.limit.is_some())
             }) {
             member_compiler = Compiler::new();
             member_compiler.compile_stages(&pipeline.stages[..index])?;
@@ -252,8 +252,8 @@ fn compile_read_with_probes(
                     ReadStage::Unwind(stage) => {
                         stages.push(member_compiler.compile_cursor_unwind(stage)?)
                     }
-                    ReadStage::With(stage) if stage.offset.is_some() || stage.limit.is_some() => {
-                        stages.push(member_compiler.compile_cursor_page(stage)?)
+                    ReadStage::With(stage) if stage.distinct || stage.offset.is_some() || stage.limit.is_some() => {
+                        stages.push(member_compiler.compile_cursor_with(stage)?)
                     }
                     ReadStage::With(stage) => member_compiler.compile_with(stage)?,
                     _ => unreachable!("eligible cursor stages are WITH or UNWIND"),
@@ -355,7 +355,7 @@ fn single_trail_projection(input: &Input) -> bool {
         Input::Pipeline(ReadPipeline { stages }) => match stages.as_slice() {
             [ReadStage::Match(plan), following @ ..]
                 if following.iter().all(|stage| match stage {
-                    ReadStage::With(stage) => rowwise_with(stage),
+                    ReadStage::With(stage) => streamable_with(stage),
                     ReadStage::Unwind(stage) => !stage.expression.contains_aggregate(),
                     _ => false,
                 }) =>
@@ -401,12 +401,10 @@ fn single_trail_projection(input: &Input) -> bool {
     })
 }
 
-// Each WITH must remain zero or one row per input member; cursor page stages
-// own global offset/limit counters. Check every stage,
-// even if a later stage discards its ordering or aggregate output.
-fn rowwise_with(stage: &WithStage) -> bool {
-    !stage.distinct
-        && stage.order_by.is_empty()
+// Cursor stages own DISTINCT and pagination state across incoming rows.
+// Check every stage, even if a later one drops ordering or aggregate output.
+fn streamable_with(stage: &WithStage) -> bool {
+    stage.order_by.is_empty()
         && !stage.filter.as_ref().is_some_and(Expr::contains_aggregate)
         && !stage.bindings.iter().any(|binding| {
             matches!(binding,
@@ -1708,7 +1706,13 @@ impl Compiler {
         if !stage.distinct {
             return self.compile_with_rows(stage);
         }
+        let modifiers = self.compile_distinct_projection(stage)?;
+        let result = self.compile_with_rows(&modifiers);
+        self.projected_scalars.clear();
+        result
+    }
 
+    fn compile_distinct_projection(&mut self, stage: &WithStage) -> Result<WithStage> {
         // Evaluate the projection once before DISTINCT's modifiers. Keep
         // incoming values temporarily so WHERE can still inspect dropped
         // variables; aliases already refer to the projected scalar slots.
@@ -1797,9 +1801,7 @@ impl Compiler {
                 };
             }
         }
-        let result = self.compile_with_rows(&modifiers);
-        self.projected_scalars.clear();
-        result
+        Ok(modifiers)
     }
 
     fn compile_with_rows(&mut self, stage: &WithStage) -> Result<()> {
@@ -2142,7 +2144,7 @@ impl Compiler {
             let (value, kind) = self.scalar_parts(&stage.expression)?;
             format!("CASE WHEN ({kind}) = 'array' THEN ({value}) ELSE '[]' END")
         };
-        let spec = self.freeze_cursor_scope(Some(list))?;
+        let spec = self.freeze_cursor_scope(Some(list), None)?;
         let member = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
             serde_json::Value::Null,
         )));
@@ -2170,18 +2172,27 @@ impl Compiler {
         Ok(spec)
     }
 
-    fn compile_cursor_page(&mut self, stage: &WithStage) -> Result<TrailStageSpec> {
-        let skip_index = self.bindings.len();
-        let skip = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
-            serde_json::Value::Null,
-        )));
-        let mut rowwise = stage.clone();
+    fn compile_cursor_with(&mut self, stage: &WithStage) -> Result<TrailStageSpec> {
+        let (mut rowwise, skip_index, skip) = if stage.distinct {
+            // DISTINCT evaluates projected values before WHERE and pagination.
+            // Reuse the eager scope lowering, but deduplicate across incoming
+            // rows in Rust instead of ranking each singleton in SQLite.
+            (self.compile_distinct_projection(stage)?, None, None)
+        } else {
+            let index = self.bindings.len();
+            let guard = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+                serde_json::Value::Null,
+            )));
+            (stage.clone(), Some(index), Some(guard))
+        };
+        rowwise.distinct = false;
         rowwise.offset = None;
         rowwise.limit = None;
-        // Return a placeholder for a matching skipped row so Rust can count it,
-        // while guarding this WITH's projection just as SQLite OFFSET does.
-        self.compile_with_rows_guarded(&rowwise, Some(&skip))?;
-        let mut spec = self.freeze_cursor_scope(None)?;
+        // Ordinary pages return a placeholder for each skipped row, guarding
+        // the projection as SQLite OFFSET does. DISTINCT needs the full key.
+        self.compile_with_rows_guarded(&rowwise, skip.as_deref())?;
+        let mut spec =
+            self.freeze_cursor_scope(None, stage.distinct.then_some(stage.bindings.as_slice()))?;
         spec.page = Some(TrailPage {
             skip_index,
             offset: stage.offset.clone(),
@@ -2192,7 +2203,11 @@ impl Compiler {
 
     /// Materialize one live scope and replace it with an independent binding
     /// region. Ancestor regions remain intact until their expansions finish.
-    fn freeze_cursor_scope(&mut self, list: Option<String>) -> Result<TrailStageSpec> {
+    fn freeze_cursor_scope(
+        &mut self,
+        list: Option<String>,
+        distinct: Option<&[WithBinding]>,
+    ) -> Result<TrailStageSpec> {
         let mut entities = self
             .entities
             .iter()
@@ -2203,6 +2218,54 @@ impl Compiler {
         scalars.sort();
         let mut paths = self.paths.keys().copied().collect::<Vec<_>>();
         paths.sort();
+        let distinct = distinct
+            .map(|bindings| {
+                bindings
+                    .iter()
+                    .map(|binding| {
+                        let (column, shape) = match binding {
+                            WithBinding::Entity { slot, kind, .. } => (
+                                entities.iter().position(|(candidate, _)| candidate == slot),
+                                OutputShape::Entity(*kind),
+                            ),
+                            WithBinding::Scalar {
+                                slot, expression, ..
+                            } => (
+                                scalars
+                                    .iter()
+                                    .position(|candidate| candidate == slot)
+                                    .map(|i| entities.len() + i),
+                                match expression {
+                                    Expr::Nested { .. } => OutputShape::Nested,
+                                    Expr::EntityList { kind, .. } => OutputShape::EntityList(*kind),
+                                    _ => OutputShape::Json,
+                                },
+                            ),
+                            WithBinding::Path { path, .. }
+                            | WithBinding::PathCollection { path, .. } => (
+                                paths
+                                    .iter()
+                                    .position(|candidate| candidate == path)
+                                    .map(|i| entities.len() + scalars.len() + i),
+                                match binding {
+                                    WithBinding::PathCollection {
+                                        kind: PathCollectionKind::Nodes,
+                                        ..
+                                    } => OutputShape::PathNodes,
+                                    WithBinding::PathCollection { .. } => {
+                                        OutputShape::PathRelationships
+                                    }
+                                    _ => OutputShape::PathIdentity,
+                                },
+                            ),
+                        };
+                        column.map(|column| (column, shape)).ok_or_else(|| {
+                            Error::Data("missing streaming DISTINCT key column".into())
+                        })
+                    })
+                    .collect::<Result<Vec<_>>>()
+            })
+            .transpose()?;
         let mut select = entities
             .iter()
             .map(|(slot, kind)| self.encoded_entity(*slot, *kind))
@@ -2220,6 +2283,7 @@ impl Compiler {
             argument_count: self.bindings.len(),
             carried_count,
             page: None,
+            distinct,
         };
         self.ctes.clear();
         self.has_recursive_cte = false;

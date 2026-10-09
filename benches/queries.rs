@@ -884,8 +884,29 @@ fn bench_traversal_cursor(c: &mut Criterion) {
             &[0][..],
             traversal_cursor_fixture::PAGE_ALL_QUERY,
         ),
+        (
+            "cursor_traversal_distinct_entities",
+            &[0][..],
+            traversal_cursor_fixture::DISTINCT_ENTITIES_QUERY,
+        ),
+        (
+            "cursor_traversal_distinct_unique",
+            &[0][..],
+            traversal_cursor_fixture::DISTINCT_UNIQUE_QUERY,
+        ),
+        (
+            "cursor_traversal_distinct_page",
+            &[0][..],
+            traversal_cursor_fixture::DISTINCT_PAGE_QUERY,
+        ),
     ] {
-        let shape = if query == traversal_cursor_fixture::PAGE_TRAILS_QUERY {
+        let shape = if query == traversal_cursor_fixture::DISTINCT_ENTITIES_QUERY {
+            "distinct-entities"
+        } else if query == traversal_cursor_fixture::DISTINCT_UNIQUE_QUERY {
+            "distinct-unique"
+        } else if query == traversal_cursor_fixture::DISTINCT_PAGE_QUERY {
+            "distinct-page"
+        } else if query == traversal_cursor_fixture::PAGE_TRAILS_QUERY {
             "page-trails"
         } else if query == traversal_cursor_fixture::PAGE_MEMBERS_QUERY {
             "page-members"
@@ -902,10 +923,18 @@ fn bench_traversal_cursor(c: &mut Criterion) {
         } else {
             "direct"
         };
-        let depth = if shape == "unwind-chain" { 6 } else { 10 };
+        let depth = if shape == "unwind-chain" {
+            6
+        } else if matches!(shape, "distinct-unique" | "distinct-page") {
+            12
+        } else {
+            10
+        };
         let fanout = if shape == "unwind-chain" {
             8
-        } else if shape == "page-all" {
+        } else if shape == "distinct-unique" {
+            4
+        } else if matches!(shape, "page-all" | "distinct-entities") {
             32
         } else {
             128

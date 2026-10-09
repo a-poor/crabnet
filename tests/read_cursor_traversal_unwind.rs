@@ -137,12 +137,12 @@ fn unwind_final_distinct_union_and_pagination_compose() {
 fn unwind_keeps_global_stages_and_joins_buffered() {
     let mut db = fixture();
     for query in [
-        "MATCH p=(:S)-[:R*]->() UNWIND [1,2] AS x WITH DISTINCT x UNWIND [x] AS y RETURN y",
-        "MATCH p=(:S)-[:R*]->() WITH DISTINCT p UNWIND nodes(p) AS n RETURN n",
-        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n RETURN n",
+        "MATCH p=(:S)-[:R*]->() UNWIND [1,2] AS x WITH DISTINCT x ORDER BY 1 UNWIND [x] AS y RETURN y",
+        "MATCH p=(:S)-[:R*]->() WITH DISTINCT p ORDER BY 1 UNWIND nodes(p) AS n RETURN n",
+        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n ORDER BY 1 RETURN n",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH n ORDER BY n.x RETURN n",
-        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n SKIP 0 RETURN n",
-        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n LIMIT 0 RETURN n",
+        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n ORDER BY 1 SKIP 0 RETURN n",
+        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n ORDER BY 1 LIMIT 0 RETURN n",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n RETURN count(n)",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n RETURN n ORDER BY n.x",
         "UNWIND [1] AS x MATCH p=(:S)-[:R*]->() RETURN p,x",
