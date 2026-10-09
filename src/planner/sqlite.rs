@@ -225,8 +225,9 @@ fn compile_read_with_probes(
     }
 
     // Execute this projection once per yielded trail only when every outer
-    // scan is an endpoint joined by identity. In particular, optional joins,
-    // additional patterns/stages, global sorting, and aggregation cannot be
+    // scan is an endpoint joined by identity and later WITH stages only
+    // project/filter that row. Optional joins, additional patterns, UNWIND,
+    // sorting, aggregation, and intermediate pages/deduplication cannot be
     // distributed over singleton input relations.
     let trail_cursor = (single_trail_projection(input)
         && !aggregating
@@ -313,7 +314,13 @@ fn single_trail_projection(input: &Input) -> bool {
     let plan = match input {
         Input::Match(plan) => plan,
         Input::Pipeline(ReadPipeline { stages }) => match stages.as_slice() {
-            [ReadStage::Match(plan)] => plan,
+            [ReadStage::Match(plan), following @ ..]
+                if following.iter().all(
+                    |stage| matches!(stage, ReadStage::With(stage) if rowwise_with(stage)),
+                ) =>
+            {
+                plan
+            }
             _ => return false,
         },
         _ => return false,
@@ -351,6 +358,22 @@ fn single_trail_projection(input: &Input) -> bool {
         }
         _ => false,
     })
+}
+
+// A singleton trail must remain zero or one row all the way to RETURN. Check
+// each stage, even if a later stage discards its ordering or aggregate output.
+fn rowwise_with(stage: &WithStage) -> bool {
+    !stage.distinct
+        && stage.order_by.is_empty()
+        && stage.offset.is_none()
+        && stage.limit.is_none()
+        && !stage.filter.as_ref().is_some_and(Expr::contains_aggregate)
+        && !stage.bindings.iter().any(|binding| {
+            matches!(binding,
+                WithBinding::Scalar { expression, .. }
+                | WithBinding::Entity { expression: Some(expression), .. }
+                if expression.contains_aggregate())
+        })
 }
 
 /// Compiles the read that feeds a mutation step: the input's stages, then

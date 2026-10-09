@@ -733,6 +733,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   oracle, cache accounting/cleanup, and index checks cover the boundary. The
   parallel-edge example and Criterion fixtures now vary disconnected graph
   size; see [scaling measurements](cursors.md#constrained-cursor-neighbor-measurements).
+- [x] **Plain WITH stages in traversal cursors.** A single trail-producing
+  MATCH can stream through chains of WITH aliases, computed projections, and
+  filters. Typed paths/entities/lists, volatile aliases, final DISTINCT/UNION/
+  pagination, hydration, and constrained neighbor probes compose through these
+  stages. WITH DISTINCT, aggregation, ordering, intermediate pagination, and
+  additional MATCH/OPTIONAL MATCH/UNWIND stages retain buffering. Ten integration
+  tests cover bags/scopes, early exit, error evaluation, resource controls,
+  snapshots and transaction rollback. The shared example and Criterion group
+  measure the same traversal through two WITH stages; see the
+  [comparison](cursors.md#traversal-with-measurements).
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -758,8 +768,9 @@ Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
 `coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
 predicates, and expression DELETE and property SET/REMOVE targets are also complete.
-The first single-trail Rust cursor slice and constrained neighbor loading are
-complete. Next broaden cursor shapes or unconstrained graph-input loading where
+Single-trail Rust cursors, constrained neighbor loading, and following plain
+WITH projections/filters are complete. Next broaden cursor shapes or
+unconstrained graph-input loading where
 measurements justify it, or add graph-value
 scalar operations and expression targets for other mutations.
 Bulk node-upsert index maintenance and statement reuse are complete. Further

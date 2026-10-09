@@ -485,7 +485,17 @@ domains. Shared neighbor-cache tests check index selection, dense bindings,
 transfer accounting, cancellation on cache hits, exact retained-memory bounds,
 failed-probe cleanup, and release between producers.
 
-The existing cursor tests retain buffered coverage with WITH stages and
+`tests/read_cursor_traversal_with.rs` adds ten tests for following plain WITH
+chains: aliases, typed paths/entities/nested values, shadowing and dropped
+incoming variables in WHERE, empty/zero-hop inputs, predicates, directions,
+volatile alias reuse, final DISTINCT/UNION/pages, and explicit fallback for
+global stages. Resource tests prove filtered trails spend work, early LIMIT/drop
+stop the suffix, final SKIP guards RETURN while WITH expressions still run,
+parameters preflight on zero pages, and errors are terminal. Coverage includes
+hydration with earlier transaction writes, rollback/reuse, and read-only file
+snapshot pinning and cleanup on exhaustion/error/drop/panic.
+
+The existing cursor tests retain buffered coverage with WITH DISTINCT stages and
 shortest paths; eligible transaction cursor cases now assert Incremental.
 `examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
 edge chain in eager/full-cursor/first-row modes. The `cursor_traversal/*`
@@ -494,6 +504,8 @@ disconnected eligible self-loops while retaining the same output bag. The
 `cursor_traversal_neighbors/*` group adds 1,000 and 10,000 such edges. See the
 [measurement guide](cursors.md#rust-traversal-measurements) for fresh-process
 first-row latency, full-consumption time, and peak-RSS comparisons.
+The example's optional `with` shape and `cursor_traversal_with/*` Criterion
+group run two WITH stages over the same fixture and validate the same histogram.
 
 ## Persistent application workload
 

@@ -90,10 +90,12 @@ partial errors, cancellation, and resource accounting.
 
 A single `MATCH` with one deep/open-ended variable-length relationship and only
 its endpoint nodes can stream. Filters, scalar/entity/path projections, legacy
-relationship lists, DISTINCT, and final pagination are supported. For example:
+relationship lists, plain `WITH` chains, final DISTINCT, and final pagination
+are supported. For example:
 
 ```cypher
 MATCH p=(:Start)-[:NEXT*]->(end)
+WITH p, end WHERE end.active = true
 RETURN p, end.id
 LIMIT 10
 ```
@@ -115,19 +117,32 @@ remain relationship-unique; parallel relationships and duplicate result values
 keep their multiplicity. This avoids retaining the complete runtime-result
 relation, while graph inputs and the traversal frontier still consume memory.
 
+Each following `WITH` may rename bindings, compute expressions, carry typed
+entities/paths/lists, and filter rows. The compiled stages run once per admitted
+trail and produce zero or one final row. A projected random value is reused by
+its aliases within that row. Filters do not refund traversal work or payload.
+
 Global ORDER BY or aggregation over Rust trails, additional pattern joins,
-multiple traversal producers, OPTIONAL MATCH, WITH/UNWIND stages, and shortest
-paths still report `Buffered`. Small bounded traversals executed entirely by
-SQLite retain their existing behavior. Always inspect `mode()`.
+multiple traversal producers, OPTIONAL MATCH, UNWIND, and shortest paths still
+report `Buffered`. A `WITH` containing DISTINCT, aggregation, ordering, SKIP, or
+LIMIT also forces buffering, even for SKIP 0 or LIMIT 0. Stages preceding the
+initial MATCH remain outside this streaming shape. Small bounded traversals
+executed entirely by SQLite retain their existing behavior. Inspect `mode()`.
 
 Early drop and a reached LIMIT stop further enumeration beyond hydration's
 current batch. LIMIT 0 starts no producer, but all parameters and page values
 are still validated at preparation. Ordinary SKIP suppresses projection
-expressions on discarded matched trails, while DISTINCT pagination evaluates
-projected values before deduplication. Skipped placeholder rows still count as
+expressions in RETURN on discarded matched trails; prior WITH computations
+still run and can fail. DISTINCT pagination evaluates projected values before
+deduplication. Skipped placeholder rows still count as
 SQL transfers. Errors can follow earlier rows and are
 terminal; transaction-scoped failures roll back earlier writes. The standalone
 snapshot is pinned at cursor creation, before graph loading begins.
+
+A WITH expression error in an unread suffix is not encountered after early
+drop or final LIMIT. Eager execution can encounter that error while materializing
+the complete stage. Once a cursor observes an error it becomes terminal, even
+if earlier rows have been delivered.
 
 State and payload counters span all cursor advances and union branches. Payload
 accounting counts each singleton JSON array's framing, so full consumption can
@@ -545,3 +560,68 @@ high-degree reachable nodes, hydration, and unconstrained starts require
 separate measurements before extending this strategy. The
 [measurement record](measurements/cursor-neighbors-2026-10-08.json) contains
 all trial reports, medians/ranges, source and binary hashes, and platform data.
+
+### Traversal WITH measurements
+
+The example's optional fourth argument selects `direct` (the default) or `with`.
+The latter uses the same parallel-edge fixture and returns the same length/ID
+rows through two WITH stages:
+
+```cypher
+MATCH p=(:Start)-[:NEXT*]->(b)
+WITH p AS trail, b WHERE b.id >= 1
+WITH length(trail) AS hops, b.id AS endpoint
+RETURN hops, endpoint
+```
+
+All fixture paths survive the filter. Full consumption checks the exact depth
+histogram and endpoints; first-only consumption checks one one-hop row.
+
+```sh
+cargo build --release --example cursor_traversal
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 14 0 with
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 14 0 with
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal eager 14 0 with
+cargo bench --bench queries -- cursor_traversal_with
+```
+
+Repeat with depth 10, then depth 10 and 10,000 unrelated edges. Criterion uses
+depth 10 with zero unrelated edges for all three consumption modes.
+
+Measured on 2026-10-08 with Rust 1.99.0, release builds, and macOS 26.5.1
+arm64. The baseline is commit `1428d35` in an isolated archive/target with only
+the identical extended example/fixture copied in. Three fresh-process trials
+per engine, fixture, and mode alternated engine order and rotated mode order,
+after all builds and tests finished. All 54 runs passed their row-count,
+endpoint, and depth-histogram checks. Baseline WITH cursors reported `Buffered`;
+updated WITH cursors reported `Incremental`.
+
+The table gives medians, before → after. First-row and complete-query timings
+include planning, snapshot setup, decoding, and validation; complete-query time
+also includes cleanup. Setup time is reported separately. Peak RSS covers the
+whole process, including fixture construction and SQLite.
+
+| Potential rows | Unrelated edges | Consumption | First row (ms) | Complete query (ms) | Peak RSS (MiB) |
+| ---: | ---: | --- | ---: | ---: | ---: |
+| 2,046 | 0 | Full cursor | 24.946 → 0.514 | 24.997 → 33.807 | 16.625 → 6.859 |
+| 2,046 | 0 | First only | 24.853 → 0.497 | 24.887 → 0.502 | 16.625 → 6.719 |
+| 32,766 | 0 | Full cursor | 514.277 → 0.506 | 517.341 → 589.019 | 160.828 → 7.016 |
+| 32,766 | 0 | First only | 513.321 → 0.515 | 516.391 → 0.520 | 160.781 → 6.734 |
+| 2,046 | 10,000 | Full cursor | 32.750 → 0.610 | 32.800 → 34.240 | 32.578 → 21.266 |
+| 2,046 | 10,000 | First only | 32.594 → 0.577 | 32.640 → 0.584 | 32.688 → 21.016 |
+
+At 32,766 paths, first-only latency ranged from 505.446–520.920 ms before and
+0.493–0.598 ms after. Peak RSS ranged from 160.766–160.859 MiB before and
+6.703–6.734 MiB after. Full-consumption medians increased about 35% at 2,046
+paths and 14% at 32,766; the large-case ranges were 509.336–518.872 ms before
+and 585.380–589.592 ms after. The case with 10,000 unrelated edges increased
+about 4%. Eager controls changed by less than 2% in all three fixtures; their
+large-case query medians were 510.611 → 516.255 ms with roughly 160.8 MiB RSS.
+
+Executing materialized WITH stages separately for every trail costs throughput
+when consuming everything, while avoiding full-result retention and permitting
+early exit. Indexed neighbor loading also remains available through plain WITH
+stages. These observations cover scalar final outputs and the documented
+fixture, rather than a whole-query memory guarantee or general throughput gain.
+The [measurement record](measurements/cursor-with-2026-10-08.json) includes all
+trial reports, medians/ranges, source/binary hashes, and platform information.

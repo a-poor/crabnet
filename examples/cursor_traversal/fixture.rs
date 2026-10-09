@@ -2,6 +2,9 @@ use crabnet::{Database, Parameters, QueryOptions, TraversalLimits};
 use serde_json::json;
 
 pub const QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b) RETURN length(p), b.id";
+pub const WITH_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH p AS trail,b WHERE b.id >= 1
+    WITH length(trail) AS hops,b.id AS endpoint RETURN hops,endpoint";
 
 // Two parallel relationships per hop produce 2^d distinct trails at depth d.
 // Graph input stays small while the potential runtime relation grows.

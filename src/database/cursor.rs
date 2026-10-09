@@ -26,8 +26,9 @@ use crate::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReadMode {
-    /// SQLite fragments and eligible single-trail projections compose through
-    /// UNION, DISTINCT, pagination, and batch hydration without buffering the
+    /// SQLite fragments and eligible single-trail projections, including
+    /// rowwise WITH stages, compose through UNION, DISTINCT, pagination, and
+    /// batch hydration without buffering the
     /// complete result. Rust trails retain graph inputs and a search frontier.
     /// DISTINCT retains seen rows; hydration retains one batch of entities.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
@@ -181,8 +182,8 @@ impl TrailRows<'_> {
             let row = (self.skip == 0)
                 .then(|| decode_pending_row(row, self.shapes, context))
                 .transpose()?;
-            // Eligibility proves endpoint identity joins produce at most one
-            // row per trail. Fail closed if a future planner breaks that rule.
+            // Endpoint identity joins and rowwise WITH stages produce at most
+            // one row per trail. Fail closed if a future planner breaks that rule.
             if rows.next()?.is_some() {
                 return Err(Error::Data(
                     "streaming trail projection produced multiple rows".into(),

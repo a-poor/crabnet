@@ -195,7 +195,7 @@ fn global_and_joined_traversal_shapes_keep_explicit_buffering() {
         "MATCH p=(:S)-[:R*]->(b) RETURN count(*)",
         "MATCH p=(:S)-[:R*]->(b) RETURN b.x,collect(p)",
         "MATCH p=(:S)-[:R*]->(b) RETURN p ORDER BY length(p) LIMIT 1",
-        "MATCH p=(:S)-[:R*]->(b) WITH p,b RETURN p",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b RETURN p",
         "MATCH p=(:S)-[:R*]->(b), (c) RETURN b,c",
         "MATCH p=(:S)-[:R*]->(b)-[:R]->(c) RETURN p",
         "MATCH p=(:S)-[:R*]->(b)-[:R*]->(c) RETURN p",

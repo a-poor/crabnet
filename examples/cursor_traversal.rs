@@ -10,9 +10,9 @@ mod fixture;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !(2..=3).contains(&args.len()) || !matches!(args[0].as_str(), "eager" | "cursor" | "first") {
+    if !(2..=4).contains(&args.len()) || !matches!(args[0].as_str(), "eager" | "cursor" | "first") {
         return Err(
-            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000]"
+            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with]"
                 .into(),
         );
     }
@@ -25,14 +25,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     if !(1..=16).contains(&depth) || unrelated > 100_000 {
         return Err("depth must be 1..16; unrelated must be <= 100000".into());
     }
+    let shape = args.get(3).map_or("direct", String::as_str);
+    if !matches!(shape, "direct" | "with") {
+        return Err("shape must be direct or with".into());
+    }
     println!(
         "{}",
-        serde_json::to_string_pretty(&measure(&args[0], depth, unrelated)?)?
+        serde_json::to_string_pretty(&measure(&args[0], depth, unrelated, shape)?)?
     );
     Ok(())
 }
 
-fn measure(mode: &str, depth: usize, unrelated: usize) -> crabnet::Result<serde_json::Value> {
+fn measure(
+    mode: &str,
+    depth: usize,
+    unrelated: usize,
+    shape: &str,
+) -> crabnet::Result<serde_json::Value> {
     let setup = Instant::now();
     let mut db = if unrelated == 0 {
         fixture::fixture(depth)?
@@ -41,6 +50,11 @@ fn measure(mode: &str, depth: usize, unrelated: usize) -> crabnet::Result<serde_
     };
     let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
     let options = fixture::options();
+    let query = if shape == "with" {
+        fixture::WITH_QUERY
+    } else {
+        fixture::QUERY
+    };
     let started = Instant::now();
     let mut first_row_ms = None;
     let mut histogram = vec![0usize; depth + 1];
@@ -57,14 +71,13 @@ fn measure(mode: &str, depth: usize, unrelated: usize) -> crabnet::Result<serde_
     let mut read_mode = None;
     if mode == "eager" {
         for row in db
-            .execute_with_options(fixture::QUERY, &Parameters::new(), &options)?
+            .execute_with_options(query, &Parameters::new(), &options)?
             .rows
         {
             consume(row);
         }
     } else {
-        let mut read =
-            db.prepare_read_with_options(fixture::QUERY, &Parameters::new(), &options)?;
+        let mut read = db.prepare_read_with_options(query, &Parameters::new(), &options)?;
         read_mode = Some(format!("{:?}", read.mode()));
         let mut cursor = read.cursor()?;
         if mode == "first" {
@@ -87,7 +100,7 @@ fn measure(mode: &str, depth: usize, unrelated: usize) -> crabnet::Result<serde_
         }
     }
     Ok(
-        json!({"mode":mode,"read_mode":read_mode,"depth":depth,"nodes":depth+1+unrelated,"edges":depth*2+unrelated,
+        json!({"mode":mode,"read_mode":read_mode,"shape":shape,"depth":depth,"nodes":depth+1+unrelated,"edges":depth*2+unrelated,
         "unrelated_edges":unrelated,"reachable_nodes":depth+1,"reachable_edges":depth*2,
         "potential_rows":fixture::potential_rows(depth),"consumed_rows":consumed_rows,"depth_histogram":histogram,
         "setup_ms":setup_ms,"first_row_ms":first_row_ms,"query_ms":query_ms}),
@@ -101,7 +114,7 @@ mod tests {
     fn every_mode_validates_trail_multiplicity_and_early_exit() {
         for depth in [1, 4, 7] {
             for mode in ["eager", "cursor", "first"] {
-                let report = measure(mode, depth, 0).unwrap();
+                let report = measure(mode, depth, 0, "direct").unwrap();
                 assert_eq!(
                     report["consumed_rows"],
                     if mode == "first" {
@@ -121,10 +134,21 @@ mod tests {
     fn unrelated_edges_preserve_the_reachable_bag() {
         for unrelated in [0, 10] {
             for mode in ["eager", "cursor", "first"] {
-                let report = measure(mode, 4, unrelated).unwrap();
+                let report = measure(mode, 4, unrelated, "direct").unwrap();
                 assert_eq!(report["edges"], 8 + unrelated);
                 assert_eq!(report["nodes"], 5 + unrelated);
             }
+        }
+    }
+
+    #[test]
+    fn with_stages_preserve_the_depth_histogram() {
+        for mode in ["eager", "cursor", "first"] {
+            let report = measure(mode, 7, 10, "with").unwrap();
+            assert_eq!(
+                report["consumed_rows"],
+                if mode == "first" { 1 } else { 254 }
+            );
         }
     }
 }

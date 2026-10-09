@@ -834,9 +834,22 @@ fn bench_computed_merge_keys(c: &mut Criterion) {
 fn bench_traversal_cursor(c: &mut Criterion) {
     let options = traversal_cursor_fixture::options();
     let parameters = Parameters::new();
-    for (group_name, sizes) in [
-        ("cursor_traversal", &[0][..]),
-        ("cursor_traversal_neighbors", &[1_000, 10_000][..]),
+    for (group_name, sizes, query) in [
+        (
+            "cursor_traversal",
+            &[0][..],
+            traversal_cursor_fixture::QUERY,
+        ),
+        (
+            "cursor_traversal_neighbors",
+            &[1_000, 10_000][..],
+            traversal_cursor_fixture::QUERY,
+        ),
+        (
+            "cursor_traversal_with",
+            &[0][..],
+            traversal_cursor_fixture::WITH_QUERY,
+        ),
     ] {
         let mut group = c.benchmark_group(group_name);
         for &unrelated in sizes {
@@ -856,22 +869,14 @@ fn bench_traversal_cursor(c: &mut Criterion) {
                     let count = if mode == "eager" {
                         black_box(
                             database
-                                .execute_with_options(
-                                    traversal_cursor_fixture::QUERY,
-                                    &parameters,
-                                    &options,
-                                )
+                                .execute_with_options(query, &parameters, &options)
                                 .unwrap(),
                         )
                         .rows
                         .len()
                     } else {
                         let mut read = database
-                            .prepare_read_with_options(
-                                traversal_cursor_fixture::QUERY,
-                                &parameters,
-                                &options,
-                            )
+                            .prepare_read_with_options(query, &parameters, &options)
                             .unwrap();
                         assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
                         let cursor = read.cursor().unwrap();

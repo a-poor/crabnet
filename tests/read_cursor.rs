@@ -123,9 +123,9 @@ fn buffered_plans_preserve_union_distinct_pagination_hydration_and_traversal() {
         .execute("CREATE (a:Start)-[:LINK]->(b:End), (a)-[:LINK]->(b)")
         .unwrap();
     for query in [
-        "MATCH p = (a)-[:LINK*1..40]->(b) WITH * RETURN p, nodes(p), relationships(p)",
-        "MATCH p = (a)-[:LINK*1..40]->(b) WITH * RETURN DISTINCT p SKIP 1 LIMIT 1",
-        "MATCH (:Start)-[:LINK*1..]->(b) WITH * RETURN b",
+        "MATCH p = (a)-[:LINK*1..40]->(b) WITH DISTINCT * RETURN p, nodes(p), relationships(p)",
+        "MATCH p = (a)-[:LINK*1..40]->(b) WITH DISTINCT * RETURN DISTINCT p SKIP 1 LIMIT 1",
+        "MATCH (:Start)-[:LINK*1..]->(b) WITH DISTINCT * RETURN b",
         "MATCH p = shortestPath((:Start)-[:LINK*]->(:End)) RETURN p",
     ] {
         let expected = database.execute(query).unwrap();
@@ -145,7 +145,7 @@ fn buffered_plans_preserve_union_distinct_pagination_hydration_and_traversal() {
     };
     let mut read = database
         .prepare_read_with_options(
-            "MATCH (:Start)-[:LINK*1..]->(n) WITH * RETURN n AS x UNION RETURN 2 AS x",
+            "MATCH (:Start)-[:LINK*1..]->(n) WITH DISTINCT * RETURN n AS x UNION RETURN 2 AS x",
             &Parameters::new(),
             &options,
         )
@@ -460,7 +460,7 @@ fn failures_panics_and_buffered_results_release_file_snapshots() {
     drop(read);
     let mut read = reader
         .prepare_read(
-            "MATCH (n:Item)-[:MISSING*0..]->(m) WITH m RETURN m.x AS x UNION RETURN 9 AS x",
+            "MATCH (n:Item)-[:MISSING*0..]->(m) WITH DISTINCT m RETURN m.x AS x UNION RETURN 9 AS x",
         )
         .unwrap();
     assert_eq!(read.mode(), ReadMode::Buffered);

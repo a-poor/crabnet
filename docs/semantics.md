@@ -1697,11 +1697,14 @@ execution strategy explicit before starting:
   the existing operator order and query-wide hydration behavior.
 
 Eligible Rust traversal is one MATCH with a single deep/open-ended relationship
-and its two endpoint nodes, followed by non-aggregating, unordered projections.
+and its two endpoint nodes, followed by non-aggregating, unordered projections
+and filters, including chains of plain WITH stages.
 Filters, path/relationship-list outputs, DISTINCT, and final pagination compose
 incrementally. Each trail produces at most one consuming SQL row. Additional
-joins, multiple producers, OPTIONAL MATCH, WITH/UNWIND stages, global sorting or
-aggregation, and shortest-path producers retain buffered execution. Eager
+joins, multiple producers, OPTIONAL MATCH, UNWIND, global sorting or aggregation,
+and shortest-path producers retain buffered execution. Any WITH DISTINCT,
+aggregation, ORDER BY, SKIP, or LIMIT, or a stage before the initial MATCH,
+also retains buffering. Eager
 execution and its SQL pagination are unchanged. Unordered pagination selects an
 unspecified subset; no cross-mode ordering guarantee is added.
 
@@ -1719,10 +1722,13 @@ use the existing query budgets. Relationship uniqueness bounds open-ended
 walks without loading a global edge count; an impossible minimum depth can
 therefore consume explored-state budget before returning no rows. A
 reached page limit stops enumeration; LIMIT 0 starts no producer. Ordinary
-SKIP suppresses discarded projection expressions while still charging matching
+SKIP suppresses discarded RETURN expressions while still charging matching
 placeholder rows as SQL transfers. DISTINCT pagination retains projection
 evaluation before deduplication. Hydration retains its existing read-ahead/error
-boundary. See the
+boundary. Plain WITH stages retain per-row typed values and evaluated aliases;
+their computations still run for rows skipped by final pagination. A later
+WITH error can follow already-yielded rows, and early exit can leave suffix
+errors unobserved. See the
 [traversal cursor guide](cursors.md#incremental-rust-traversal).
 
 Incremental `UNION ALL` visits branches from left to right and preserves bags,
