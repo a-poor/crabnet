@@ -869,8 +869,29 @@ fn bench_traversal_cursor(c: &mut Criterion) {
             &[0][..],
             traversal_cursor_fixture::UNWIND_CHAIN_QUERY,
         ),
+        (
+            "cursor_traversal_page_trails",
+            &[0][..],
+            traversal_cursor_fixture::PAGE_TRAILS_QUERY,
+        ),
+        (
+            "cursor_traversal_page_members",
+            &[0][..],
+            traversal_cursor_fixture::PAGE_MEMBERS_QUERY,
+        ),
+        (
+            "cursor_traversal_page_all",
+            &[0][..],
+            traversal_cursor_fixture::PAGE_ALL_QUERY,
+        ),
     ] {
-        let shape = if query == traversal_cursor_fixture::UNWIND_CHAIN_NODES_QUERY {
+        let shape = if query == traversal_cursor_fixture::PAGE_TRAILS_QUERY {
+            "page-trails"
+        } else if query == traversal_cursor_fixture::PAGE_MEMBERS_QUERY {
+            "page-members"
+        } else if query == traversal_cursor_fixture::PAGE_ALL_QUERY {
+            "page-all"
+        } else if query == traversal_cursor_fixture::UNWIND_CHAIN_NODES_QUERY {
             "unwind-chain-nodes"
         } else if query == traversal_cursor_fixture::UNWIND_CHAIN_QUERY {
             "unwind-chain"
@@ -882,8 +903,14 @@ fn bench_traversal_cursor(c: &mut Criterion) {
             "direct"
         };
         let depth = if shape == "unwind-chain" { 6 } else { 10 };
-        let fanout = if shape == "unwind-chain" { 8 } else { 128 };
-        let parameters = params([("fanout", json!(fanout))]);
+        let fanout = if shape == "unwind-chain" {
+            8
+        } else if shape == "page-all" {
+            32
+        } else {
+            128
+        };
+        let parameters = params([("fanout", json!(fanout)), ("skip", json!(fanout / 2))]);
         let mut group = c.benchmark_group(group_name);
         for &unrelated in sizes {
             let mut database = if unrelated == 0 {

@@ -761,6 +761,15 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   partial errors, early limits, final shaping, budgets, hydration/rollback, and
   snapshot cleanup. Node-derived and scalar-range fanouts have example/benchmark
   coverage; see the [comparison](cursors.md#chained-unwind-measurements).
+- [x] **Intermediate pagination in Rust traversal cursors.** WITH SKIP/LIMIT
+  composes before, between, and after dependent expansions. Per-stage counters
+  span incoming rows; skipped projections are guarded, admitted bindings are
+  frozen, and downstream expansions finish before a page stops its ancestors.
+  Eleven tests cover a sequence oracle, typed bags, filter/error/volatile scope,
+  zero-page preflight, transfer budgets, hydration rollback, and snapshot cleanup.
+  The shared example and Criterion groups cover caps before/between expansions
+  and full consumption through a pass-through page; see the
+  [comparison](cursors.md#intermediate-pagination-measurements).
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -787,7 +796,7 @@ collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-awa
 `coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
 predicates, and expression DELETE and property SET/REMOVE targets are also complete.
 Single-trail Rust cursors, constrained neighbor loading, and following plain
-WITH projections/filters around chained UNWINDs are complete. Next broaden cursor shapes or
+WITH projections/filters/pagination around chained UNWINDs are complete. Next broaden cursor shapes or
 unconstrained graph-input loading where
 measurements justify it, or add graph-value
 scalar operations and expression targets for other mutations.

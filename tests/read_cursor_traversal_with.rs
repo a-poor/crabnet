@@ -100,9 +100,9 @@ fn non_rowwise_stages_and_other_producers_remain_buffered() {
     for query in [
         "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b RETURN p,b",
         "MATCH p=(:S)-[:R*]->(b) WITH length(p) AS x ORDER BY x RETURN x",
-        "MATCH p=(:S)-[:R*]->(b) WITH p,b SKIP 0 RETURN p,b",
-        "MATCH p=(:S)-[:R*]->(b) WITH p,b LIMIT 0 RETURN p,b",
-        "MATCH p=(:S)-[:R*]->(b) WITH p,b SKIP 1 LIMIT 2 WITH b RETURN b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b SKIP 0 RETURN p,b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b LIMIT 0 RETURN p,b",
+        "MATCH p=(:S)-[:R*]->(b) WITH DISTINCT p,b SKIP 1 LIMIT 2 WITH b RETURN b",
         "MATCH p=(:S)-[:R*]->(b) WITH count(*) AS x WITH x+1 AS y RETURN y",
         "MATCH p=(:S)-[:R*]->(b) WITH head(collect(b)) AS n WITH n RETURN n",
         "MATCH p=(:S)-[:R*]->(b) WITH b RETURN count(*)",

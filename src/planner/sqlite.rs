@@ -15,7 +15,8 @@ use super::logical::{
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
-    SqlFragment, SqlParameter, TrailCursorSpec, TrailExpansionSpec, TrailUnwindSpec, ValueOperator,
+    SqlFragment, SqlParameter, TrailCursorSpec, TrailExpansionSpec, TrailPage, TrailStageSpec,
+    ValueOperator,
 };
 #[cfg(test)]
 use super::physical::{PreparedValueOperator, TrailDirection};
@@ -224,7 +225,8 @@ fn compile_read_with_probes(
         sql.push_str(&ordering);
     }
 
-    // Rowwise WITH and UNWIND stages distribute over singleton trails.
+    // Rowwise WITH stages distribute over singleton trails. UNWIND and pages
+    // become resumable cursor stages with counters shared across input rows.
     let trail_cursor = (single_trail_projection(input)
         && !aggregating
         && projection.order_by.is_empty()
@@ -235,40 +237,43 @@ fn compile_read_with_probes(
         ))
     .then(|| -> Result<_> {
         let mut member_compiler;
-        let (cursor_compiler, expressions, random_sources, unwinds) =
-            if let Input::Pipeline(pipeline) = input
-                && let Some(index) = pipeline
-                    .stages
-                    .iter()
-                    .position(|s| matches!(s, ReadStage::Unwind(_)))
-            {
-                member_compiler = Compiler::new();
-                member_compiler.compile_stages(&pipeline.stages[..index])?;
-                let mut unwinds = Vec::new();
-                for stage in &pipeline.stages[index..] {
-                    match stage {
-                        ReadStage::Unwind(stage) => {
-                            unwinds.push(member_compiler.compile_cursor_unwind(stage)?)
-                        }
-                        ReadStage::With(stage) => member_compiler.compile_with(stage)?,
-                        _ => unreachable!("eligible cursor stages are WITH or UNWIND"),
+        let (cursor_compiler, expressions, random_sources, stages) = if let Input::Pipeline(
+            pipeline,
+        ) = input
+            && let Some(index) = pipeline.stages.iter().position(|s| {
+                matches!(s, ReadStage::Unwind(_))
+                    || matches!(s, ReadStage::With(w) if w.offset.is_some() || w.limit.is_some())
+            }) {
+            member_compiler = Compiler::new();
+            member_compiler.compile_stages(&pipeline.stages[..index])?;
+            let mut stages = Vec::new();
+            for stage in &pipeline.stages[index..] {
+                match stage {
+                    ReadStage::Unwind(stage) => {
+                        stages.push(member_compiler.compile_cursor_unwind(stage)?)
                     }
+                    ReadStage::With(stage) if stage.offset.is_some() || stage.limit.is_some() => {
+                        stages.push(member_compiler.compile_cursor_page(stage)?)
+                    }
+                    ReadStage::With(stage) => member_compiler.compile_with(stage)?,
+                    _ => unreachable!("eligible cursor stages are WITH or UNWIND"),
                 }
-                let expressions = projection
-                    .expressions
-                    .iter()
-                    .map(|e| member_compiler.output_expression(e).map(|(sql, _)| sql))
-                    .collect::<Result<Vec<_>>>()?;
-                let random_sources = std::mem::take(&mut member_compiler.random_sources);
-                (&member_compiler, expressions, random_sources, unwinds)
-            } else {
-                (
-                    &compiler,
-                    expressions.clone(),
-                    random_sources.clone(),
-                    Vec::new(),
-                )
-            };
+            }
+            let expressions = projection
+                .expressions
+                .iter()
+                .map(|e| member_compiler.output_expression(e).map(|(sql, _)| sql))
+                .collect::<Result<Vec<_>>>()?;
+            let random_sources = std::mem::take(&mut member_compiler.random_sources);
+            (&member_compiler, expressions, random_sources, stages)
+        } else {
+            (
+                &compiler,
+                expressions.clone(),
+                random_sources.clone(),
+                Vec::new(),
+            )
+        };
         // SQL OFFSET skips projection evaluation. Retain that guard when a
         // cursor counts matching trails across singleton executions. The last
         // cursor-only parameter suppresses output expressions for skipped rows.
@@ -284,7 +289,7 @@ fn compile_read_with_probes(
             sql: cursor_compiler
                 .with_ctes(cursor_compiler.select_sql_with_sources(&select, &random_sources)),
             arguments: cursor_compiler.bindings.clone(),
-            unwinds,
+            stages,
             // DISTINCT already owns its pagination in the physical tree.
             offset: (!projection.distinct)
                 .then(|| projection.offset.clone())
@@ -396,13 +401,12 @@ fn single_trail_projection(input: &Input) -> bool {
     })
 }
 
-// Each WITH must remain zero or one row per input member. Check every stage,
+// Each WITH must remain zero or one row per input member; cursor page stages
+// own global offset/limit counters. Check every stage,
 // even if a later stage discards its ordering or aggregate output.
 fn rowwise_with(stage: &WithStage) -> bool {
     !stage.distinct
         && stage.order_by.is_empty()
-        && stage.offset.is_none()
-        && stage.limit.is_none()
         && !stage.filter.as_ref().is_some_and(Expr::contains_aggregate)
         && !stage.bindings.iter().any(|binding| {
             matches!(binding,
@@ -1799,6 +1803,14 @@ impl Compiler {
     }
 
     fn compile_with_rows(&mut self, stage: &WithStage) -> Result<()> {
+        self.compile_with_rows_guarded(stage, None)
+    }
+
+    fn compile_with_rows_guarded(&mut self, stage: &WithStage, skip: Option<&str>) -> Result<()> {
+        let project = |sql: String, alias: String| match skip {
+            Some(skip) => format!("CASE WHEN {skip} THEN NULL ELSE ({sql}) END AS {alias}"),
+            None => format!("{sql} AS {alias}"),
+        };
         let aggregating = stage.bindings.iter().any(|binding| {
             matches!(
                 binding,
@@ -1857,20 +1869,22 @@ impl Compiler {
                         .iter()
                         .any(|(candidate, _)| candidate == slot)
                     {
-                        select.push(format!(
-                            "{} AS e{}",
+                        select.push(project(
                             match expression {
                                 Some(expression) => self.output_expression(expression)?.0,
                                 None => self.encoded_entity(*slot, *kind)?,
                             },
-                            slot.0
+                            format!("e{}", slot.0),
                         ));
                         entity_bindings.push((*slot, *kind));
                     }
                 }
                 WithBinding::Path { path, .. } | WithBinding::PathCollection { path, .. } => {
                     if !path_bindings.contains(path) {
-                        select.push(format!("{} AS p{}", self.path_source(*path)?, path.0));
+                        select.push(project(
+                            self.path_source(*path)?.to_owned(),
+                            format!("p{}", path.0),
+                        ));
                         path_bindings.push(*path);
                     }
                 }
@@ -1878,7 +1892,7 @@ impl Compiler {
                     slot, expression, ..
                 } => {
                     let encoded = self.encoded_expression(expression)?;
-                    select.push(format!("{encoded} AS s{}", slot.0));
+                    select.push(project(encoded, format!("s{}", slot.0)));
                     scalar_bindings.push(*slot);
                 }
             }
@@ -2099,7 +2113,7 @@ impl Compiler {
     /// Freeze the trail's live scope and list once, then compile subsequent
     /// stages against parameters for that scope and one encoded list member.
     /// Path lists carry identities so entity records are read only as needed.
-    fn compile_cursor_unwind(&mut self, stage: &UnwindStage) -> Result<TrailUnwindSpec> {
+    fn compile_cursor_unwind(&mut self, stage: &UnwindStage) -> Result<TrailStageSpec> {
         let path_kind = if let Expr::PathFunction {
             kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
             path,
@@ -2128,6 +2142,57 @@ impl Compiler {
             let (value, kind) = self.scalar_parts(&stage.expression)?;
             format!("CASE WHEN ({kind}) = 'array' THEN ({value}) ELSE '[]' END")
         };
+        let spec = self.freeze_cursor_scope(Some(list))?;
+        let member = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+            serde_json::Value::Null,
+        )));
+        match stage.binding {
+            UnwindBinding::Scalar(slot) => {
+                self.scalars.insert(slot, member);
+            }
+            UnwindBinding::Entity(slot, kind) => {
+                let source = if path_kind.is_some() {
+                    let table = match kind {
+                        EntityKind::Node => "nodes",
+                        EntityKind::Relationship => "edges",
+                    };
+                    let alias = "_crabnet_member".to_owned();
+                    self.from.push(format!("{table} AS {alias}"));
+                    self.filters
+                        .push(format!("{alias}.id = json_extract({member}, '$')"));
+                    EntitySource::Table { alias, kind }
+                } else {
+                    EntitySource::Encoded { sql: member, kind }
+                };
+                self.entities.insert(slot, source);
+            }
+        }
+        Ok(spec)
+    }
+
+    fn compile_cursor_page(&mut self, stage: &WithStage) -> Result<TrailStageSpec> {
+        let skip_index = self.bindings.len();
+        let skip = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+            serde_json::Value::Null,
+        )));
+        let mut rowwise = stage.clone();
+        rowwise.offset = None;
+        rowwise.limit = None;
+        // Return a placeholder for a matching skipped row so Rust can count it,
+        // while guarding this WITH's projection just as SQLite OFFSET does.
+        self.compile_with_rows_guarded(&rowwise, Some(&skip))?;
+        let mut spec = self.freeze_cursor_scope(None)?;
+        spec.page = Some(TrailPage {
+            skip_index,
+            offset: stage.offset.clone(),
+            limit: stage.limit.clone(),
+        });
+        Ok(spec)
+    }
+
+    /// Materialize one live scope and replace it with an independent binding
+    /// region. Ancestor regions remain intact until their expansions finish.
+    fn freeze_cursor_scope(&mut self, list: Option<String>) -> Result<TrailStageSpec> {
         let mut entities = self
             .entities
             .iter()
@@ -2145,12 +2210,16 @@ impl Compiler {
         select.extend(scalars.iter().map(|slot| self.scalars[slot].clone()));
         select.extend(paths.iter().map(|path| self.paths[path].clone()));
         let carried_count = select.len();
-        select.push(list);
+        select.extend(list);
+        if select.is_empty() {
+            select.push("1".into());
+        }
         let sql = self.select_sql(&select);
-        let spec = TrailUnwindSpec {
+        let spec = TrailStageSpec {
             sql: self.with_ctes(sql),
             argument_count: self.bindings.len(),
             carried_count,
+            page: None,
         };
         self.ctes.clear();
         self.has_recursive_cte = false;
@@ -2178,30 +2247,6 @@ impl Compiler {
                 serde_json::Value::Null,
             )));
             self.paths.insert(path, sql);
-        }
-        let member = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
-            serde_json::Value::Null,
-        )));
-        match stage.binding {
-            UnwindBinding::Scalar(slot) => {
-                self.scalars.insert(slot, member);
-            }
-            UnwindBinding::Entity(slot, kind) => {
-                let source = if path_kind.is_some() {
-                    let table = match kind {
-                        EntityKind::Node => "nodes",
-                        EntityKind::Relationship => "edges",
-                    };
-                    let alias = "_crabnet_member".to_owned();
-                    self.from.push(format!("{table} AS {alias}"));
-                    self.filters
-                        .push(format!("{alias}.id = json_extract({member}, '$')"));
-                    EntitySource::Table { alias, kind }
-                } else {
-                    EntitySource::Encoded { sql: member, kind }
-                };
-                self.entities.insert(slot, source);
-            }
         }
         Ok(spec)
     }

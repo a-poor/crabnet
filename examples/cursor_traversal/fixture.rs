@@ -28,6 +28,18 @@ pub const UNWIND_CHAIN_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
     UNWIND range(source,source+$fanout-1) AS member
     WITH hops,endpoint,source,member RETURN hops,endpoint,source,member";
 
+pub const PAGE_TRAILS_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH length(p) AS hops,b.id AS endpoint SKIP 2 LIMIT 10
+    UNWIND range(1,$fanout) AS member RETURN hops,endpoint,member";
+pub const PAGE_MEMBERS_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    UNWIND range(1,$fanout) AS source
+    WITH length(p) AS hops,b.id AS endpoint,source SKIP $skip LIMIT $fanout
+    UNWIND range(source,source+$fanout-1) AS member RETURN hops,endpoint,source,member";
+pub const PAGE_ALL_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH length(p) AS hops,b.id AS endpoint
+    UNWIND range(1,$fanout) AS member
+    WITH hops,endpoint,member SKIP 0 RETURN hops,endpoint,member";
+
 pub fn output_rows(depth: usize, shape: &str, fanout: usize) -> usize {
     match shape {
         "unwind-nodes" => (1..=depth).map(|hops| (1 << hops) * (hops + 1)).sum(),
@@ -36,6 +48,9 @@ pub fn output_rows(depth: usize, shape: &str, fanout: usize) -> usize {
             .map(|hops| (1 << hops) * (hops + 1) * (hops + 2) / 2)
             .sum(),
         "unwind-chain" => potential_rows(depth) * fanout * fanout,
+        "page-trails" => potential_rows(depth).saturating_sub(2).min(10) * fanout,
+        "page-members" => fanout * fanout,
+        "page-all" => potential_rows(depth) * fanout,
         _ => potential_rows(depth),
     }
 }

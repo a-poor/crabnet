@@ -207,8 +207,8 @@ fn intermediate_global_stages_and_joined_producers_remain_buffered() {
     let mut db = fixture();
     for query in [
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n UNWIND [n] AS x RETURN x",
-        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH n SKIP 0 UNWIND [n] AS x RETURN x",
-        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH n LIMIT 0 UNWIND [n] AS x RETURN x",
+        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n SKIP 0 UNWIND [n] AS x RETURN x",
+        "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH DISTINCT n LIMIT 0 UNWIND [n] AS x RETURN x",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH n ORDER BY n.x UNWIND [n] AS x RETURN x",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n WITH collect(n) AS ns UNWIND ns AS x RETURN x",
         "MATCH p=(:S)-[:R*]->() UNWIND nodes(p) AS n UNWIND [n] AS x RETURN count(x)",

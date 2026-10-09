@@ -293,7 +293,7 @@ pub(crate) struct SqlFragment {
     pub(crate) arguments: Vec<FragmentArgument>,
     pub(crate) inputs: Vec<ValueOperator>,
     /// A distributive projection for a single trail input, optionally expanded
-    /// through UNWIND stages before its at-most-one-row member consumer.
+    /// through UNWIND and pagination stages before its rowwise consumer.
     /// The eager fragment keeps its original SQL pagination.
     pub(crate) trail_cursor: Option<Box<TrailCursorSpec>>,
 }
@@ -302,7 +302,7 @@ pub(crate) struct SqlFragment {
 pub(crate) struct TrailCursorSpec {
     pub(crate) sql: String,
     pub(crate) arguments: Vec<FragmentArgument>,
-    pub(crate) unwinds: Vec<TrailUnwindSpec>,
+    pub(crate) stages: Vec<TrailStageSpec>,
     pub(crate) offset: Option<ValueExpr>,
     pub(crate) limit: Option<ValueExpr>,
 }
@@ -311,21 +311,57 @@ pub(crate) struct TrailCursorSpec {
 pub(crate) struct PreparedTrailCursor {
     pub(crate) sql: String,
     pub(crate) arguments: Vec<PreparedFragmentArgument>,
-    pub(crate) unwinds: Vec<TrailUnwindSpec>,
+    pub(crate) stages: Vec<TrailStageSpec<usize>>,
     pub(crate) offset: usize,
     pub(crate) limit: Option<usize>,
 }
 
-/// The input query returns one row of carried bindings followed by an encoded
-/// list. Its parameters precede the carried bindings and current member in the
+/// The input query returns carried bindings and, for UNWIND, an encoded list.
+/// Its parameters precede the carried bindings (and UNWIND's current member) in the
 /// shared parameter vector. Each stage appends its own binding region, keeping
-/// ancestor values intact while descendants run. One list and input row per
-/// active stage are retained, rather than its complete set of projected rows.
+/// ancestor values intact while descendants run. Each active stage retains one
+/// input row and, for UNWIND, one list rather than all projected output rows.
 #[derive(Clone, Debug)]
-pub(crate) struct TrailUnwindSpec {
+pub(crate) struct TrailStageSpec<Page = ValueExpr> {
     pub(crate) sql: String,
     pub(crate) argument_count: usize,
     pub(crate) carried_count: usize,
+    pub(crate) page: Option<TrailPage<Page>>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct TrailPage<Page> {
+    pub(crate) skip_index: usize,
+    pub(crate) offset: Option<Page>,
+    pub(crate) limit: Option<Page>,
+}
+
+impl TrailStageSpec {
+    fn prepare(self, parameters: &Parameters) -> Result<TrailStageSpec<usize>> {
+        Ok(TrailStageSpec {
+            sql: self.sql,
+            argument_count: self.argument_count,
+            carried_count: self.carried_count,
+            page: self
+                .page
+                .map(|page| -> Result<_> {
+                    Ok(TrailPage {
+                        skip_index: page.skip_index,
+                        offset: page
+                            .offset
+                            .as_ref()
+                            .map(|v| resolve_page(v, parameters))
+                            .transpose()?,
+                        limit: page
+                            .limit
+                            .as_ref()
+                            .map(|v| resolve_page(v, parameters))
+                            .transpose()?,
+                    })
+                })
+                .transpose()?,
+        })
+    }
 }
 
 impl SqlFragment {
@@ -406,7 +442,11 @@ impl SqlFragment {
                                 }
                             })
                             .collect::<Result<Vec<_>>>()?,
-                        unwinds: cursor.unwinds,
+                        stages: cursor
+                            .stages
+                            .into_iter()
+                            .map(|stage| stage.prepare(parameters))
+                            .collect::<Result<Vec<_>>>()?,
                         offset: cursor
                             .offset
                             .as_ref()

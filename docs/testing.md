@@ -514,6 +514,16 @@ hydration across parent-member boundaries, rollback versus early exit, and
 cancellation/deadlines plus snapshot cleanup on error/drop/exhaustion/panic.
 Intermediate global stages and additional joins retain explicit fallback tests.
 
+`tests/read_cursor_traversal_pages.rs` adds eleven tests for intermediate
+WITH SKIP/LIMIT, before, between, and after expansions. An independent sequence
+model covers successive filtered pages, and typed bag comparisons cover paths,
+entities, nulls, duplicates, aliases, scope drops, empty inputs, and final shaping.
+Tests prove that limits stop ancestors after draining descendants, skipped
+projections preserve error evaluation, volatile aliases remain frozen, and
+zero pages preflight without execution. Exact transfer budgets, cumulative
+union work, hydration rollback, prepared reuse, cancellation, and read-only
+snapshot release on drop/exhaustion/error/panic are covered.
+
 The existing cursor tests retain buffered coverage with WITH DISTINCT stages and
 shortest paths; eligible transaction cursor cases now assert Incremental.
 `examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
@@ -535,6 +545,12 @@ The `unwind-chain-nodes` shape follows each path node with `range(0,n.id)`;
 Full consumption checks row multiplicity, both member sums/squared sums, and their
 cross-products per depth. Matching Criterion groups exercise both chains; fresh
 process comparisons report first-row latency, full consumption, and peak RSS.
+The `page-trails`, `page-members`, and `page-all` shapes add intermediate pages
+before expansion, between dependent expansions, and across all expanded rows.
+Bounded pages validate scalar-member bags independently of which unordered
+trails were selected; the pass-through page also checks the depth histogram.
+Matching `cursor_traversal_page_{trails,members,all}/*` Criterion groups cover
+eager, full cursor, and first-row consumption.
 
 ## Persistent application workload
 

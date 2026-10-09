@@ -12,7 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     if !(2..=5).contains(&args.len()) || !matches!(args[0].as_str(), "eager" | "cursor" | "first") {
         return Err(
-            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with|unwind-nodes|unwind|unwind-chain-nodes|unwind-chain] [fanout:1..100000]"
+            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with|unwind-nodes|unwind|unwind-chain-nodes|unwind-chain|page-trails|page-members|page-all] [fanout:1..100000]"
                 .into(),
         );
     }
@@ -28,12 +28,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let shape = args.get(3).map_or("direct", String::as_str);
     if !matches!(
         shape,
-        "direct" | "with" | "unwind-nodes" | "unwind" | "unwind-chain-nodes" | "unwind-chain"
+        "direct"
+            | "with"
+            | "unwind-nodes"
+            | "unwind"
+            | "unwind-chain-nodes"
+            | "unwind-chain"
+            | "page-trails"
+            | "page-members"
+            | "page-all"
     ) {
-        return Err(
-            "shape must be direct, with, unwind-nodes, unwind, unwind-chain-nodes or unwind-chain"
-                .into(),
-        );
+        return Err("unknown query shape; see usage for supported shapes".into());
     }
     let fanout: usize = args
         .get(4)
@@ -42,6 +47,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or(128);
     if !(1..=100_000).contains(&fanout) {
         return Err("fanout must be 1..100000".into());
+    }
+    if shape == "page-trails" && depth == 1 {
+        return Err("page-trails needs depth >= 2 for a nonempty page".into());
     }
     println!(
         "{}",
@@ -71,21 +79,43 @@ fn measure(
         "unwind" => fixture::UNWIND_QUERY,
         "unwind-chain-nodes" => fixture::UNWIND_CHAIN_NODES_QUERY,
         "unwind-chain" => fixture::UNWIND_CHAIN_QUERY,
+        "page-trails" => fixture::PAGE_TRAILS_QUERY,
+        "page-members" => fixture::PAGE_MEMBERS_QUERY,
+        "page-all" => fixture::PAGE_ALL_QUERY,
         _ => fixture::QUERY,
     };
-    let parameters = Parameters::from([("fanout".into(), json!(fanout))]);
+    let parameters = Parameters::from([
+        ("fanout".into(), json!(fanout)),
+        ("skip".into(), json!(fanout / 2)),
+    ]);
     let started = Instant::now();
     let mut first_row_ms = None;
     let mut histogram = vec![0usize; depth + 1];
     let mut member_checks = vec![(0u128, 0u128); depth + 1];
     let mut chain_checks = vec![[0u128; 5]; depth + 1];
+    let mut page_counts = vec![
+        0usize;
+        if matches!(shape, "page-trails" | "page-members") {
+            fanout + 1
+        } else {
+            0
+        }
+    ];
+    let mut page_checks = vec![
+        (0u128, 0u128);
+        if shape == "page-members" {
+            fanout + 1
+        } else {
+            0
+        }
+    ];
     let mut consume = |row: Vec<CypherValue>| {
         first_row_ms.get_or_insert_with(|| started.elapsed().as_secs_f64() * 1000.0);
         let [CypherValue::Integer(hops), CypherValue::Integer(endpoint)] = &row[..2] else {
             panic!("unexpected row: {row:?}")
         };
         assert_eq!(hops, endpoint);
-        if shape.starts_with("unwind-chain") {
+        if shape.starts_with("unwind-chain") || shape == "page-members" {
             let [CypherValue::Integer(source), CypherValue::Integer(member)] = &row[2..] else {
                 panic!("invalid chained members")
             };
@@ -96,6 +126,11 @@ fn measure(
                     && (*source..*source + fanout as i64).contains(member)
             });
             let (source, member) = (*source as u128, *member as u128);
+            if shape == "page-members" {
+                page_counts[source as usize] += 1;
+                page_checks[source as usize].0 += member;
+                page_checks[source as usize].1 += member * member;
+            }
             for (sum, value) in chain_checks[*hops as usize].iter_mut().zip([
                 source,
                 source * source,
@@ -105,7 +140,7 @@ fn measure(
             ]) {
                 *sum += value;
             }
-        } else if shape.starts_with("unwind") {
+        } else if shape.starts_with("unwind") || shape.starts_with("page-") {
             let CypherValue::Integer(member) = row[2] else {
                 panic!("invalid member")
             };
@@ -116,6 +151,9 @@ fn measure(
             });
             member_checks[*hops as usize].0 += member as u128;
             member_checks[*hops as usize].1 += (member as u128).pow(2);
+            if shape == "page-trails" {
+                page_counts[member as usize] += 1;
+            }
         }
         assert!((1..=depth as i64).contains(hops));
         histogram[*hops as usize] += 1;
@@ -142,18 +180,39 @@ fn measure(
     let consumed_rows: usize = histogram.iter().sum();
     if mode == "first" {
         assert_eq!(consumed_rows, 1);
-        assert_eq!(histogram[1], 1);
+        if !shape.starts_with("page-") {
+            assert_eq!(histogram[1], 1);
+        }
     } else {
         assert_eq!(consumed_rows, fixture::output_rows(depth, shape, fanout));
+        if shape == "page-trails" {
+            for count in &page_counts[1..] {
+                assert_eq!(
+                    *count,
+                    fixture::potential_rows(depth).saturating_sub(2).min(10)
+                );
+            }
+        } else if shape == "page-members" {
+            for source in 1..=fanout {
+                assert_eq!(page_counts[source], fanout);
+                let expected = (source..source + fanout)
+                    .map(|v| v as u128)
+                    .fold((0, 0), |(sum, squares), v| (sum + v, squares + v * v));
+                assert_eq!(page_checks[source], expected);
+            }
+        }
         for (hops, count) in histogram.iter().enumerate().skip(1) {
+            if matches!(shape, "page-trails" | "page-members") {
+                continue;
+            }
             let last = match shape {
                 "unwind-nodes" => hops,
-                "unwind" => fanout,
+                "unwind" | "page-all" => fanout,
                 _ => 0,
             } as u128;
             let multiplier = match shape {
                 "unwind-nodes" => hops + 1,
-                "unwind" => fanout,
+                "unwind" | "page-all" => fanout,
                 "unwind-chain-nodes" => (hops + 1) * (hops + 2) / 2,
                 "unwind-chain" => fanout * fanout,
                 _ => 1,
@@ -190,7 +249,7 @@ fn measure(
                     chain_checks[hops],
                     expected.map(|value| value * (1 << hops))
                 );
-            } else if shape.starts_with("unwind") {
+            } else if shape.starts_with("unwind") || shape == "page-all" {
                 assert_eq!(
                     member_checks[hops],
                     (
@@ -287,6 +346,28 @@ mod tests {
                 );
                 if mode != "eager" {
                     assert_eq!(report["read_mode"], "Incremental");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn intermediate_pages_preserve_counts_and_member_bags() {
+        for shape in ["page-trails", "page-members", "page-all"] {
+            for depth in [2, 5] {
+                for mode in ["eager", "cursor", "first"] {
+                    let report = measure(mode, depth, 0, shape, 8).unwrap();
+                    assert_eq!(
+                        report["consumed_rows"],
+                        if mode == "first" {
+                            1
+                        } else {
+                            fixture::output_rows(depth, shape, 8)
+                        }
+                    );
+                    if mode != "eager" {
+                        assert_eq!(report["read_mode"], "Incremental");
+                    }
                 }
             }
         }

@@ -27,10 +27,11 @@ use crate::{
 #[non_exhaustive]
 pub enum ReadMode {
     /// SQLite fragments and eligible single-trail projections, including
-    /// UNWIND and rowwise WITH stages, compose through UNION, DISTINCT,
-    /// pagination, and batch hydration without buffering the
+    /// UNWIND and WITH projection/filter/pagination stages, compose through
+    /// UNION, DISTINCT, pagination, and batch hydration without buffering the
     /// complete result. Rust trails retain graph inputs and a search frontier;
     /// UNWIND retains one input row and list per active expansion stage.
+    /// Intermediate pages retain one admitted row and pagination counters.
     /// DISTINCT retains seen rows; hydration retains one batch of entities.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
     Incremental,
@@ -152,19 +153,45 @@ struct TrailRows<'read> {
     shapes: &'read [OutputShape],
     producer: Option<TrailStream<'read>>,
     finished: bool,
-    unwinds: Vec<UnwindRows<'read>>,
-    active_unwind: Option<usize>,
+    stages: Vec<TrailStageRows<'read>>,
+    active_stage: Option<usize>,
 }
 
-struct UnwindRows<'read> {
+struct TrailStageRows<'read> {
     statement: CachedStatement<'read>,
     argument_count: usize,
     carried_count: usize,
+    state: TrailStageState,
+}
+
+enum TrailStageState {
+    Unwind(UnwindRows),
+    Page {
+        skip_index: usize,
+        skip: usize,
+        remaining: Option<usize>,
+        pending: bool,
+    },
+}
+
+impl TrailStageState {
+    fn at_limit(&self) -> bool {
+        matches!(
+            self,
+            Self::Page {
+                remaining: Some(0),
+                ..
+            }
+        )
+    }
+}
+
+struct UnwindRows {
     list: String,
     position: usize,
 }
 
-impl UnwindRows<'_> {
+impl UnwindRows {
     fn next_member(&mut self, context: &ExecutionContext) -> Result<Option<SqlValue>> {
         context.check()?;
         let remaining = self.list[self.position..].trim_start();
@@ -199,6 +226,12 @@ impl TrailRows<'_> {
             return Ok(None);
         }
         if self.producer.is_none() {
+            // A zero page anywhere in this pipeline needs no upstream rows.
+            // Every parameter and page has already been validated at prepare.
+            if self.stages.iter().any(|stage| stage.state.at_limit()) {
+                self.finish();
+                return Ok(None);
+            }
             self.producer = Some(TrailStream::new(
                 self.connection,
                 self.spec,
@@ -206,87 +239,145 @@ impl TrailRows<'_> {
             )?);
         }
         loop {
-            if let Some(index) = self.active_unwind {
-                let unwind = &mut self.unwinds[index];
-                if let Some(member) = unwind.next_member(context)? {
-                    self.bindings[unwind.argument_count + unwind.carried_count] = member;
-                    if index + 1 < self.unwinds.len() {
-                        self.start_unwind(index + 1, context)?;
+            if let Some(index) = self.active_stage {
+                context.check()?;
+                let stage = &mut self.stages[index];
+                let available = match &mut stage.state {
+                    TrailStageState::Unwind(unwind) => {
+                        if let Some(member) = unwind.next_member(context)? {
+                            self.bindings[stage.argument_count + stage.carried_count] = member;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    TrailStageState::Page { pending, .. } => std::mem::take(pending),
+                };
+                if available {
+                    if index + 1 < self.stages.len() {
+                        self.start_stage(index + 1, context)?;
                     } else if let Some(row) = self.project(context)? {
                         return Ok(Some(row));
                     }
+                } else if stage.state.at_limit() {
+                    // All descendants of this page's last admitted row have
+                    // drained. No ancestor may produce another input row.
+                    self.finish();
+                    return Ok(None);
                 } else {
                     // Pop this frame without changing its ancestors' bindings
                     // or list positions. All descendant frames are exhausted.
-                    self.bindings
-                        [unwind.argument_count..=unwind.argument_count + unwind.carried_count]
+                    let count = stage.carried_count
+                        + usize::from(matches!(stage.state, TrailStageState::Unwind(_)));
+                    self.bindings[stage.argument_count..stage.argument_count + count]
                         .fill(SqlValue::Null);
-                    if index + 1 == self.unwinds.len() {
+                    if index + 1 == self.stages.len() {
                         self.statement.clear_bindings();
                     }
-                    self.active_unwind = index.checked_sub(1);
+                    self.active_stage = index.checked_sub(1);
                 }
                 continue;
             }
             let Some(encoded) = self.producer.as_mut().expect("started producer").next()? else {
-                self.producer = None;
-                self.finished = true;
+                self.finish();
                 return Ok(None);
             };
             self.bindings[self.runtime_index] = SqlValue::Text(encoded);
-            if !self.unwinds.is_empty() {
-                self.start_unwind(0, context)?;
+            if !self.stages.is_empty() {
+                self.start_stage(0, context)?;
             } else if let Some(row) = self.project(context)? {
                 return Ok(Some(row));
             }
         }
     }
 
-    fn start_unwind(&mut self, index: usize, context: &ExecutionContext) -> Result<()> {
+    fn finish(&mut self) {
+        self.producer = None;
+        self.stages.clear();
+        self.statement.clear_bindings();
+        self.bindings.clear();
+        self.finished = true;
+    }
+
+    fn start_stage(&mut self, index: usize, context: &ExecutionContext) -> Result<()> {
         // Each input query references only the immediately preceding frozen
         // scope plus any static parameters introduced since then.
         let unused_prefix = index
             .checked_sub(1)
-            .map_or(0, |parent| self.unwinds[parent].argument_count);
-        let unwind = &mut self.unwinds[index];
+            .map_or(0, |parent| self.stages[parent].argument_count);
+        let stage = &mut self.stages[index];
+        if let TrailStageState::Page {
+            skip_index, skip, ..
+        } = stage.state
+        {
+            self.bindings[skip_index] = SqlValue::Integer(i64::from(skip > 0));
+        }
         let null = SqlValue::Null;
         // A WITH may discard the highest-numbered binding. The logical input
         // boundary still reserves that slot, but SQLite expects only as many
         // parameters as this particular statement references.
-        let parameter_count = unwind.statement.parameter_count();
-        if parameter_count > unwind.argument_count {
+        let parameter_count = stage.statement.parameter_count();
+        if parameter_count > stage.argument_count {
             return Err(Error::Data(
-                "streaming UNWIND input references later-stage bindings".into(),
+                "streaming stage input references later-stage bindings".into(),
             ));
         }
         {
-            let mut rows = unwind.statement.query(params_from_iter(
+            let mut rows = stage.statement.query(params_from_iter(
                 self.bindings[..parameter_count]
                     .iter()
                     .enumerate()
                     .map(|(i, value)| if i < unused_prefix { &null } else { value }),
             ))?;
             if let Some(row) = rows.next()? {
-                context.record_sql_row(row, unwind.carried_count + 1)?;
-                for column in 0..unwind.carried_count {
-                    self.bindings[unwind.argument_count + column] = row.get(column)?;
+                let count = stage.carried_count
+                    + usize::from(matches!(stage.state, TrailStageState::Unwind(_)));
+                context.record_sql_row(row, count.max(1))?;
+                let admitted = match &mut stage.state {
+                    TrailStageState::Unwind(unwind) => {
+                        unwind.list = row.get(stage.carried_count)?;
+                        if !unwind.list.starts_with('[') {
+                            return Err(Error::Data(
+                                "streaming UNWIND input is not an array".into(),
+                            ));
+                        }
+                        unwind.position = 1;
+                        true
+                    }
+                    TrailStageState::Page {
+                        skip,
+                        remaining,
+                        pending,
+                        ..
+                    } => {
+                        if *skip > 0 {
+                            *skip -= 1;
+                            false
+                        } else {
+                            if let Some(remaining) = remaining {
+                                *remaining -= 1;
+                            }
+                            *pending = true;
+                            true
+                        }
+                    }
+                };
+                if admitted {
+                    for column in 0..stage.carried_count {
+                        self.bindings[stage.argument_count + column] = row.get(column)?;
+                    }
                 }
-                unwind.list = row.get(unwind.carried_count)?;
-                if !unwind.list.starts_with('[') {
-                    return Err(Error::Data("streaming UNWIND input is not an array".into()));
-                }
-                unwind.position = 1;
                 if rows.next()?.is_some() {
                     return Err(Error::Data(
-                        "streaming UNWIND input produced multiple rows".into(),
+                        "streaming stage input produced multiple rows".into(),
                     ));
                 }
             }
         }
         // The frozen row now owns the needed values. Release SQLite's copies
         // so an exhausted inner frame cannot retain an earlier parent scope.
-        unwind.statement.clear_bindings();
-        self.active_unwind = Some(index);
+        stage.statement.clear_bindings();
+        self.active_stage = Some(index);
         Ok(())
     }
 
@@ -295,7 +386,7 @@ impl TrailRows<'_> {
             SqlValue::Integer(i64::from(self.skip > 0));
         // The member query has no references to the input query's parameters.
         // Avoid copying a large list parameter into SQLite again per member.
-        let unused_prefix = self.unwinds.last().map_or(0, |u| u.argument_count);
+        let unused_prefix = self.stages.last().map_or(0, |stage| stage.argument_count);
         let null = SqlValue::Null;
         let mut rows =
             self.statement
@@ -563,9 +654,11 @@ impl<'db> PreparedRead<'db> {
                         return Err(Error::Data("read fragment is not read-only".into()));
                     }
                     if let Some(cursor) = &fragment.trail_cursor {
-                        for unwind in &cursor.unwinds {
-                            if !connection.prepare(&unwind.sql)?.readonly() {
-                                return Err(Error::Data("UNWIND input is not read-only".into()));
+                        for stage in &cursor.stages {
+                            if !connection.prepare(&stage.sql)?.readonly() {
+                                return Err(Error::Data(
+                                    "cursor stage input is not read-only".into(),
+                                ));
                             }
                         }
                     }
@@ -681,19 +774,29 @@ impl PreparedRead<'_> {
                                 shapes: &fragment.output_shapes,
                                 producer: None,
                                 finished: false,
-                                active_unwind: None,
-                                unwinds: cursor
-                                    .unwinds
+                                active_stage: None,
+                                stages: cursor
+                                    .stages
                                     .iter()
-                                    .map(|unwind| -> Result<_> {
-                                        Ok(UnwindRows {
+                                    .map(|stage| -> Result<_> {
+                                        Ok(TrailStageRows {
                                             statement: self
                                                 .connection
-                                                .prepare_cached(&unwind.sql)?,
-                                            argument_count: unwind.argument_count,
-                                            carried_count: unwind.carried_count,
-                                            list: String::new(),
-                                            position: 0,
+                                                .prepare_cached(&stage.sql)?,
+                                            argument_count: stage.argument_count,
+                                            carried_count: stage.carried_count,
+                                            state: match &stage.page {
+                                                Some(page) => TrailStageState::Page {
+                                                    skip_index: page.skip_index,
+                                                    skip: page.offset.unwrap_or(0),
+                                                    remaining: page.limit,
+                                                    pending: false,
+                                                },
+                                                None => TrailStageState::Unwind(UnwindRows {
+                                                    list: String::new(),
+                                                    position: 0,
+                                                }),
+                                            },
                                         })
                                     })
                                     .collect::<Result<Vec<_>>>()?,

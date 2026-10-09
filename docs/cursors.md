@@ -90,8 +90,8 @@ partial errors, cancellation, and resource accounting.
 
 A single `MATCH` with one deep/open-ended variable-length relationship and only
 its endpoint nodes can stream. Filters, scalar/entity/path projections, legacy
-relationship lists, chained `UNWIND`, plain `WITH` chains, final DISTINCT, and final
-pagination are supported. For example:
+relationship lists, chained `UNWIND`, `WITH` projections/filters/pagination,
+final DISTINCT, and final pagination are supported. For example:
 
 ```cypher
 MATCH p=(:Start)-[:NEXT*]->(end)
@@ -126,6 +126,31 @@ inner list before advancing its parent. A projected random value is reused by
 its aliases in that scope, including while resuming an inner expansion. Filters
 do not refund traversal work or payload.
 
+Intermediate `WITH SKIP/LIMIT` counts matching incoming rows across trails and
+parent lists, with independent counters for each page. Its WHERE filter runs
+before pagination. SKIP suppresses that WITH's projection on discarded rows;
+earlier WITH/UNWIND computations and the page's filter still run and can fail.
+Each admitted row freezes its projected bindings once, preserving volatile
+aliases while downstream expansions run. At the limit, those expansions finish
+before upstream production stops. Empty or filtered downstream results do not
+refund an admitted row. LIMIT 0 anywhere in this eligible pipeline starts no
+producer; all parameters and pages are still validated at preparation.
+
+For example, this expands nodes from at most ten admitted trails:
+
+```cypher
+MATCH p=(:Start)-[:NEXT*]->(end)
+WITH p, end SKIP 2 LIMIT 10
+UNWIND nodes(p) AS member
+RETURN end, member
+```
+
+Page stages retain one admitted row and their counters. Each matching input,
+including skipped placeholders, counts as a SQL transfer; filtered inputs do
+not. Downstream UNWIND inputs and final projections are charged separately.
+Without ORDER BY, pagination selects an unspecified subset and introduces no
+ordering guarantee between eager and cursor execution.
+
 For example, `MATCH p=(:Start)-[:NEXT*]->() UNWIND nodes(p) AS n RETURN n`
 streams nodes while retaining repeated identities and parallel-trail multiplicity.
 Scalar, entity, and nested graph lists retain their types and null members;
@@ -155,14 +180,14 @@ LIMIT 10
 
 Global ORDER BY or aggregation over Rust trails, additional pattern joins,
 multiple traversal producers, OPTIONAL MATCH, and shortest paths still report
-`Buffered`. A `WITH` containing DISTINCT, aggregation, ordering, SKIP, or
-LIMIT also forces buffering, even for SKIP 0 or LIMIT 0. Stages preceding the
+`Buffered`. A `WITH` containing DISTINCT, aggregation, or ordering also forces
+buffering, including when combined with pagination. Stages preceding the
 initial MATCH remain outside this streaming shape. Small bounded traversals
 executed entirely by SQLite retain their existing behavior. Inspect `mode()`.
 
 Early drop and a reached LIMIT stop further enumeration beyond hydration's
 current batch. LIMIT 0 starts no producer, but all parameters and page values
-are still validated at preparation. Ordinary SKIP suppresses projection
+are still validated at preparation. Final ordinary SKIP suppresses projection
 expressions in RETURN on discarded rows; prior WITH and UNWIND input computations
 still run and can fail. DISTINCT pagination evaluates projected values before
 deduplication. Skipped placeholder rows still count as
@@ -171,7 +196,7 @@ terminal; transaction-scoped failures roll back earlier writes. The standalone
 snapshot is pinned at cursor creation, before graph loading begins.
 
 A following WITH or RETURN expression error in an unread member/trail suffix is
-not encountered after early drop or final LIMIT. Eager execution can encounter
+not encountered after early drop or a reached page limit. Eager execution can encounter
 that error while materializing the complete stage. Once a cursor observes an error it becomes terminal, even
 if earlier rows have been delivered.
 
@@ -786,3 +811,79 @@ Use `eager`, `cursor`, and `first` for all-row eager execution, full cursor
 consumption, and one-row consumption followed by drop. Criterion adds
 `cursor_traversal_unwind_chain_nodes/{eager,cursor,first}` at depth 10 and
 `cursor_traversal_unwind_chain/{eager,cursor,first}` at depth 6 with fanout 8.
+
+## Intermediate pagination measurements
+
+A 2026-10-09 release comparison uses baseline `2937091` and the intermediate
+WITH pagination implementation. The baseline is an isolated archive with its
+own target directory and identical example/fixture sources. Three sequential
+fresh-process trials per engine, fixture, and mode alternate engine order and
+rotate mode order. All builds and tests finished before measurement. The
+[54 raw trials](measurements/cursor-pages-2026-10-09.json) include commands,
+source/binary hashes, compiler/platform, medians, and ranges. Source hashes
+were checked again after the trials.
+
+The parallel-edge chain supports three shapes:
+
+- `page-trails`: depth 14, with 32,766 potential trails. WITH SKIP 2 LIMIT 10
+  precedes a range of 128 members, producing 1,280 output rows.
+- `page-members`: depth 10, with 2,046 potential trails. A range of 128 members
+  precedes WITH SKIP 64 LIMIT 128, spanning two parents; a dependent range of
+  128 members follows it, producing 16,384 output rows.
+- `page-all`: depth 10, with a range of 32 members per trail and then WITH
+  SKIP 0. All 65,472 rows pass through, so pagination avoids no upstream work.
+
+Full consumption checks member multiplicities, dependent member sums/squared
+sums, and, for the pass-through page, the depth histogram. Every consumed row
+checks hop count against endpoint and validates member bounds. Bounded pages
+validate the scalar-member bags independently of which unordered trails were
+selected; no cross-mode ordering guarantee is implied. Scalar outputs exclude
+path hydration. First-row mode validates one row, then drops the cursor.
+
+Medians show **before → after**. Query timings include planning, snapshot setup,
+decoding, per-row validation, and cleanup, excluding graph setup. First-row time
+ends when the consumer receives its first owned row. Peak RSS covers the whole
+process, including graph setup.
+
+| Page | Mode | First row ms | Total ms | Peak RSS MiB |
+| --- | --- | ---: | ---: | ---: |
+| Before expansion | eager | 150.113 → 196.061 | 150.197 → 196.157 | 142.328 → 142.531 |
+| Before expansion | cursor | 215.693 → 0.837 | 215.751 → 3.480 | 142.422 → 6.828 |
+| Before expansion | first | 154.061 → 0.877 | 154.091 → 0.885 | 142.453 → 6.875 |
+| Between expansions | eager | 2532.251 → 2634.311 | 2533.629 → 2634.916 | 19.078 → 19.109 |
+| Between expansions | cursor | 2534.686 → 2.037 | 2535.439 → 59.590 | 18.594 → 7.109 |
+| Between expansions | first | 2550.284 → 2.193 | 2550.693 → 2.204 | 25.328 → 7.047 |
+| All rows, SKIP 0 | eager | 447.012 → 467.337 | 451.927 → 470.369 | 50.219 → 49.781 |
+| All rows, SKIP 0 | cursor | 422.922 → 1.035 | 428.341 → 510.328 | 49.578 → 7.078 |
+| All rows, SKIP 0 | first | 448.041 → 0.962 | 453.035 → 0.970 | 49.594 → 6.891 |
+
+Both cursor modes were Buffered before and are Incremental after the change.
+For the page before expansion, full consumption falls from about 216 ms to
+3.5 ms and process RSS from 142 MiB to 6.8 MiB. For the page between expansions,
+first-row consumption falls from 2.55 seconds to 2.2 ms; full consumption falls
+from 2.54 seconds to 60 ms. These improvements come from stopping upstream work
+once the page is satisfied and avoiding complete result materialization.
+
+The pass-through page exposes a throughput cost: its full-cursor median rises
+about 19%, from 428 ms to 510 ms. Trial ranges are 399–463 ms before and
+473–546 ms after. It still delivers the first row in about 1 ms and reduces
+process RSS from about 50 MiB to 7 MiB. Eager controls vary, especially for the
+smaller page-before-expansion case, so these trials do not establish a universal
+speedup or an exact slowdown for other workloads. Each page adds a statement
+execution and scope transfer per matching input row. Active UNWIND stages still
+retain complete input lists; page frames retain one admitted row and counters.
+This is not a whole-query memory cap.
+
+Reproduce with the shared example and process runner:
+
+```sh
+cargo build --release --example cursor_traversal
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 14 0 page-trails 128
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 10 0 page-members 128
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 10 0 page-all 32
+```
+
+Use `eager`, `cursor`, and `first` for all-row eager execution, full cursor
+consumption, and one-row consumption followed by drop. Criterion adds
+`cursor_traversal_page_{trails,members,all}/{eager,cursor,first}`, all at depth 10;
+fanout is 128 for the bounded pages and 32 for the pass-through page.

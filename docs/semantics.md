@@ -1698,13 +1698,13 @@ execution strategy explicit before starting:
 
 Eligible Rust traversal is one MATCH with a single deep/open-ended relationship
 and its two endpoint nodes, followed by non-aggregating, unordered projections
-and filters, including chained UNWINDs with plain WITH stages between expansions.
+and filters, including chained UNWINDs and WITH pagination between expansions.
 Filters, path/relationship-list outputs, DISTINCT, and final pagination compose
 incrementally. Each trail produces at most one consuming SQL row without UNWIND,
 or one per surviving member with it. Additional joins, multiple producers,
 OPTIONAL MATCH, global sorting or aggregation,
 and shortest-path producers retain buffered execution. Any WITH DISTINCT,
-aggregation, ORDER BY, SKIP, or LIMIT, or a stage before the initial MATCH,
+aggregation, ORDER BY, or a stage before the initial MATCH,
 also retains buffering. Eager
 execution and its SQL pagination are unchanged. Unordered pagination selects an
 unspecified subset; no cross-mode ordering guarantee is added.
@@ -1722,7 +1722,7 @@ whole eligible neighbor list. Transferred edge rows and retained keys/steps
 use the existing query budgets. Relationship uniqueness bounds open-ended
 walks without loading a global edge count; an impossible minimum depth can
 therefore consume explored-state budget before returning no rows. A
-reached page limit stops enumeration; LIMIT 0 starts no producer. Ordinary
+reached page limit stops enumeration; LIMIT 0 starts no producer. Final ordinary
 SKIP suppresses discarded RETURN expressions while still charging matching
 placeholder rows as SQL transfers. DISTINCT pagination retains projection
 evaluation before deduplication. Hydration retains its existing read-ahead/error
@@ -1743,6 +1743,19 @@ such values. Every stage's frozen row and list count as an additional SQL
 transfer, before copying, followed by each consumer row;
 these values are outside the retained traversal-memory counter. See the
 [traversal cursor guide](cursors.md#incremental-rust-traversal).
+
+Each intermediate WITH page owns offset/limit counters across all incoming
+trails and UNWIND members, rather than resetting them for each parent. WHERE
+runs before pagination. SKIP suppresses this WITH's projection, but not its
+filter or preceding stages. A matching skipped row transfers a placeholder;
+an admitted row transfers its frozen projected bindings. Both count against
+SQL transfer limits before copying; filtered inputs do not. Admitted rows
+remain counted even when later filters or empty lists produce no output.
+At a reached limit the cursor drains downstream expansions for the last
+admitted row, then stops all upstream work. LIMIT 0 anywhere in the eligible
+pipeline avoids producer execution, while all parameters/pages still preflight.
+Page frames retain one row and counters, sharing snapshot, cancellation,
+hydration, error/rollback, and cumulative resource rules with other stages.
 
 Incremental `UNION ALL` visits branches from left to right and preserves bags,
 branch-local ordering, and each branch's output shapes. Empty branches are
