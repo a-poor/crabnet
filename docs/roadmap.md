@@ -13,8 +13,8 @@ deferred until an application needs it.
 
 - Crabnet is used only in this repository today. We may freely reshape its
   modules, public API, logical plan, SQLite schema, and on-disk representation.
-- Schema compatibility remains experimental. Version 4 preserves the upgrades
-  from main's versions 1, 2, and 3; migrations and index backfills run atomically.
+- Schema compatibility remains experimental. Version 5 preserves the upgrades
+  from main's versions 1–4; migrations and index backfills run atomically.
   Unreleased branch-only formats may require recreating the database.
 - Git provides recovery. Code should be clear enough to support the next
   experiment, not preserved merely because it already exists.
@@ -603,7 +603,7 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   across `CREATE`, `MERGE`, property and label changes, and deletion. Twelve
   integration tests cover typed precision, bags, independent/overlapping keys,
   hostile names, rollback/abort, and persistence/connection visibility.
-  Schema version 4 upgrades versions 1–3 atomically, with migration and
+  Schema version 5 upgrades versions 1–4 atomically, with migration and
   failed-upgrade tests. Composite keys, relationship constraints, and Cypher
   schema DDL remain follow-up work.
 - [x] **Caller-controlled query resources.** `QueryOptions` on both execution
@@ -672,8 +672,7 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   cover 1,000 and 10,000 packages with three fresh-file trials each, query
   latency distributions, and child-process peak RSS. A scalar key projection
   removed an import scan bottleneck using the existing property index.
-  Remaining node-upsert costs deserve profiling before plan reuse or
-  semantic-deduplication changes. Shortest-path input loading is addressed below.
+  Node-upsert maintenance and shortest-path input loading are addressed below.
 - [x] **Computed property-index keys.** Small deterministic expressions such
   as `row.id`, nested/dynamic indexing, arithmetic, selected scalar functions,
   and CASE can now drive node-property probes in MERGE matchers.
@@ -687,6 +686,10 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   mutation re-matching, whole
   patterns, and rollback. The dependency-graph node import uses direct map keys;
   Criterion compares direct and projected keys for first and repeat imports.
+  [Release measurements](dependency-graph.md#computed-merge-keys-2026-10-08-follow-up)
+  show 3.4× faster initial and 9.3× faster repeat direct-key imports at 1,000
+  packages; the record also compares the alias workaround and 10,000-package
+  imports, including trial variability.
 - [x] **Constrained shortest-path input loading.** Same-clause start domains
   use indexed neighbor queries and cache only expanded nodes' filtered lists.
   Outgoing, incoming, and undirected searches preserve tie order, parallel
@@ -697,10 +700,17 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   change. The scaling example and Criterion group hold a 64-node reachable
   component fixed while adding disconnected eligible edges. Unconstrained
   starts still load eagerly; the runtime output relation remains buffered.
-  [Release measurements](dependency-graph.md#computed-merge-keys-2026-10-08-follow-up)
-  show 3.4× faster initial and 9.3× faster repeat direct-key imports at 1,000
-  packages; the record also compares the alias workaround and 10,000-package
-  imports, including trial variability.
+- [x] **Bulk node-upsert maintenance.** Profiling identified property/uniqueness
+  trigger writes and repeated statement preparation as substantial import
+  costs. Property updates retain unchanged index entries, uniqueness writes
+  are skipped when canonical keys and labels are unchanged, and node/edge
+  inserts and property reads/writes reuse prepared statements. Sequential
+  mutation semantics, bags, immediate constraints, summaries, and rollback
+  remain unchanged. Schema version 5 atomically replaces the maintenance
+  triggers on writable opens from versions 1–4. Focused audit/migration/type
+  tests and the application lifecycle cover the change; a 1,000-node Criterion
+  case measures repeated single-property updates. See the
+  [profile and release comparison](dependency-graph.md#bulk-node-upserts-2026-10-08-follow-up).
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -729,8 +739,10 @@ predicates, and expression DELETE and property SET/REMOVE targets are also compl
 Next extend cursors through measured buffering bottlenecks, or add graph-value
 scalar operations and
 expression targets for other mutations.
-Performance follow-ups should profile the remaining node-upsert cost or
-reachable-region shortest search after the indexed-input improvement.
+Bulk node-upsert index maintenance and statement reuse are complete. Further
+performance work should follow a new profile, such as reachable-region shortest
+search or imports that change constrained keys; plan caching is not yet
+justified by this workload.
 Track completion in milestone 10 rather than a separate
 TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;

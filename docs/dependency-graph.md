@@ -190,12 +190,11 @@ needed. The computed-key planner follow-up is now implemented, removing that
 query-shaping requirement. This result does not establish that plan caching
 is the principal bottleneck.
 
-Two performance questions emerged from this run. Node upserts still
-take about 77% of initial import time at 10,000 packages, so profile matcher,
-mutation, and property-index maintenance costs before adding plan reuse.
-Shortest-path latency grows with the surrounding graph despite fixed endpoints
-and hop count; the neighbor-loading follow-up below addresses eligible-edge
-loading and adjacency construction.
+Two performance questions emerged from this run. Node upserts took about 77%
+of initial import time at 10,000 packages, motivating the matcher, mutation,
+and index-maintenance profile below. Shortest-path latency grew with the
+surrounding graph despite fixed endpoints and hop count; the neighbor-loading
+follow-up below addresses eligible-edge loading and adjacency construction.
 The eight-result distinct neighborhood queries stay nearly flat, giving no
 reason to prioritize semantic deduplication for this workload.
 
@@ -312,3 +311,87 @@ isolated query-memory measurements. The
 [measurement record](measurements/shortest-neighbors-2026-10-08.json) contains
 all samples, phase-profile medians, environment details, source and binary
 hashes, and process measurements.
+
+### Bulk node upserts: 2026-10-08 follow-up
+
+Node/relationship inserts and property reads/writes now reuse prepared SQLite
+statements. Property updates retain unchanged index entries and update changed
+values in place, preserving their extracted SQLite storage types. Uniqueness
+maintenance skips its writes when labels, identity, and canonical constrained
+keys are unchanged. A key or label change still receives the immediate
+constraint check. Row order, repeated targets, `SET` item order, summaries,
+and rollback keep their existing semantics; updates are not combined.
+
+Schema version 5 installs these maintenance triggers. Writable opens of main's
+versions 1–4 upgrade atomically, preserving graph data and existing constraints.
+Read-only opens require a current-schema file. Regression tests verify unchanged
+index entries receive no writes, stable bulk writes reuse statements, typed
+lookups remain correct, and a failed migration restores both old triggers and
+the version marker. The new `write/set_property_batch_1000` Criterion case
+repeatedly changes one field on 1,000 uniquely keyed nodes.
+
+A separate instrumented release profile of baseline commit `9453f5b` motivated
+the change. Nested timers cover planning, matching, mutation, SQL preparation
+and execution, property reads, row refresh, and materialized reads. Scalar
+functions inside the triggers bracket property/uniqueness maintenance. Only
+queries in the node-import phase contribute to the totals below. This is one
+profiled lifecycle per scale, with instrumentation overhead, not a speedup
+measurement. The 10,000-package profile recorded:
+
+| Timed work | Initial node import | Repeat node import |
+| --- | ---: | ---: |
+| Node-phase queries, total | 6,556.9 ms | 2,164.0 ms |
+| Property-index trigger bodies | 2,010.6 ms | 790.9 ms |
+| Uniqueness-index trigger bodies | 1,194.1 ms | 262.4 ms |
+| Property-write statement preparation | 1,096.6 ms | 230.5 ms |
+| Node-insert statement preparation | 338.5 ms | 0 ms |
+| Planning and parameter resolution | 25.2 ms | 24.8 ms |
+
+Index maintenance accounted for about 49% of the node-phase query time in
+both imports. Initial imports executed 50,000 property updates and 10,000
+node inserts; repeats changed only the 10,000 generation fields. These
+measurements support reducing index writes and SQL preparation overhead.
+They do not justify a general query-plan cache.
+
+The [measurement record](measurements/node-upserts-2026-10-08.json) retains
+profiles for both scales and the uninstrumented comparison trials. The
+[profiling patch](measurements/node-upserts-profile-2026-10-08.patch) applies
+to an isolated archive of `9453f5b`; build that archive with its own target
+directory and run the normal `demo` command on fresh files. Stderr contains
+`UPSERT_PROFILE` JSON and `UPSERT_NODES_BEGIN`/`UPSERT_NODES_END` markers.
+Sum the per-query counters between each pair of markers for initial/repeat
+node imports. Inclusive spans contain child spans; exclusive spans subtract
+them. Trigger measurements exclude setup/dispatch outside the bracketed body.
+Use uninstrumented binaries and fresh files for end-to-end comparisons.
+
+The end-to-end comparison used uninstrumented release binaries: unchanged
+commit `9453f5b` in an isolated archive/target, and the updated working tree.
+Three sequential fresh-process, fresh-file trials per engine and scale
+alternated engine order. Rust 1.99.0, macOS 26.5.1 arm64, batch size 128, and
+20 read samples match across variants. Builds and tests finished before these
+trials. All 12 runs passed the complete lifecycle checks; repeat imports
+created zero nodes and relationships. The table shows medians across trials.
+
+| Packages | Import | Node phase before → after | Whole import before → after |
+| ---: | --- | ---: | ---: |
+| 1,000 | Initial | 532.7 → 255.9 ms | 720.6 → 415.4 ms |
+| 1,000 | Repeat | 156.8 → 75.0 ms | 254.2 → 162.8 ms |
+| 10,000 | Initial | 5,992.5 → 3,034.9 ms | 7,945.4 → 4,768.4 ms |
+| 10,000 | Repeat | 1,972.4 → 991.6 ms | 2,986.5 → 1,941.8 ms |
+
+Node upserts improved about 2.08× / 2.09× for initial/repeat imports at 1,000
+packages and 1.97× / 1.99× at 10,000. Whole imports improved 1.74× / 1.56×
+and 1.67× / 1.54×, respectively. At 10,000 packages, initial node-phase times
+ranged from 5,859.6–6,142.5 ms before and 2,971.9–3,074.2 ms after; repeats
+ranged from 1,970.3–1,995.4 ms before and 966.8–1,044.4 ms after. Edge-phase
+medians also improved, from 1,848.8 to 1,637.0 ms initially and 933.1 to
+857.1 ms on repeat; node/relationship writes share statement reuse.
+
+Whole-process median wall time at 10,000 packages fell from 11.75 to 7.55
+seconds. Peak RSS ranged from 71.12–72.22 MiB before and 71.92–77.08 MiB
+after, giving no evidence of a process-memory reduction. The record includes
+all phase timings, trial ranges, binary/source hashes, and process measurements.
+These local observations compare variants within this run, not against earlier
+sessions. They do not establish the same speedup for workloads replacing every
+property or changing many constrained keys: property maintenance still scans
+the node's properties, and changed unique keys still require validation/writes.

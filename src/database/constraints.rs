@@ -81,6 +81,28 @@ CREATE TRIGGER node_unique_delete AFTER DELETE ON nodes BEGIN
 END;
 "#;
 
+// Compare canonical keys, including null/missing exemptions and recursive
+// numeric equality. Unrelated property updates need no uniqueness-index writes.
+// A key or label change still runs the original immediate constraint check.
+pub(super) const UPDATE_V5: &str = r#"
+DROP TRIGGER node_unique_update;
+CREATE TRIGGER node_unique_update AFTER UPDATE OF id, labels, props ON nodes
+WHEN OLD.id IS NOT NEW.id OR OLD.labels IS NOT NEW.labels OR EXISTS (
+    SELECT 1 FROM json_each(NEW.labels) AS labels
+    JOIN node_unique_constraints AS c ON c.label = labels.value
+    WHERE crabnet_unique_key(OLD.props, c.property)
+          IS NOT crabnet_unique_key(NEW.props, c.property)
+)
+BEGIN
+    DELETE FROM node_unique_values WHERE node_id = OLD.id;
+    INSERT INTO node_unique_values (label, property, value, node_id)
+        SELECT c.label, c.property, crabnet_unique_key(NEW.props, c.property), NEW.id
+        FROM json_each(NEW.labels) AS labels
+        JOIN node_unique_constraints AS c ON c.label = labels.value
+        WHERE crabnet_unique_key(NEW.props, c.property) IS NOT NULL;
+END;
+"#;
+
 pub(super) fn register(connection: &Connection) -> Result<()> {
     connection.create_scalar_function(
         "crabnet_unique_key",

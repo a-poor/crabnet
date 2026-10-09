@@ -59,7 +59,8 @@ fn assert_index_matches_nodes(path: &TemporaryDatabasePath) {
     let extracted_mismatches: i64 = connection
         .query_row(
             "SELECT count(*) FROM node_properties JOIN nodes ON nodes.id = node_id \
-             WHERE json_extract(nodes.props, '$.' || json_quote(key)) IS NOT value",
+             WHERE json_extract(nodes.props, '$.' || json_quote(key)) IS NOT value
+                OR typeof(json_extract(nodes.props, '$.' || json_quote(key))) <> typeof(value)",
             [],
             |row| row.get(0),
         )
@@ -76,6 +77,67 @@ fn integers(result: &QueryResult) -> Vec<i64> {
             other => panic!("expected an integer, got {other:?}"),
         })
         .collect()
+}
+
+#[test]
+fn incremental_updates_preserve_storage_kinds_and_remove_missing_keys() {
+    let path = TemporaryDatabasePath::new();
+    let mut database = Database::open(&path.0).unwrap();
+    database
+        .execute("CREATE (:P {anchor: 'one', kept: [1,true]})")
+        .unwrap();
+    for (value, matches) in [
+        (json!(1), 1),
+        (json!(1.0), 1),
+        (json!(true), 1),
+        (json!(false), 1),
+        (json!(0.0), 1),
+        (json!(9_007_199_254_740_993_i64), 1),
+        (json!(9_007_199_254_740_992.0), 1),
+        (json!("1"), 1),
+        (json!([1, null]), 0), // Equality is unknown when null comparison is required.
+        (json!({"x":[1.5,true]}), 1),
+        (json!(null), 0),
+    ] {
+        let parameters = Parameters::from([("value".into(), value.clone())]);
+        database
+            .execute_with(
+                "MATCH (p:P {anchor:'one'}) SET p.value = $value",
+                &parameters,
+            )
+            .unwrap();
+        assert_index_matches_nodes(&path);
+        assert_eq!(
+            database
+                .execute("MATCH (p:P {anchor:'one'}) RETURN p.value, p.kept")
+                .unwrap()
+                .rows,
+            [vec![value.clone(), json!([1, true])]]
+        );
+        let found = database
+            .execute_with("MATCH (p:P {value:$value}) RETURN count(p)", &parameters)
+            .unwrap();
+        assert_eq!(integers(&found), [matches], "value={value}");
+        assert_eq!(
+            database
+                .execute_with(
+                    "MATCH (p:P {anchor:'one'}) SET p.value = $value",
+                    &parameters
+                )
+                .unwrap()
+                .summary
+                .properties_set,
+            0
+        );
+    }
+    for query in [
+        "MATCH (p:P) SET p += {kept:null, added:'yes'}",
+        "MATCH (p:P) SET p = {fresh:[1,2], absent:null}",
+        "MATCH (p:P) REMOVE p.fresh",
+    ] {
+        database.execute(query).unwrap();
+        assert_index_matches_nodes(&path);
+    }
 }
 
 #[test]

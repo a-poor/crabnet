@@ -621,6 +621,31 @@ fn bench_writes(c: &mut Criterion) {
             )
         })
     });
+    // Change one field while retaining the other indexed values and unique
+    // keys, as the dependency import does with its generation marker.
+    let mut bulk = people_only(1_000);
+    bulk.create_unique_constraint("Person", "id").unwrap();
+    assert_eq!(
+        run(&mut bulk, "MATCH (p:Person) SET p.generation = 0")
+            .summary
+            .properties_set,
+        1_000
+    );
+    group.throughput(Throughput::Elements(1_000));
+    let mut generation = 0;
+    group.bench_function("set_property_batch_1000", |b| {
+        b.iter(|| {
+            generation += 1;
+            let result = run_with(
+                &mut bulk,
+                "MATCH (p:Person) SET p.generation = $generation",
+                &params([("generation", json!(generation))]),
+            );
+            assert_eq!(result.summary.properties_set, 1_000);
+            result
+        })
+    });
+    group.throughput(Throughput::Elements(1));
     group.bench_function(BenchmarkId::new("detach_delete_matched", nodes), |b| {
         b.iter_batched(
             || {

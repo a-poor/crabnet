@@ -1426,10 +1426,19 @@ until commit. Any query or constraint-management error aborts the entire
 transaction. Rollback, drop, and query-result failures restore both data and
 constraints. These schema methods do not produce `QuerySummary` counters.
 
-Declarations and their keys persist in schema version 4. Opening main's
-versions 1, 2, or 3 in a writable mode upgrades atomically, retaining existing data and installing
-no constraints by default. Failed migrations leave the previous schema and
-version marker intact. Triggers enforce uniqueness under SQLite's writer
+Declarations and their keys persist in the database. Schema version 5 retains
+unchanged property-index entries and skips uniqueness-index writes when node
+identity, labels, and canonical constrained values are unchanged. A changed
+key or label still receives the same immediate uniqueness check; updates are
+not deferred or combined across rows or `SET` items. Property-index values
+retain SQLite's extracted storage types, including integer-to-real changes.
+Stable node/relationship insert and property read/write statements use the
+connection's prepared-statement cache; every execution binds fresh values.
+
+Opening main's versions 1–4 in a writable mode upgrades atomically, retaining
+existing data and constraints; versions before 4 install no constraints by
+default. Failed migrations leave the previous schema and version marker intact.
+Triggers enforce uniqueness under SQLite's writer
 reservation; another Crabnet connection observes committed constraint
 changes. Direct external SQLite writes are not a supported application API.
 Composite keys, relationship constraints, named constraints, and Cypher
@@ -1508,9 +1517,9 @@ if the caller only intended to read. Planning, parameter, and query-resource
 preflight errors can still be returned before the write-access check. Read-only
 application transactions spanning several queries are not exposed.
 
-Schema version 4 remains current; this API does not change the file format.
-Writable opens atomically migrate main's versions 1–3. A read-only open of an
-older version returns `Error::Data` explaining that a writable migration is
+Schema version 5 is current. Writable opens atomically migrate main's
+versions 1–4. A read-only open of an older version returns `Error::Data`
+explaining that a writable migration is
 required. Future versions, foreign application IDs, and unrelated nonempty
 SQLite databases are refused. The earlier experimental single-label version 2
 is still unsupported. Inspection and validation use one read snapshot. When

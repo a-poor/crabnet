@@ -34,7 +34,7 @@ pub(crate) mod transaction;
 mod traversal;
 
 const APPLICATION_ID: i64 = 0x4352_4142; // "CRAB"
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const INITIAL_SCHEMA: &str = "
 
@@ -142,6 +142,24 @@ END;
 INSERT INTO node_properties (node_id, key, value)
     SELECT nodes.id, property.key, property.value
     FROM nodes, json_each(nodes.props) AS property WHERE property.type <> 'null';
+";
+
+// Version 5 retains unchanged property-index entries. Keep the historical
+// schema above intact so all upgrade paths use this same atomic replacement.
+const PROPERTY_INDEX_UPDATE_V5: &str = "
+DROP TRIGGER node_properties_update;
+CREATE TRIGGER node_properties_update AFTER UPDATE OF id, props ON nodes BEGIN
+    DELETE FROM node_properties
+        WHERE node_id = OLD.id
+          AND (OLD.id IS NOT NEW.id OR key NOT IN (
+              SELECT key FROM json_each(NEW.props) WHERE type <> 'null'
+          ));
+    INSERT INTO node_properties (node_id, key, value)
+        SELECT NEW.id, key, value FROM json_each(NEW.props) WHERE type <> 'null'
+        ON CONFLICT (node_id, key) DO UPDATE SET value = excluded.value
+        WHERE node_properties.value IS NOT excluded.value
+           OR typeof(node_properties.value) <> typeof(excluded.value);
+END;
 ";
 
 /// An embedded graph database connection.
@@ -729,8 +747,9 @@ fn update_properties(
             EntityKind::Node => "SELECT props FROM nodes WHERE id = ?1",
             EntityKind::Relationship => "SELECT props FROM edges WHERE id = ?1",
         };
-        let encoded =
-            transaction.query_row(select_sql, params![id], |record| record.get::<_, String>(0))?;
+        let encoded = transaction
+            .prepare_cached(select_sql)?
+            .query_row(params![id], |record| record.get::<_, String>(0))?;
         let serde_json::Value::Object(mut properties) =
             serde_json::from_str(&encoded).map_err(|error| {
                 crate::Error::Data(format!(
@@ -751,13 +770,10 @@ fn update_properties(
                 EntityKind::Node => "UPDATE nodes SET props = json(?1) WHERE id = ?2",
                 EntityKind::Relationship => "UPDATE edges SET props = json(?1) WHERE id = ?2",
             };
-            transaction.execute(
-                update_sql,
-                params![
-                    serde_json::Value::Object(properties.clone()).to_string(),
-                    id
-                ],
-            )?;
+            transaction.prepare_cached(update_sql)?.execute(params![
+                serde_json::Value::Object(properties.clone()).to_string(),
+                id
+            ])?;
         }
 
         let properties = cypher_properties(serde_json::Value::Object(properties))?;
@@ -1072,13 +1088,15 @@ fn apply_mutation(
             for (index, input_row) in rows.iter_mut().enumerate() {
                 context.check()?;
                 let properties = &stored_properties(values.get(index));
-                let id = transaction.query_row(
-                    "INSERT INTO nodes (id, labels, props)
+                let id = transaction
+                    .prepare_cached(
+                        "INSERT INTO nodes (id, labels, props)
                      VALUES (lower(hex(randomblob(16))), json(?1), json(?2))
                      RETURNING id",
-                    params![encoded_labels, properties.to_string()],
-                    |row| row.get::<_, String>(0),
-                )?;
+                    )?
+                    .query_row(params![encoded_labels, properties.to_string()], |row| {
+                        row.get::<_, String>(0)
+                    })?;
                 input_row.set(
                     slots,
                     *slot,
@@ -1105,13 +1123,16 @@ fn apply_mutation(
                 let properties = &stored_properties(values.get(index));
                 let from = input_row.node_id(*from)?.to_owned();
                 let to = input_row.node_id(*to)?.to_owned();
-                let id = transaction.query_row(
-                    "INSERT INTO edges (id, edge_type, from_node, to_node, props)
+                let id = transaction
+                    .prepare_cached(
+                        "INSERT INTO edges (id, edge_type, from_node, to_node, props)
                      VALUES (lower(hex(randomblob(16))), ?1, ?2, ?3, json(?4))
                      RETURNING id",
-                    params![relationship_type, from, to, properties.to_string()],
-                    |row| row.get::<_, String>(0),
-                )?;
+                    )?
+                    .query_row(
+                        params![relationship_type, from, to, properties.to_string()],
+                        |row| row.get::<_, String>(0),
+                    )?;
                 input_row.set(
                     slots,
                     *slot,
@@ -2343,7 +2364,7 @@ fn inspect_schema(connection: &Connection, mode: OpenMode) -> Result<i64> {
     let schema_version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
 
     if application_id == APPLICATION_ID {
-        if matches!(schema_version, 1..=3) {
+        if matches!(schema_version, 1..=4) {
             if mode == OpenMode::ReadOnly {
                 return Err(crate::Error::Data(format!(
                     "Crabnet schema version {schema_version} requires migration; open read/write first"
@@ -2385,8 +2406,8 @@ fn inspect_schema(connection: &Connection, mode: OpenMode) -> Result<i64> {
     Ok(0)
 }
 
-/// Install labels, property indexes, and uniqueness support, rolling back schema
-/// changes and the version marker if any validation or backfill fails.
+/// Install labels, property indexes, uniqueness, and incremental maintenance.
+/// Roll back schema changes and the version marker if validation/backfill fails.
 fn upgrade_schema(connection: &mut Connection, mode: OpenMode) -> Result<()> {
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     // Another opener may have initialized/upgraded the file while we waited
@@ -2407,13 +2428,17 @@ fn upgrade_schema(connection: &mut Connection, mode: OpenMode) -> Result<()> {
                 crate::Error::Data("unsupported experimental version 2 schema; expected main's multi-label layout".into())
             })?;
         }
-        3 => {}
+        3 | 4 => {}
         _ => unreachable!("only known schema versions can be upgraded"),
     }
     if from < 3 {
         transaction.execute_batch(PROPERTY_INDEX_SCHEMA)?;
     }
-    transaction.execute_batch(constraints::SCHEMA)?;
+    if from < 4 {
+        transaction.execute_batch(constraints::SCHEMA)?;
+    }
+    transaction.execute_batch(PROPERTY_INDEX_UPDATE_V5)?;
+    transaction.execute_batch(constraints::UPDATE_V5)?;
     transaction.pragma_update(None, "user_version", SCHEMA_VERSION)?;
     validate_schema(&transaction)?;
     transaction.commit()?;
@@ -2892,6 +2917,287 @@ fn validate_schema(connection: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn install_version_four(connection: &Connection) {
+        constraints::register(connection).unwrap();
+        connection.execute_batch(INITIAL_SCHEMA).unwrap();
+        connection.execute_batch(PROPERTY_INDEX_SCHEMA).unwrap();
+        connection.execute_batch(constraints::SCHEMA).unwrap();
+        connection
+            .execute_batch(
+                "INSERT INTO nodes (id, labels, props)
+             VALUES ('saved', '[\"Package\"]', '{\"key\":\"a\",\"generation\":1}');
+             PRAGMA user_version = 4;",
+            )
+            .unwrap();
+        constraints::create(connection, "Package", "key").unwrap();
+    }
+
+    #[test]
+    fn selective_indexes_follow_identity_and_label_changes() {
+        let mut database = Database::in_memory().unwrap();
+        database.create_unique_constraint("A", "key").unwrap();
+        database.create_unique_constraint("B", "other").unwrap();
+        let created = database
+            .execute("CREATE (n:A:B {key:[1,null], other:1.0, kept:true}) RETURN elementId(n)")
+            .unwrap();
+        let old = created.rows[0][0].as_str().unwrap();
+        database.execute("MATCH (n:A) REMOVE n:B").unwrap();
+        database.execute("CREATE (:B {other:1})").unwrap();
+        assert!(matches!(
+            database.execute("MATCH (n:A) SET n:B"),
+            Err(crate::Error::Constraint(_))
+        ));
+        assert_eq!(
+            database
+                .execute("MATCH (n:A) RETURN elementId(n), labels(n), n.key, n.kept")
+                .unwrap()
+                .rows,
+            [vec![
+                json!(old),
+                json!(["A"]),
+                json!([1, null]),
+                json!(true)
+            ]]
+        );
+        // Cypher does not expose ID updates. Exercise the ID branch of these
+        // two triggers directly, independently of the label lookup index.
+        database
+            .connection
+            .execute("UPDATE nodes SET id = 'renamed' WHERE id = ?1", [old])
+            .unwrap();
+        for (table, count) in [("node_properties", 3), ("node_unique_values", 1)] {
+            let old_count: i64 = database
+                .connection
+                .query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE node_id=?1"),
+                    [old],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let new_count: i64 = database
+                .connection
+                .query_row(
+                    &format!("SELECT count(*) FROM {table} WHERE node_id='renamed'"),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(old_count, 0);
+            assert_eq!(new_count, count);
+        }
+    }
+
+    #[test]
+    fn version_four_upgrade_preserves_data_and_installs_selective_maintenance() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("version-four.sqlite");
+        let connection = Connection::open(&path).unwrap();
+        install_version_four(&connection);
+        drop(connection);
+        let readonly = OpenOptions {
+            mode: OpenMode::ReadOnly,
+            ..OpenOptions::default()
+        };
+        assert!(
+            matches!(Database::open_with_options(&path, &readonly), Err(crate::Error::Data(message)) if message.contains("version 4 requires migration"))
+        );
+        let mut database = Database::open_with_options(
+            &path,
+            &OpenOptions {
+                mode: OpenMode::ReadWrite,
+                ..OpenOptions::default()
+            },
+        )
+        .unwrap();
+        let version: i64 = database
+            .connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(database.unique_constraints().unwrap().len(), 1);
+        assert_eq!(
+            database
+                .execute("MATCH (p:Package {key:'a'}) RETURN elementId(p), p.generation")
+                .unwrap()
+                .rows,
+            [vec![json!("saved"), json!(1)]]
+        );
+        let before = database.connection.total_changes();
+        database
+            .execute("MATCH (p:Package {key:'a'}) SET p.generation = 2")
+            .unwrap();
+        // One stored-node change and one property-index change. The unique
+        // key and unchanged property entry are retained after migration.
+        assert_eq!(database.connection.total_changes() - before, 2);
+        assert!(matches!(
+            database.execute("CREATE (:Package {key:'a'})"),
+            Err(crate::Error::Constraint(_))
+        ));
+        drop(database);
+        let mut readonly = Database::open_with_options(&path, &readonly).unwrap();
+        assert_eq!(
+            readonly
+                .execute("MATCH (p:Package {key:'a'}) RETURN elementId(p), p.generation")
+                .unwrap()
+                .rows,
+            [vec![json!("saved"), json!(2)]]
+        );
+    }
+
+    #[test]
+    fn failed_version_five_upgrade_restores_both_triggers_and_version() {
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        let mut connection = Connection::open_in_memory().unwrap();
+        install_version_four(&connection);
+        let triggers = |connection: &Connection| {
+            connection
+                .prepare(
+                    "SELECT sql FROM sqlite_schema
+                     WHERE name IN ('node_properties_update','node_unique_update') ORDER BY name",
+                )
+                .unwrap()
+                .query_map([], |row| row.get::<_, String>(0))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        let before = triggers(&connection);
+        connection
+            .authorizer(Some(|context: AuthContext<'_>| {
+                if matches!(
+                    context.action,
+                    AuthAction::CreateTrigger {
+                        trigger_name: "node_unique_update",
+                        ..
+                    }
+                ) {
+                    Authorization::Deny
+                } else {
+                    Authorization::Allow
+                }
+            }))
+            .unwrap();
+        assert!(initialize(&mut connection).is_err());
+        assert!(connection.is_autocommit());
+        connection
+            .authorizer(None::<fn(AuthContext<'_>) -> Authorization>)
+            .unwrap();
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 4);
+        assert_eq!(triggers(&connection), before);
+        assert_eq!(constraints::list(&connection).unwrap().len(), 1);
+        initialize(&mut connection).unwrap();
+        let mut database = Database::from_connection(connection).unwrap();
+        assert_eq!(
+            database
+                .execute("MATCH (p:Package) RETURN elementId(p), p.key, p.generation")
+                .unwrap()
+                .rows,
+            [vec![json!("saved"), json!("a"), json!(1)]]
+        );
+    }
+
+    #[test]
+    fn property_updates_leave_unchanged_index_entries_alone() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let mut database = Database::in_memory().unwrap();
+        database.create_unique_constraint("Package", "key").unwrap();
+        database.execute("CREATE (:Package {key: 'saved', generation: 1, name: 'kept', nested: {x:[1,true]}})").unwrap();
+        let writes = Arc::new(std::array::from_fn::<_, 6, _>(|_| AtomicUsize::new(0)));
+        let observed = writes.clone();
+        database
+            .connection
+            .create_scalar_function(
+                "record_index_write",
+                1,
+                FunctionFlags::SQLITE_UTF8,
+                move |context| {
+                    observed[usize::from(context.get::<u8>(0)?)].fetch_add(1, Ordering::Relaxed);
+                    Ok(0)
+                },
+            )
+            .unwrap();
+        for (table_index, table) in ["node_properties", "node_unique_values"].iter().enumerate() {
+            for (action_index, action) in ["DELETE", "INSERT", "UPDATE"].iter().enumerate() {
+                let index = table_index * 3 + action_index;
+                database
+                    .connection
+                    .execute_batch(&format!(
+                        "CREATE TEMP TRIGGER observe_{index} AFTER {action} ON main.{table}
+                     BEGIN SELECT record_index_write({index}); END;"
+                    ))
+                    .unwrap();
+            }
+        }
+        let result = database
+            .execute("MATCH (p:Package) SET p.generation = 2 RETURN p.key, p.generation")
+            .unwrap();
+        assert_eq!(result.rows, [vec![json!("saved"), json!(2)]]);
+        assert_eq!(result.summary.properties_set, 1);
+        assert_eq!(
+            writes.each_ref().map(|n| n.load(Ordering::Relaxed)),
+            [0, 0, 1, 0, 0, 0]
+        );
+    }
+
+    #[test]
+    fn bulk_writes_reuse_statements_within_a_stable_schema() {
+        use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let mut database = Database::in_memory().unwrap();
+        database.create_unique_constraint("Item", "id").unwrap();
+        let prepares = Arc::new(std::array::from_fn::<_, 4, _>(|_| AtomicUsize::new(0)));
+        let observed = prepares.clone();
+        database
+            .connection
+            .authorizer(Some(move |context: AuthContext<'_>| {
+                let index = match context.action {
+                    AuthAction::Insert {
+                        table_name: "nodes",
+                    } => Some(0),
+                    AuthAction::Insert {
+                        table_name: "edges",
+                    } => Some(1),
+                    AuthAction::Update {
+                        table_name: "nodes",
+                        column_name: "props",
+                    } => Some(2),
+                    AuthAction::Update {
+                        table_name: "edges",
+                        column_name: "props",
+                    } => Some(3),
+                    _ => None,
+                };
+                if let Some(index) = index {
+                    observed[index].fetch_add(1, Ordering::Relaxed);
+                }
+                Authorization::Allow
+            }))
+            .unwrap();
+        let result = database
+            .execute(
+                "UNWIND range(1, 16) AS i CREATE (a:Item {id: i})-[r:R {key: i}]->(b)
+             SET a.x = 1, a.y = 2, r.x = 1, r.y = 2 RETURN count(*)",
+            )
+            .unwrap();
+        assert_eq!(result.rows, [vec![json!(16)]]);
+        assert_eq!(result.summary.nodes_created, 32);
+        assert_eq!(result.summary.relationships_created, 16);
+        assert_eq!(result.summary.properties_set, 64);
+        assert_eq!(
+            prepares.each_ref().map(|n| n.load(Ordering::Relaxed)),
+            [1; 4]
+        );
+    }
 
     #[test]
     fn cancellation_after_a_write_aborts_the_transaction_and_restores_indexes() {

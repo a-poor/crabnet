@@ -706,11 +706,13 @@ For now, each `edges` row represents one relationship rather than a computed
 multi-edge Cypher path. `edge_type` is relationship data, while both endpoints
 are foreign keys. Foreign-key enforcement is enabled per connection. A
 trigger-maintained `node_labels (label, node_id)` table indexes label lookups,
-and indexes cover endpoint/type lookups. Schema version 4 adds persistent node
-uniqueness declarations and typed value keys maintained by triggers. Files from
-main's versions 1, 2, and 3 are upgraded atomically on writable open, including
-property-index backfill. The experimental single-label version 2 from the former benchmark
-branch is rejected; recreate those experimental databases.
+and indexes cover endpoint/type lookups. Schema version 5 maintains property
+indexes selectively and retains unchanged uniqueness keys. Files from main's
+versions 1–4 are upgraded atomically on writable open, preserving data and
+constraints and backfilling older property indexes when needed. Read-only
+handles require a current-schema file. The experimental single-label version 2
+from the former benchmark branch is rejected; recreate those experimental
+databases.
 
 A fourth table indexes node properties. It holds one row per top-level
 non-null property of each node, with the value `json_extract` returns, and

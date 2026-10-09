@@ -158,7 +158,9 @@ end-to-end result test for user-visible semantics.
   equality and numeric precision, missing/null values, exact names, independent
   and overlapping declarations, all mutation routes, bags, immediate checks,
   parameter/result failures, transaction abort/rollback, and reopen/connection
-  visibility. Schema unit tests cover migration and atomic DDL failure.
+  visibility. Schema unit tests cover migrations through version 5, retained
+  identities/declarations, and atomic DDL failure restoring both maintenance
+  triggers and the version marker.
 - `tests/arithmetic_and_distinct.rs` locks down numeric expression typing,
   precedence, invalid-operand nulls, typed ordering, and post-decode semantic
   `DISTINCT`, including pagination and ordering-scope boundaries.
@@ -188,7 +190,11 @@ end-to-end result test for user-visible semantics.
   `node_properties` index equals a recomputation from `nodes` after every
   kind of write and after a rolled-back statement, that indexed lookups keep
   Cypher equality across numeric, boolean, text, list, map, and null values,
-  and which query shapes are planned through the index. Two SQLite planner
+  and which query shapes are planned through the index. Updates also check
+  SQLite storage kinds, including integer-to-real changes. Database unit tests
+  audit index writes to verify unchanged entries are retained, and count SQL
+  compilation through an authorizer to verify bulk node/relationship statement
+  reuse without timing assertions. Two SQLite planner
   tests cover computed MERGE probe eligibility, normalization/conditional plans,
   and candidate-dependent/volatile/expensive exclusions. Integration coverage
   includes nested/dynamic access, optional and correlated reads,
@@ -426,6 +432,12 @@ The fixtures are deterministic and built in memory at the start of each group:
   iteration, because the merge itself changes the graph; `fanout_shared`
   collapses the rows onto fifty keys while `fanout_distinct` creates once per
   row.
+
+`write/set_property_batch_1000` repeatedly changes one property on 1,000
+uniquely keyed nodes, retaining their other indexed values. Each iteration
+checks the changed-property count. The dependency application measures full
+first/repeat imports at 1,000 and 10,000 packages; see the
+[node-upsert profile and comparison](dependency-graph.md#bulk-node-upserts-2026-10-08-follow-up).
 
 Group ids are `plan/*`, `read/<query>/<nodes>`, `traversal/*`, `write/*`,
 and `merge/*`, and Criterion writes HTML reports under `target/criterion/`.
