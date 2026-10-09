@@ -148,7 +148,7 @@ struct TrailRows<'read> {
     runtime_index: usize,
     skip: usize,
     shapes: &'read [OutputShape],
-    producer: Option<TrailStream>,
+    producer: Option<TrailStream<'read>>,
     finished: bool,
 }
 

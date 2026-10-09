@@ -466,7 +466,7 @@ hydration example measures large repeated outputs with sizeable entity payloads.
 
 `tests/read_cursor_traversal.rs` covers the first incremental Rust traversal
 slice: one deep/open-ended relationship and its endpoints with filters and
-projections. Twelve tests cover typed/path/list bags, parallel edges and cycles,
+projections. Fourteen tests cover typed/path/list bags, parallel edges and cycles,
 directions, endpoint/edge predicates, empty and zero-hop results, DISTINCT,
 pagination, union counters, zero-page preflight, skipped-projection guards,
 volatile expressions, fallback boundaries, partial
@@ -475,11 +475,23 @@ and transactional rollback. A unit oracle compares emitted trail order and
 state work with eager enumeration, and verifies producer memory charges are
 released on completion, early drop, and initialization failure.
 
+Constrained cursor tests hold transfer and memory budgets below the cost of
+disconnected eligible edges, then prove early exit avoids a high-degree unread
+neighborhood. Typed parameter filters and physical source explanations are
+covered in both directions and undirected traversal. A second unit oracle
+compares exact trail order over 64 graph subsets, all directions, unconstrained
+fallback, zero-only/bounded/open-ended/impossible/reversed depths, and endpoint
+domains. Shared neighbor-cache tests check index selection, dense bindings,
+transfer accounting, cancellation on cache hits, exact retained-memory bounds,
+failed-probe cleanup, and release between producers.
+
 The existing cursor tests retain buffered coverage with WITH stages and
 shortest paths; eligible transaction cursor cases now assert Incremental.
 `examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
 edge chain in eager/full-cursor/first-row modes. The `cursor_traversal/*`
-Criterion cases use the same fixture. See the
+Criterion cases use the same fixture. An optional unrelated-edge argument adds
+disconnected eligible self-loops while retaining the same output bag. The
+`cursor_traversal_neighbors/*` group adds 1,000 and 10,000 such edges. See the
 [measurement guide](cursors.md#rust-traversal-measurements) for fresh-process
 first-row latency, full-consumption time, and peak-RSS comparisons.
 

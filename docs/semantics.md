@@ -1705,9 +1705,19 @@ aggregation, and shortest-path producers retain buffered execution. Eager
 execution and its SQL pagination are unchanged. Unordered pagination selects an
 unspecified subset; no cross-mode ordering guarantee is added.
 
-The producer starts on first demand, loading eligible edges and endpoint
-domains, then yielding singleton JSON relations from a resumable trail walk.
-Inputs and frontier remain in memory until producer completion or drop. A
+The producer starts on first demand, loading endpoint domains, then yielding
+singleton JSON relations from a resumable trail walk. A same-clause start label
+or inline property enables indexed neighbor probes, caching each expanded
+node's ordered eligible steps, including empty lists. Unconstrained starts,
+eager execution, and buffered cursor shapes retain whole-edge loading.
+Neighbor probes preserve direction, parallel-edge multiplicity, and one copy
+of each undirected self-loop. They stop at hop bounds and early exit; zero-hop
+rows need no neighbor probe. Domains, cached neighbors, and frontier remain in
+memory until producer completion or drop. A high-degree expansion loads the
+whole eligible neighbor list. Transferred edge rows and retained keys/steps
+use the existing query budgets. Relationship uniqueness bounds open-ended
+walks without loading a global edge count; an impossible minimum depth can
+therefore consume explored-state budget before returning no rows. A
 reached page limit stops enumeration; LIMIT 0 starts no producer. Ordinary
 SKIP suppresses discarded projection expressions while still charging matching
 placeholder rows as SQL transfers. DISTINCT pagination retains projection

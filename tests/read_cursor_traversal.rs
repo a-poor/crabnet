@@ -43,6 +43,104 @@ fn first_trail_and_limit_do_not_enumerate_the_unread_suffix() {
     assert_eq!(rows.len(), 1);
 }
 
+#[test]
+fn constrained_cursors_do_not_load_unrelated_edges_or_the_unread_neighborhood() {
+    let mut db = Database::in_memory().unwrap();
+    db.execute("CREATE (:Start)-[:R]->(:Frontier)").unwrap();
+    db.execute("UNWIND range(1, 200) AS i CREATE (n:Unrelated)-[:R]->(n)")
+        .unwrap();
+    let query = "MATCH p=(:Start)-[:R*]->() RETURN length(p)";
+    // One seed, one neighbor edge, one consuming result. Unrelated edges
+    // must not use transfer or retained-memory budgets, even at exhaustion.
+    let options = QueryOptions {
+        max_materialized_rows: Some(3),
+        traversal: TraversalLimits {
+            max_memory_bytes: 2_000,
+            ..TraversalLimits::default()
+        },
+        ..QueryOptions::default()
+    };
+    let rows = db
+        .prepare_read_with_options(query, &Parameters::new(), &options)
+        .unwrap()
+        .cursor()
+        .unwrap()
+        .collect::<crabnet::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(rows, [vec![crabnet::CypherValue::Integer(1)]]);
+
+    db.execute("MATCH (f:Frontier) UNWIND range(1, 200) AS i CREATE (f)-[:R]->()")
+        .unwrap();
+    let mut read = db
+        .prepare_read_with_options(query, &Parameters::new(), &options)
+        .unwrap();
+    for _ in 0..2 {
+        let mut cursor = read.cursor().unwrap();
+        assert_eq!(cursor.next().unwrap().unwrap()[0], serde_json::json!(1));
+        // Only advancing into the high-degree frontier pays for its neighbors.
+        assert!(matches!(cursor.next(), Some(Err(Error::ResourceLimit(_)))));
+        assert!(cursor.next().is_none());
+    }
+    drop(read);
+    let mut read = db
+        .prepare_read_with_options(&format!("{query} LIMIT 1"), &Parameters::new(), &options)
+        .unwrap();
+    assert_eq!(
+        read.cursor()
+            .unwrap()
+            .collect::<crabnet::Result<Vec<_>>>()
+            .unwrap(),
+        rows
+    );
+}
+
+#[test]
+fn indexed_cursor_neighbors_keep_typed_filters_and_report_both_execution_sources() {
+    let mut db = Database::in_memory().unwrap();
+    db.execute(
+        "CREATE (a:Start), (b:End), (a)-[:R {open:true}]->(b),
+        (a)-[:R {open:true}]->(b), (a)-[:R {open:false}]->(b),
+        (a)-[:R {open:1}]->(b), (a)-[:R]->(b), (a)-[:OTHER {open:true}]->(b)",
+    )
+    .unwrap();
+    for (value, expected) in [
+        (serde_json::json!(true), 2),
+        (serde_json::json!(false), 1),
+        (serde_json::json!(1), 1),
+        (serde_json::json!(null), 0),
+        (serde_json::json!("true"), 0),
+    ] {
+        let parameters = Parameters::from([("open".into(), value)]);
+        for pattern in [
+            "(:Start)-[:R* {open:$open}]->(:End)",
+            "(:End)<-[:R* {open:$open}]-(:Start)",
+            "(:Start)-[:R* {open:$open}]-(:End)",
+        ] {
+            let query = format!("MATCH p={pattern} RETURN length(p)");
+            let rows = db
+                .prepare_read_with(&query, &parameters)
+                .unwrap()
+                .cursor()
+                .unwrap()
+                .collect::<crabnet::Result<Vec<_>>>()
+                .unwrap();
+            assert_eq!(rows.len(), expected, "{query}");
+            // Typed filters and parallel relationships retain the eager bag.
+            assert_eq!(
+                bag(rows),
+                bag(db.execute_with(&query, &parameters).unwrap().rows)
+            );
+        }
+    }
+    let physical = crabnet::explain_physical("MATCH p=(:Start)-[*]->() RETURN length(p)").unwrap();
+    assert!(physical.contains("edge-source:"));
+    assert!(physical.contains("cursor-neighbor-source:"));
+    assert!(physical.contains("?1 current-node"));
+    let physical = crabnet::explain_physical("MATCH p=(:Start)-[*]->() RETURN count(*)").unwrap();
+    assert!(physical.contains("edge-source:"));
+    assert!(!physical.contains("neighbor-source:"));
+}
+
 fn bag(mut rows: Vec<Vec<crabnet::CypherValue>>) -> Vec<Vec<crabnet::CypherValue>> {
     rows.sort_by_cached_key(|row| format!("{row:?}"));
     rows
@@ -300,9 +398,10 @@ fn graph_input_result_and_payload_limits_remain_cumulative_and_reusable() {
     db.execute("CREATE (:S)-[:R]->()-[:R]->()-[:R]->()")
         .unwrap();
     let query = "MATCH p=(:S)-[:R*]->() RETURN length(p)";
-    // Three loaded edges, one start ID, then one consuming SQL result.
+    // One start ID, one neighbor edge, then one consuming SQL result.
+    // Advancing fetches the next neighborhood against the same transfer budget.
     let options = QueryOptions {
-        max_materialized_rows: Some(5),
+        max_materialized_rows: Some(3),
         ..QueryOptions::default()
     };
     let mut read = db

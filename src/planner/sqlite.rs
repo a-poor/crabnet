@@ -261,6 +261,16 @@ fn compile_read_with_probes(
         })
     });
 
+    // Only incremental trail projections use per-node probes. Eager execution
+    // and buffered shapes retain their existing whole-edge source.
+    if trail_cursor.is_none() {
+        for input in &mut compiler.inputs {
+            if let ValueOperator::TrailExpand { spec, .. } = input {
+                spec.neighbor_sql = None;
+            }
+        }
+    }
+
     if !projection.distinct && (projection.limit.is_some() || projection.offset.is_some()) {
         sql.push_str(" LIMIT ");
         match &projection.limit {
@@ -1281,9 +1291,7 @@ impl Compiler {
             )));
         }
 
-        let neighbor_direction = matches!(kind, HybridExpansionKind::Shortest(_))
-            .then_some(direction)
-            .filter(|_| start_domain.is_some());
+        let neighbor_direction = start_domain.as_ref().map(|_| direction);
         let (edge_sql, neighbor_sql, edge_bindings) =
             Self::compile_eligible_edge_query(relationship_type, properties, neighbor_direction);
         let output = RuntimeSlot(self.inputs.len());

@@ -369,22 +369,8 @@ pub(super) fn materialize_shortest(
                 EncodedRows::new(spec.traversal, budget)?.finish(spec.traversal, budget)?,
             ));
         }
-        let seeds = load_domain(
-            connection,
-            spec.start_domain
-                .as_ref()
-                .expect("neighbor source has a start domain"),
-            spec.traversal,
-            budget,
-        )?;
-        let end_domain = spec
-            .end_domain
-            .as_ref()
-            .map(|domain| {
-                load_domain(connection, domain, spec.traversal, budget).map(BTreeSet::from_iter)
-            })
-            .transpose()?;
-        let mut neighbors = ShortestNeighbors {
+        let inputs = load_constrained_inputs(connection, spec, budget)?;
+        let mut neighbors = TraversalNeighbors {
             adjacency: BTreeMap::new(),
             query: Some(NeighborQuery {
                 statement: connection.prepare_cached(sql)?,
@@ -395,8 +381,8 @@ pub(super) fn materialize_shortest(
         let rows = search_shortest_paths(
             &mut neighbors,
             ShortestEndpoints {
-                seeds: &seeds,
-                end_domain: end_domain.as_ref(),
+                seeds: &inputs.seeds,
+                end_domain: inputs.end_domain.as_ref(),
             },
             (spec.minimum, spec.maximum.unwrap_or(usize::MAX)),
             mode,
@@ -404,8 +390,7 @@ pub(super) fn materialize_shortest(
             budget,
         )?;
         drop(neighbors);
-        drop(seeds);
-        drop(end_domain);
+        drop(inputs);
         budget.release_to(checkpoint);
         return Ok(SqlValue::Text(rows));
     }
@@ -436,6 +421,7 @@ pub(super) fn materialize_shortest(
 /// stored node because each one is its own identity trail. `end_domain`
 /// restricts emitted rows the same way without pruning intermediate states.
 ///
+/// On-demand sources leave `edges` empty and fill a separate neighbor cache.
 /// Every ID retained here is charged to the query's retained-memory budget as
 /// it is read, so an oversized eligible-edge set fails before it is fully
 /// loaded. The producer releases the whole charge when it finishes.
@@ -489,6 +475,35 @@ fn load_expansion_inputs(
         edges,
         end_domain,
     }))
+}
+
+// Constrained searches retain only endpoint domains up front. Neighbor caches
+// are filled during expansion, including empty lists for dead ends.
+fn load_constrained_inputs(
+    connection: &Connection,
+    spec: &ResolvedTrailExpansion,
+    budget: &mut TrailBudget,
+) -> Result<ExpansionInputs> {
+    let seeds = load_domain(
+        connection,
+        spec.start_domain
+            .as_ref()
+            .expect("neighbor source has a start domain"),
+        spec.traversal,
+        budget,
+    )?;
+    let end_domain = spec
+        .end_domain
+        .as_ref()
+        .map(|domain| {
+            load_domain(connection, domain, spec.traversal, budget).map(BTreeSet::from_iter)
+        })
+        .transpose()?;
+    Ok(ExpansionInputs {
+        seeds,
+        edges: Vec::new(),
+        end_domain,
+    })
 }
 
 fn load_nodes(
@@ -664,23 +679,23 @@ fn enumerate_trails(
 /// order. Graph inputs and the frontier stay charged while the cursor pauses;
 /// only the current singleton JSON relation is encoded. A branch owns its
 /// budget charge and releases it even on early pagination, errors, or drop.
-pub(super) struct TrailStream {
+pub(super) struct TrailStream<'a> {
     budget: Rc<RefCell<TrailBudget>>,
     checkpoint: usize,
     traversal: usize,
     minimum: usize,
     maximum: usize,
     inputs: Option<ExpansionInputs>,
-    adjacency: BTreeMap<String, Vec<TrailStep>>,
+    neighbors: TraversalNeighbors<'a>,
     seed_index: usize,
     pending: Vec<TrailState>,
     expanding: Option<(TrailState, usize)>,
 }
 
-impl TrailStream {
+impl<'a> TrailStream<'a> {
     pub(super) fn new(
-        connection: &Connection,
-        spec: &ResolvedTrailExpansion,
+        connection: &'a Connection,
+        spec: &'a ResolvedTrailExpansion,
         budget: Rc<RefCell<TrailBudget>>,
     ) -> Result<Self> {
         let checkpoint = budget.borrow().memory_checkpoint();
@@ -691,21 +706,41 @@ impl TrailStream {
             minimum: spec.minimum,
             maximum: 0,
             inputs: None,
-            adjacency: BTreeMap::new(),
+            neighbors: TraversalNeighbors {
+                adjacency: BTreeMap::new(),
+                query: None,
+            },
             seed_index: 0,
             pending: Vec::new(),
             expanding: None,
         };
+        if spec.maximum.is_some_and(|maximum| spec.minimum > maximum) {
+            return Ok(stream);
+        }
         {
             let mut budget = stream.budget.borrow_mut();
-            stream.inputs = load_expansion_inputs(connection, spec, &mut budget)?;
-            if let Some(inputs) = &stream.inputs {
+            if let Some(sql) = &spec.neighbor_sql {
+                stream.inputs = Some(load_constrained_inputs(connection, spec, &mut budget)?);
+                stream.neighbors.query = Some(NeighborQuery {
+                    statement: connection.prepare_cached(sql)?,
+                    bindings: &spec.edge_bindings,
+                    direction: spec.direction,
+                });
+                // Relationship uniqueness bounds finite trails without a
+                // whole-graph edge count, including open-ended cycle searches.
+                stream.maximum = spec.maximum.unwrap_or(usize::MAX);
+            } else {
+                stream.inputs = load_expansion_inputs(connection, spec, &mut budget)?;
+            }
+            if let Some(inputs) = &stream.inputs
+                && stream.neighbors.query.is_none()
+            {
                 stream.maximum = spec
                     .maximum
                     .unwrap_or(inputs.edges.len())
                     .min(inputs.edges.len());
                 if stream.minimum <= stream.maximum {
-                    stream.adjacency =
+                    stream.neighbors.adjacency =
                         adjacency(&inputs.edges, spec.direction, spec.traversal, &mut budget)?;
                 }
             }
@@ -730,7 +765,7 @@ impl TrailStream {
                     continue;
                 }
                 *remaining -= 1;
-                let step = &self.adjacency[&state.end_node][*remaining];
+                let step = &self.neighbors.adjacency[&state.end_node][*remaining];
                 if state.edge_ids.contains(&step.edge_id) {
                     continue;
                 }
@@ -749,7 +784,9 @@ impl TrailStream {
                 }
             } else if let Some(state) = self.pending.pop() {
                 let steps = if state.edge_ids.len() < self.maximum {
-                    self.adjacency.get(&state.end_node).map_or(0, Vec::len)
+                    self.neighbors
+                        .steps(&state.end_node, self.traversal, &mut budget)?
+                        .len()
                 } else {
                     0
                 };
@@ -781,7 +818,7 @@ impl TrailStream {
     }
 }
 
-impl Drop for TrailStream {
+impl Drop for TrailStream<'_> {
     fn drop(&mut self) {
         // Streaming UNION visits branches sequentially and starts producers
         // lazily, so no other live producer owns memory after this checkpoint.
@@ -802,7 +839,7 @@ fn encode_single_trail(
 /// Cache neighbor lists across tied prefixes, cycle searches, and seeds. The
 /// optional query fills a list only when its node is expanded; without it,
 /// `adjacency` is the complete eager source used for unconstrained searches.
-struct ShortestNeighbors<'a> {
+struct TraversalNeighbors<'a> {
     adjacency: BTreeMap<String, Vec<TrailStep>>,
     query: Option<NeighborQuery<'a>>,
 }
@@ -813,7 +850,7 @@ struct NeighborQuery<'a> {
     direction: TrailDirection,
 }
 
-impl ShortestNeighbors<'_> {
+impl TraversalNeighbors<'_> {
     fn steps(
         &mut self,
         node: &str,
@@ -887,7 +924,7 @@ fn enumerate_shortest_paths(
 
     let checkpoint = budget.memory_checkpoint();
     let adjacency = adjacency(edges, direction, traversal, budget)?;
-    let mut neighbors = ShortestNeighbors {
+    let mut neighbors = TraversalNeighbors {
         adjacency,
         query: None,
     };
@@ -911,7 +948,7 @@ fn enumerate_shortest_paths(
 }
 
 fn search_shortest_paths(
-    neighbors: &mut ShortestNeighbors<'_>,
+    neighbors: &mut TraversalNeighbors<'_>,
     endpoints: ShortestEndpoints<'_>,
     bounds: (usize, usize),
     mode: ShortestMode,
@@ -1011,7 +1048,7 @@ fn depth_entry_cost(node: &str) -> usize {
 
 fn enumerate_shortest_cycles(
     start: &str,
-    neighbors: &mut ShortestNeighbors<'_>,
+    neighbors: &mut TraversalNeighbors<'_>,
     maximum: usize,
     include_all: bool,
     traversal: usize,
@@ -1318,7 +1355,7 @@ mod tests {
         }
     }
 
-    fn shortest_spec(query: &str) -> ResolvedTrailExpansion {
+    fn expansion_spec(query: &str) -> ResolvedTrailExpansion {
         let Plan::Read(plan) = planner::compile(query).unwrap() else {
             panic!("expected read");
         };
@@ -1327,16 +1364,156 @@ mod tests {
         else {
             panic!("expected SQLite consumer");
         };
-        let PreparedValueOperator::ShortestExpand { spec, .. } =
-            fragment.inputs.into_iter().next().unwrap()
-        else {
-            panic!("expected shortest producer");
-        };
-        spec
+        match fragment.inputs.into_iter().next().unwrap() {
+            PreparedValueOperator::ShortestExpand { spec, .. }
+            | PreparedValueOperator::TrailExpand { spec, .. } => spec,
+        }
     }
 
     #[test]
-    fn shortest_neighbor_queries_use_directional_indexes_and_dense_bindings() {
+    fn indexed_trail_stream_matches_eager_order_over_small_graphs() {
+        let database = Database::in_memory().unwrap();
+        let connection = &database.connection;
+        connection
+            .execute_batch(
+                "INSERT INTO nodes (id, labels) VALUES ('a','[\"Seed\",\"Target\"]'),
+             ('b','[\"Seed\"]'), ('c','[\"Target\"]'), ('z','[]');",
+            )
+            .unwrap();
+        let possible = [
+            edge("aa", "a", "a"),
+            edge("ab1", "a", "b"),
+            edge("ab2", "a", "b"),
+            edge("bc", "b", "c"),
+            edge("ca", "c", "a"),
+            edge("cc", "c", "c"),
+        ];
+        for pattern in [
+            "(:Seed)-[:STEP*]->(:Target)",
+            "(:Seed)<-[:STEP*]-(:Target)",
+            "(:Seed)-[:STEP*]-(:Target)",
+            "()-[:STEP*]->(:Target)", // Unconstrained fallback.
+        ] {
+            let mut spec = expansion_spec(&format!("MATCH p={pattern} RETURN length(p)"));
+            assert_eq!(spec.neighbor_sql.is_some(), spec.start_domain.is_some());
+            // Override bounds on this Rust producer to include zero-only and
+            // impossible depths normally routed to a small SQLite traversal.
+            for (minimum, maximum) in [
+                (0, Some(0)),
+                (0, Some(3)),
+                (1, None),
+                (8, None),
+                (3, Some(2)),
+            ] {
+                spec.minimum = minimum;
+                spec.maximum = maximum;
+                for mask in 0..1 << possible.len() {
+                    connection.execute("DELETE FROM edges", []).unwrap();
+                    for edge in possible
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| mask & (1 << i) != 0)
+                        .map(|(_, edge)| edge)
+                        .chain(std::iter::once(&edge("zz", "z", "z")))
+                    {
+                        connection.execute(
+                            "INSERT INTO edges (id,edge_type,from_node,to_node) VALUES (?1,'STEP',?2,?3)",
+                            [&edge.id, &edge.from, &edge.to],
+                        ).unwrap();
+                    }
+                    let SqlValue::Text(expected) =
+                        materialize_trails(connection, &spec, &mut TrailBudget::new(10_000))
+                            .unwrap()
+                    else {
+                        panic!()
+                    };
+                    let budget = Rc::new(RefCell::new(TrailBudget::new(10_000)));
+                    let mut stream = TrailStream::new(connection, &spec, budget.clone()).unwrap();
+                    let mut actual = Vec::new();
+                    while let Some(row) = stream.next().unwrap() {
+                        actual.extend(decode_rows(&row));
+                    }
+                    assert_eq!(
+                        actual,
+                        decode_rows(&expected),
+                        "{pattern}, bounds={minimum}..{maximum:?}, mask={mask}"
+                    );
+                    drop(stream);
+                    assert_eq!(budget.borrow().memory_used(), 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn indexed_stream_charges_cached_neighborhoods_and_releases_failed_probes() {
+        let mut database = Database::in_memory().unwrap();
+        database
+            .execute(
+                "CREATE (a:Seed)-[:STEP]->(b)-[:STEP]->(a), (a)-[:STEP]->(b), (b)-[:STEP]->(b)",
+            )
+            .unwrap();
+        let spec = expansion_spec("MATCH p=(:Seed)-[:STEP*]->() RETURN length(p)");
+        // One seed + four edge transfers across two expanded nodes, despite
+        // many repeated visits. The producer alone has no consuming SQL rows.
+        let options = QueryOptions {
+            max_materialized_rows: Some(5),
+            ..QueryOptions::default()
+        };
+        let budget = Rc::new(RefCell::new(TrailBudget::configured(
+            &options.traversal,
+            QueryControl::new(&options),
+        )));
+        budget.borrow_mut().retain(0, 77).unwrap();
+        let mut stream = TrailStream::new(&database.connection, &spec, budget.clone()).unwrap();
+        let mut expected = Vec::new();
+        while let Some(row) = stream.next().unwrap() {
+            expected.push(row);
+        }
+        assert!(expected.len() > 4);
+        assert_eq!(stream.neighbors.adjacency.len(), 2);
+        drop(stream);
+        assert_eq!(budget.borrow().memory_used(), 77);
+        let peak = budget.borrow().memory_peak();
+
+        for limit in [peak, peak - 1] {
+            let budget = Rc::new(RefCell::new(
+                TrailBudget::default().with_memory_limit(limit),
+            ));
+            budget.borrow_mut().retain(0, 77).unwrap();
+            for _ in 0..2 {
+                let mut stream =
+                    TrailStream::new(&database.connection, &spec, budget.clone()).unwrap();
+                let actual =
+                    std::iter::from_fn(|| stream.next().transpose()).collect::<Result<Vec<_>>>();
+                if limit == peak {
+                    assert_eq!(actual.unwrap(), expected);
+                } else {
+                    assert!(
+                        matches!(actual, Err(Error::ResourceLimit(message)) if message.contains("retained-memory"))
+                    );
+                }
+                drop(stream);
+                assert_eq!(budget.borrow().memory_used(), 77);
+            }
+        }
+        // Initialization succeeds, but retaining the first neighbor cache key
+        // fails. Dropping this partially loaded producer restores its baseline.
+        let probe_budget = Rc::new(RefCell::new(TrailBudget::default()));
+        let mut stream =
+            TrailStream::new(&database.connection, &spec, probe_budget.clone()).unwrap();
+        let initial = probe_budget.borrow().memory_used();
+        let start = &stream.inputs.as_ref().unwrap().seeds[0];
+        probe_budget.borrow_mut().memory_limit = initial + 2 * id_cost(start);
+        assert!(
+            matches!(stream.next(), Err(Error::ResourceLimit(message)) if message.contains("retained-memory"))
+        );
+        drop(stream);
+        assert_eq!(probe_budget.borrow().memory_used(), 0);
+    }
+
+    #[test]
+    fn neighbor_queries_use_directional_indexes_and_dense_bindings() {
         let database = Database::in_memory().unwrap();
         for (pattern, indexes) in [
             (
@@ -1356,44 +1533,52 @@ mod tests {
                 vec!["edges_from_type_to", "edges_to_type_from"],
             ),
         ] {
-            let spec = shortest_spec(&format!(
-                "MATCH p = shortestPath({pattern}) RETURN length(p)"
-            ));
-            let sql = spec.neighbor_sql.unwrap();
-            let statement = database.connection.prepare(&sql).unwrap();
-            assert!(statement.readonly());
-            assert_eq!(statement.column_count(), 3);
-            assert_eq!(statement.parameter_count(), spec.edge_bindings.len() + 1);
-            for index in 1..=statement.parameter_count() {
-                assert_eq!(
-                    statement.parameter_name(index),
-                    Some(format!("?{index}").as_str())
-                );
+            for path in [pattern.to_owned(), format!("shortestPath({pattern})")] {
+                let spec = expansion_spec(&format!("MATCH p = {path} RETURN length(p)"));
+                let sql = spec.neighbor_sql.unwrap();
+                let statement = database.connection.prepare(&sql).unwrap();
+                assert!(statement.readonly());
+                assert_eq!(statement.column_count(), 3);
+                assert_eq!(statement.parameter_count(), spec.edge_bindings.len() + 1);
+                for index in 1..=statement.parameter_count() {
+                    assert_eq!(
+                        statement.parameter_name(index),
+                        Some(format!("?{index}").as_str())
+                    );
+                }
+                let mut bindings = spec.edge_bindings;
+                bindings.push(SqlValue::Text("bound ' β node".into()));
+                let details = database
+                    .connection
+                    .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                    .unwrap()
+                    .query_map(params_from_iter(&bindings), |row| row.get::<_, String>(3))
+                    .unwrap()
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .unwrap()
+                    .join("\n");
+                for index in &indexes {
+                    assert!(
+                        details.contains(&format!("SEARCH trail_edge USING INDEX {index}")),
+                        "{details}"
+                    );
+                }
+                assert!(!details.contains("SCAN trail_edge"), "{details}");
             }
-            let mut bindings = spec.edge_bindings;
-            bindings.push(SqlValue::Text("bound ' β node".into()));
-            let details = database
-                .connection
-                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
-                .unwrap()
-                .query_map(params_from_iter(&bindings), |row| row.get::<_, String>(3))
-                .unwrap()
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .unwrap()
-                .join("\n");
-            for index in indexes {
-                assert!(
-                    details.contains(&format!("SEARCH trail_edge USING INDEX {index}")),
-                    "{details}"
-                );
-            }
-            assert!(!details.contains("SCAN trail_edge"), "{details}");
         }
-        let spec = shortest_spec("MATCH p = shortestPath(()-[:STEP*]->(:Target)) RETURN length(p)");
+        let spec =
+            expansion_spec("MATCH p = shortestPath(()-[:STEP*]->(:Target)) RETURN length(p)");
         assert!(
             spec.neighbor_sql.is_none(),
             "no start domain uses the eager source"
         );
+        for query in [
+            "MATCH p=()-[:STEP*]->(:Target) RETURN length(p)",
+            "MATCH p=(:Seed)-[:STEP*]->() RETURN count(*)",
+            "MATCH p=(:Seed)-[:STEP*]->() RETURN length(p) ORDER BY length(p)",
+        ] {
+            assert!(expansion_spec(query).neighbor_sql.is_none(), "{query}");
+        }
     }
 
     #[test]
@@ -1418,7 +1603,7 @@ mod tests {
         let end_domain = BTreeSet::from(["a".into(), "c".into()]);
         for (left, right) in [("-", "->"), ("<-", "-"), ("-", "-")] {
             for bounds in ["0..0", "0..3", "1..3", "1.."] {
-                let spec = shortest_spec(&format!(
+                let spec = expansion_spec(&format!(
                     "MATCH p = allShortestPaths((:Seed){left}[:STEP*{bounds}]{right}(:Target)) RETURN length(p)"
                 ));
                 for mask in 0..1 << possible.len() {
@@ -1520,7 +1705,7 @@ mod tests {
              INSERT INTO edges (id, edge_type, from_node, to_node) VALUES ('ab','STEP','a','b');",
             )
             .unwrap();
-        let spec = shortest_spec("MATCH p = shortestPath((:Seed)-[:STEP*]->()) RETURN length(p)");
+        let spec = expansion_spec("MATCH p = shortestPath((:Seed)-[:STEP*]->()) RETURN length(p)");
         let token = crate::CancellationToken::new();
         let options = QueryOptions {
             cancellation: Some(token.clone()),
@@ -1528,7 +1713,7 @@ mod tests {
             ..QueryOptions::default()
         };
         let mut budget = TrailBudget::configured(&options.traversal, QueryControl::new(&options));
-        let mut neighbors = ShortestNeighbors {
+        let mut neighbors = TraversalNeighbors {
             adjacency: BTreeMap::new(),
             query: Some(NeighborQuery {
                 statement: database
@@ -1559,7 +1744,7 @@ mod tests {
         let mut database = Database::in_memory().unwrap();
         database.execute("CREATE (a:Seed)-[:STEP]->(b:Seed)-[:STEP]->(c:Seed)-[:STEP]->(a), (b)-[:STEP]->(b)").unwrap();
         let spec =
-            shortest_spec("MATCH p = allShortestPaths((:Seed)-[:STEP*]-(:Seed)) RETURN length(p)");
+            expansion_spec("MATCH p = allShortestPaths((:Seed)-[:STEP*]-(:Seed)) RETURN length(p)");
         let run = |budget: &mut TrailBudget| {
             materialize_shortest(&database.connection, &spec, ShortestMode::All, budget)
         };

@@ -832,53 +832,70 @@ fn bench_computed_merge_keys(c: &mut Criterion) {
 }
 
 fn bench_traversal_cursor(c: &mut Criterion) {
-    let mut database = traversal_cursor_fixture::fixture(10).unwrap();
     let options = traversal_cursor_fixture::options();
     let parameters = Parameters::new();
-    let mut group = c.benchmark_group("cursor_traversal");
-    for mode in ["eager", "cursor", "first"] {
-        let expected = if mode == "first" {
-            1
-        } else {
-            traversal_cursor_fixture::potential_rows(10)
-        };
-        group.throughput(Throughput::Elements(expected as u64));
-        let mut consume = || {
-            let count = if mode == "eager" {
-                black_box(
-                    database
-                        .execute_with_options(
-                            traversal_cursor_fixture::QUERY,
-                            &parameters,
-                            &options,
-                        )
-                        .unwrap(),
-                )
-                .rows
-                .len()
+    for (group_name, sizes) in [
+        ("cursor_traversal", &[0][..]),
+        ("cursor_traversal_neighbors", &[1_000, 10_000][..]),
+    ] {
+        let mut group = c.benchmark_group(group_name);
+        for &unrelated in sizes {
+            let mut database = if unrelated == 0 {
+                traversal_cursor_fixture::fixture(10).unwrap()
             } else {
-                let mut read = database
-                    .prepare_read_with_options(
-                        traversal_cursor_fixture::QUERY,
-                        &parameters,
-                        &options,
-                    )
-                    .unwrap();
-                assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
-                let cursor = read.cursor().unwrap();
-                cursor
-                    .take(if mode == "first" { 1 } else { usize::MAX })
-                    .fold(0, |count, row| {
-                        black_box(row.unwrap());
-                        count + 1
-                    })
+                traversal_cursor_fixture::fixture_with_unrelated(10, unrelated).unwrap()
             };
-            assert_eq!(count, expected);
-        };
-        consume();
-        group.bench_function(mode, |b| b.iter(&mut consume));
+            for mode in ["eager", "cursor", "first"] {
+                let expected = if mode == "first" {
+                    1
+                } else {
+                    traversal_cursor_fixture::potential_rows(10)
+                };
+                group.throughput(Throughput::Elements(expected as u64));
+                let mut consume = || {
+                    let count = if mode == "eager" {
+                        black_box(
+                            database
+                                .execute_with_options(
+                                    traversal_cursor_fixture::QUERY,
+                                    &parameters,
+                                    &options,
+                                )
+                                .unwrap(),
+                        )
+                        .rows
+                        .len()
+                    } else {
+                        let mut read = database
+                            .prepare_read_with_options(
+                                traversal_cursor_fixture::QUERY,
+                                &parameters,
+                                &options,
+                            )
+                            .unwrap();
+                        assert_eq!(read.mode(), crabnet::ReadMode::Incremental);
+                        let cursor = read.cursor().unwrap();
+                        cursor
+                            .take(if mode == "first" { 1 } else { usize::MAX })
+                            .fold(0, |count, row| {
+                                black_box(row.unwrap());
+                                count + 1
+                            })
+                    };
+                    assert_eq!(count, expected);
+                };
+                consume();
+                if unrelated == 0 {
+                    group.bench_function(mode, |b| b.iter(&mut consume));
+                } else {
+                    group.bench_function(BenchmarkId::new(mode, unrelated), |b| {
+                        b.iter(&mut consume)
+                    });
+                }
+            }
+        }
+        group.finish();
     }
-    group.finish();
 }
 
 criterion_group!(

@@ -190,8 +190,11 @@ each batch. Distinct operators retain seen values and preserve typed equality;
 memory grows with the number and size of unique rows. Branches share one snapshot
 and resource budget; early drop skips the suffix beyond any hydration read-ahead.
 A single deep/open-ended relationship between two endpoints can stream through
-filters and projections. It retains graph inputs and the search frontier, yielding
-paths on demand. Traversal sorts, aggregates, extra joins/stages, and shortest
+filters and projections. With a same-clause start label or inline property, it
+loads indexed neighbors as nodes are expanded and caches them for the active
+producer. Unconstrained starts load eligible edges up front. Endpoint domains,
+cached neighbors, and the search frontier remain in memory while paused.
+Traversal sorts, aggregates, extra joins/stages, and shortest
 paths use `ReadMode::Buffered`, computing the complete result when the cursor
 starts. SQLite-only reads may still buffer internally for sorts or aggregates.
 

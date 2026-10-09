@@ -177,8 +177,8 @@ pub(crate) struct TrailExpansionSpec {
     pub(crate) minimum: usize,
     pub(crate) maximum: Option<usize>,
     pub(crate) edge_sql: String,
-    /// Per-node edge source for constrained shortest paths. Its last binding
-    /// (after `edge_bindings`) is the current node ID supplied by the search.
+    /// Per-node edge source for constrained shortest paths or trail cursors.
+    /// Its last binding (after `edge_bindings`) is the current node ID.
     pub(crate) neighbor_sql: Option<String>,
     pub(crate) edge_bindings: Vec<SqlParameter>,
     pub(crate) start_domain: Option<NodeDomainSpec>,
@@ -568,21 +568,26 @@ fn render_value_operator(operator: &ValueOperator, output: &mut String, index: &
         spec.minimum,
         maximum
     ));
-    if let Some(sql) = &spec.neighbor_sql {
-        render_source(
-            output,
-            "neighbor-source",
-            sql,
-            &spec.edge_bindings,
-            Some("current-node"),
-        );
-    } else {
+    if spec.neighbor_sql.is_none() || matches!(operator, ValueOperator::TrailExpand { .. }) {
         render_source(
             output,
             "edge-source",
             &spec.edge_sql,
             &spec.edge_bindings,
             None,
+        );
+    }
+    if let Some(sql) = &spec.neighbor_sql {
+        render_source(
+            output,
+            if matches!(operator, ValueOperator::TrailExpand { .. }) {
+                "cursor-neighbor-source"
+            } else {
+                "neighbor-source"
+            },
+            sql,
+            &spec.edge_bindings,
+            Some("current-node"),
         );
     }
     render_domain(output, "start-domain", spec.start_domain.as_ref());

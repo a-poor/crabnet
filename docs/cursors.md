@@ -98,12 +98,22 @@ RETURN p, end.id
 LIMIT 10
 ```
 
-The producer loads eligible edges and endpoint domains on first demand, then
-resumes the existing trail walk between rows. It retains those graph inputs and
-the search frontier, and sends one encoded trail through a cached SQLite
-projection at a time. Cycles remain relationship-unique; parallel relationships
-and duplicate result values keep their multiplicity. This removes the complete
-runtime-result relation from memory, not the graph input or traversal frontier.
+The producer loads endpoint domains on first demand, then resumes the trail walk
+between rows. When the same MATCH constrains the start with a label or inline
+property, each expanded node's eligible neighbors are fetched through SQLite's
+outgoing/incoming indexes. Ordered neighbor lists, including empty lists, are
+cached across repeated visits and seeds. Unrelated edges and neighborhoods past
+the hop bound or early-exit point are not fetched. Undirected probes include
+self-loops once and preserve parallel relationships. Starts without these
+constraints retain whole-edge loading; a WHERE predicate alone does not enable
+indexed probes. Eager execution and buffered cursor shapes keep their old source.
+
+Endpoint domains, cached neighbors, and the search frontier stay in memory while
+paused. Expanding a high-degree node loads its entire eligible neighbor list.
+One encoded trail passes through a cached SQLite projection at a time. Cycles
+remain relationship-unique; parallel relationships and duplicate result values
+keep their multiplicity. This avoids retaining the complete runtime-result
+relation, while graph inputs and the traversal frontier still consume memory.
 
 Global ORDER BY or aggregation over Rust trails, additional pattern joins,
 multiple traversal producers, OPTIONAL MATCH, WITH/UNWIND stages, and shortest
@@ -126,6 +136,15 @@ frontier stay charged to retained traversal memory while paused; exhausted or
 dropped branches release that charge before another branch begins. Per-row SQL
 execution can cost more than a single batched query. The measurements below
 report both full consumption and early exit.
+
+Fetched edge rows count against SQL transfer limits; cache keys and steps count
+against retained traversal memory. An undirected edge can be fetched once at
+each endpoint. State limits still count explored trails, including work that
+finds no qualifying endpoint. No global edge count is loaded to rule out an
+impossible minimum depth, so such a cursor can spend state budget where eager
+execution can return empty immediately. `explain_physical` shows the eager
+`edge-source` and, when available, the alternative `cursor-neighbor-source`
+with its final current-node binding.
 
 ## Inside an application transaction
 
@@ -464,8 +483,65 @@ throughput improvement. Per-trail SQL execution has a cost.
 At 32,766 rows, first-only RSS ranged from 157.52–157.58 MiB before and
 6.56–6.66 MiB after; first-row latency ranged from 730.49–774.40 ms before
 and 0.37–0.78 ms after. These are local observations on a small graph with many
-paths, not a whole-query memory guarantee. Eligible graph inputs still load
-up front, individual paths can be large, and DISTINCT/hydration retain their
+paths, not a whole-query memory guarantee. This comparison predates indexed
+cursor neighbor loading: graph inputs loaded up front. Individual paths can
+still be large, and DISTINCT/hydration retain their
 own state. The [measurement record](measurements/cursor-traversal-2026-10-08.json)
 contains all trial reports, medians/ranges, binary and source hashes, and
 whole-process measurements.
+
+### Constrained cursor neighbor measurements
+
+The same example accepts an optional third argument: the number of disconnected
+nodes with one eligible `NEXT` self-loop each. At depth 10, the reachable
+component remains 11 nodes / 20 edges with exactly 2,046 results. Varying the
+disconnected edges measures graph-input scaling independently of result size.
+
+```sh
+cargo build --release --example cursor_traversal
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal first 10 10000
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal cursor 10 10000
+python3 scripts/measure_dependency_graph.py target/release/examples/cursor_traversal eager 10 10000
+cargo bench --bench queries -- cursor_traversal
+```
+
+Repeat with 0 and 1,000 disconnected edges. The existing Criterion group covers
+zero unrelated edges; `cursor_traversal_neighbors/*` adds 1,000 and 10,000 for
+all three consumption modes. Every full run verifies the exact depth histogram
+and endpoints, and first-only runs validate one one-hop row.
+
+Measured on 2026-10-08 with Rust 1.99.0, release builds, and macOS 26.5.1
+arm64. The baseline is commit `851d30d` in an isolated archive/target, with only
+the identical extended example and fixture copied in. Three fresh-process
+trials per engine, graph size, and mode alternated engine order and rotated
+mode order. Builds and tests finished before measurement. All 54 runs passed
+their result checks; both versions report `Incremental` for cursor modes.
+
+These are medians, before → after. Timings include planning, snapshot setup,
+decoding, and validation; complete query time also includes cleanup. Fixture
+setup is excluded from query timing and reported separately in the record.
+Peak RSS covers the entire process, including graph construction and SQLite.
+
+| Disconnected edges | Consumption | First row (ms) | Complete query (ms) | Peak RSS (MiB) |
+| ---: | --- | ---: | ---: | ---: |
+| 0 | Full cursor | 0.298 → 0.288 | 34.374 → 34.509 | 6.656 → 6.656 |
+| 0 | First only | 0.286 → 0.282 | 0.291 → 0.287 | 6.484 → 6.500 |
+| 1,000 | Full cursor | 0.860 → 0.302 | 35.524 → 35.196 | 8.656 → 8.328 |
+| 1,000 | First only | 0.853 → 0.301 | 0.950 → 0.307 | 8.609 → 8.078 |
+| 10,000 | Full cursor | 6.772 → 0.350 | 42.986 → 35.493 | 24.969 → 21.188 |
+| 10,000 | First only | 6.874 → 0.348 | 8.034 → 0.355 | 25.000 → 20.969 |
+
+At 10,000 disconnected edges, first-only latency improved about 20×, with trial
+ranges of 6.780–6.876 ms before and 0.341–0.364 ms after. Full consumption
+improved about 17% (42.967–43.479 ms before, 35.166–35.612 ms after). The
+zero-unrelated-edge full-cursor median changed by less than 1%, with overlapping
+ranges. Eager controls at 10,000 edges remained about 37.6–37.7 ms and 30.7 MiB.
+
+These results support avoiding disconnected graph input for constrained
+cursors. Process RSS still grows with the stored graph and setup allocations;
+the first-only reduction at 10,000 edges is about 16%. Endpoint domains and
+whole neighbor lists still load eagerly when needed. Broad start domains,
+high-degree reachable nodes, hydration, and unconstrained starts require
+separate measurements before extending this strategy. The
+[measurement record](measurements/cursor-neighbors-2026-10-08.json) contains
+all trial reports, medians/ranges, source and binary hashes, and platform data.

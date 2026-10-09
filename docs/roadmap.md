@@ -723,6 +723,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   partial errors, and transaction rollback. The example and Criterion cases
   compare eager, full-cursor, and first-row consumption; see the
   [measurement guide](cursors.md#rust-traversal-measurements).
+- [x] **Constrained trail cursor neighbor loading.** Same-clause start labels
+  and inline properties enable direction-aware indexed neighbor probes. The
+  active producer caches expanded neighborhoods, preserving trail order,
+  parallel edges, cycles, zero hops, typed filters, and resource controls.
+  Disconnected eligible edges and unread neighborhoods no longer need loading.
+  Endpoint domains remain eager; unconstrained starts and buffered/eager trail
+  execution keep the whole-edge source. Budget regressions, a 64-graph order
+  oracle, cache accounting/cleanup, and index checks cover the boundary. The
+  parallel-edge example and Criterion fixtures now vary disconnected graph
+  size; see [scaling measurements](cursors.md#constrained-cursor-neighbor-measurements).
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -748,8 +758,9 @@ Entity-list indexing, slicing, comprehensions, quantifiers, nested graph
 collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware
 `coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
 predicates, and expression DELETE and property SET/REMOVE targets are also complete.
-The first single-trail Rust cursor slice is also complete. Next broaden cursor
-shapes or graph-input loading where measurements justify it, or add graph-value
+The first single-trail Rust cursor slice and constrained neighbor loading are
+complete. Next broaden cursor shapes or unconstrained graph-input loading where
+measurements justify it, or add graph-value
 scalar operations and expression targets for other mutations.
 Bulk node-upsert index maintenance and statement reuse are complete. Further
 performance work should follow a new profile, such as reachable-region shortest
