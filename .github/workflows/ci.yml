@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  schedule:
+    - cron: '23 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      workloads:
+        description: Run the release-profile lifecycle measurements
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_BACKTRACE: '1'
+
+jobs:
+  checks:
+    name: Checks (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+        rust: ['1.99.0', stable]
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.rust }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Record build environment
+        run: |
+          mkdir -p artifacts
+          {
+            git rev-parse HEAD
+            rustc -Vv
+            cargo -V
+            uname -a
+            cc --version
+            printf 'Runner image: %s %s\n' "$ImageOS" "$ImageVersion"
+            cargo tree --locked -e features -i libsqlite3-sys
+          } 2>&1 | tee artifacts/environment.log
+      - name: Check all targets, TCK, docs, formatting, and Clippy
+        run: bash scripts/check.sh 2>&1 | tee artifacts/checks.log
+      - name: Verify dependency and TCK pins stayed unchanged
+        run: git diff --exit-code -- Cargo.lock tests/tck/allowlist.txt tests/tck/exclusions.txt
+      - name: Retain check evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: checks-${{ matrix.os }}-${{ matrix.rust }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  lifecycle:
+    name: Lifecycle (${{ matrix.os }})
+    needs: checks
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.workloads) ||
+      startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    env:
+      RUSTUP_TOOLCHAIN: '1.99.0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Install Rust
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+      - name: Record workload environment
+        run: |
+          mkdir -p artifacts
+          {
+            git rev-parse HEAD
+            rustc -Vv
+            cargo -V
+            uname -a
+            cc --version
+            python3 --version
+            printf 'Runner image: %s %s\n' "$ImageOS" "$ImageVersion"
+            cargo tree --locked -e features -i libsqlite3-sys
+          } 2>&1 | tee artifacts/environment.log
+      - name: Build release workload
+        run: cargo build --locked --release --example dependency_graph 2>&1 | tee artifacts/build.log
+      - name: Measure and verify fresh lifecycle fixtures
+        run: |
+          workload_dir=$(mktemp -d)
+          for size in 1000 10000; do
+            for trial in 1 2 3; do
+              python3 scripts/measure_dependency_graph.py \
+                target/release/examples/dependency_graph demo \
+                "$workload_dir/$size-$trial.sqlite" "$size" 20 128 \
+                > "artifacts/$size-$trial.json"
+            done
+          done
+      - name: Retain workload evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lifecycle-${{ matrix.os }}-${{ github.run_attempt }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 90

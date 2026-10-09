@@ -393,12 +393,17 @@ cargo test --lib planner::sqlite
 Before a milestone or handoff, run the complete checks:
 
 ```console
-cargo test --all-targets
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --doc
-git diff --check
+bash scripts/check.sh
 ```
+
+The [check script](../scripts/check.sh) uses the lockfile for all Cargo build/test
+commands and runs all targets (including the vendored TCK and both benchmark
+smoke sizes), doctests, formatting, Clippy, and whitespace checks. It rejects
+`CRABNET_TCK_UPDATE`; update pins separately and review every change. The
+[CI workflow](../.github/workflows/ci.yml) runs the same checks across the
+[initial support matrix](support.md), retains logs, and schedules larger
+lifecycle measurements. Hosted validation is pending until the workflow runs;
+the configuration alone is not a production qualification result.
 
 The full suite need not run after every edit; focused commands keep the inner
 loop fast, while the final checks prevent changes in one planner layer from
@@ -640,8 +645,11 @@ root hydration operator. Planner/database unit tests additionally prove
 whole-tree parameter preparation and one work budget across `UNION` branches;
 the path and traversal integration suites remain the semantic oracle.
 
-Application usability (milestone 10) is the next main milestone; its checklist
-and current working order live in [roadmap.md](roadmap.md). Multi-query
+Application usability (milestone 10) is complete for the recorded
+[Git Graph pilot](git-graph-pilot.md). Production qualification (milestone 11)
+is in progress: the [supported configuration and CI](support.md) are defined,
+with hosted validation and the remaining release gates pending;
+its checklist and current working order live in [roadmap.md](roadmap.md). Multi-query
 transactions, `WITH DISTINCT`, entity collection/expansion, path-list `UNWIND`,
 aggregate expressions, and application node uniqueness constraints are complete.
 Resource controls, the initial incremental cursor API, and the persistent

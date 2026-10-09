@@ -5,17 +5,18 @@ is intentionally a direction of travel rather than a compatibility promise.
 Update it when implementation work teaches us something better.
 
 The core engine and application foundations are implemented for a substantial,
-documented subset. The next main milestone is **a validated downstream Rust
-application pilot** (milestone 10), followed by **production qualification for
-a defined supported configuration** (milestone 11). Close the current
-implementation/validation cycle, then let the pilot's requirements drive
-further engine work. Conformance and measured optimization support these gates;
-expanding the query language is a separate backlog.
+documented subset. The Git Graph downstream Rust application pilot completed
+milestone 10 for its recorded workload and configuration. The next main milestone
+is **production qualification for a defined supported configuration** (milestone
+11), starting with the support matrix and automated release checks. Conformance
+and measured optimization support these gates; expanding the query language is
+a separate backlog.
 
 ## Project posture
 
-- Crabnet is used only in this repository today. We may freely reshape its
-  modules, public API, logical plan, SQLite schema, and on-disk representation.
+- Git Graph is a downstream Rust consumer pinned to a validated Crabnet baseline.
+  The implementation and public contracts remain experimental; coordinate changes
+  affecting that consumer with an explicit upgrade or rebuild path.
 - Schema compatibility remains experimental. Version 5 preserves the upgrades
   from main's versions 1–4; migrations and index backfills run atomically.
   Unreleased branch-only formats may require recreating the database.
@@ -98,9 +99,12 @@ serially used connections on local files with DELETE rollback journaling and
 one writer at a time. Long-lived cursors can block commits.
 
 The dependency-graph example exercises a full persistent lifecycle and has
-recorded measurements at 1,000 and 10,000 packages. It supplies regression and
-benchmark evidence for a downstream pilot. API/schema stability, a qualified
-platform matrix, and power-loss/disk-I/O failure behavior remain explicit work.
+recorded measurements at 1,000 and 10,000 packages. The downstream
+[Git Graph pilot](git-graph-pilot.md) passed all 14 acceptance gates, including
+100 update/import/query/reopen cycles, at the recorded engine baseline. These
+supply application, regression, and benchmark evidence. API/schema stability,
+a qualified platform matrix, and power-loss/disk-I/O failure behavior remain
+explicit work.
 See [coverage.md](coverage.md), [semantics.md](semantics.md), and
 [cursors.md](cursors.md) for the current supported surface and limits.
 
@@ -150,7 +154,9 @@ green. The order is intentional, but discoveries may move individual features.
 Completed milestones and checked implementation entries record the behavior at
 the time each slice landed; later entries may extend their original boundaries.
 Use the current-state summary and coverage/semantics documents for today's
-contract. Unchecked pilot and qualification items below are the remaining gates.
+contract. Milestone 10's pilot gates are complete; milestone 11's unchecked items
+are the remaining release qualification gates. Milestone 9 continues to support
+conformance work.
 
 ### 1. Make the current contract explicit
 
@@ -504,39 +510,48 @@ Concurrent external-writer semantics remain a non-goal.
 Gate: the allowlist is entirely green, exclusions are explicit, randomized
 failures are reproducible, and optimizations preserve plan/result contracts.
 
-### 10. Application usability — in progress
+<a id="10-application-usability--in-progress"></a>
 
-The goal is one real Rust application that can import a graph, query it,
-update it atomically, and reopen it with predictable behavior. The implemented
-foundations below support that goal; the remaining gate is a downstream pilot
-with recorded acceptance criteria. Keep the existing semantic tests and pinned
-TCK outcomes green throughout this work.
+### 10. Application usability — complete (2026-10-09)
+
+Git Graph demonstrates one real Rust application importing a graph, querying it,
+updating it atomically, and reopening it with predictable behavior. This milestone
+is complete for the pilot's recorded workload, host, toolchain, and local
+DELETE-journal configuration. Keep the existing semantic tests and pinned TCK
+outcomes green as the engine evolves.
+
+Downstream evidence: the [Git Graph pilot report](git-graph-pilot.md) records
+completed application milestones 1 and 2, including all declared sustained-run,
+performance, recovery, and contention gates at the clean `7601cdd` baseline.
+No engine code changes were required. Release qualification remains milestone 11.
 
 #### Pilot completion checklist
 
-- [ ] **Record a validated pilot baseline.** Finish the current implementation
-  and validation cycle, including streaming WITH DISTINCT, and pin the revision
-  with its required test/check results and relevant measurements.
-- [ ] **Select and define one downstream application.** Name an actual Rust
-  consumer of the library and record its required queries, data sizes and
-  distributions, mutation mix, concurrency, and file setup. Set latency,
-  peak-memory, and sustained-run duration or operation-count targets before
-  the acceptance run. Reuse the dependency-graph example's fixtures and checks
-  where useful.
-- [ ] **Exercise the public application lifecycle.** Integrate import,
-  parameterized queries, updates, transactions, constraints, resource limits,
-  reopening, and backup/restore as required by the application. Record which
-  reads buffer and how the application handles busy, cancelled, and failed
-  operations. The repository example alone does not complete this pilot.
-- [ ] **Run and record the sustained workload.** Verify expected graph/results
-  throughout repeated import/update/read cycles; exercise cancellation, failed
-  writes, process interruption, reopening, and restoration of a real backup.
-  Record tail latency, peak RSS, and contention under the declared workload.
-  Turn every correctness or operational failure into a reproducible regression.
-- [ ] **Review the pilot report.** Keep a versioned report in `docs/`, linked
-  here, with the application/version, commands, workload, acceptance results,
-  and remaining restrictions. Resolve defects in the required contract and
-  demonstrate the declared targets before closing this milestone.
+- [x] **Record a validated pilot baseline.** Crabnet `7601cdd` includes streaming
+  WITH DISTINCT and its completed validation. Git Graph's measured source was
+  subsequently committed as `52e62f9`; its 24-file fingerprint matches the raw
+  acceptance report. The report preserves the original run's base revision and
+  dirty status, and records both projects' validation results.
+- [x] **Select and define one downstream application.** Git Graph imports Git
+  commits, ordered parents, and branch snapshots. Its deterministic `mixed-v1`
+  workload covers 1,000 and 10,000 commits, merges, and four branches, plus a real
+  repository check. Latency, RSS, and 100-cycle targets were declared before
+  measurement; file and concurrency assumptions are recorded.
+- [x] **Exercise the public application lifecycle.** Import, parameterized eager
+  lookup/first-parent queries, atomic updates, constraints, resource limits,
+  reopening, and backup/restore use public APIs. Cancellation and failed writes
+  preserve the prior graph. A retained incremental cursor exercises busy commit
+  rollback and whole-operation retry; writable hot-journal recovery is documented.
+- [x] **Run and record the sustained workload.** All 14 acceptance gates passed,
+  including 100 exact update/import/query/reopen cycles, injected failures,
+  process interruption before and after commit, and restoration of a real backup.
+  The report records tail latency, peak RSS, and contention. A lookup performance
+  regression drove an application query fix under the original resource budget.
+- [x] **Review the pilot report.** The [companion report](git-graph-pilot.md)
+  links the full application report and raw results, with commands, source
+  provenance, findings, and limits. Review verified the committed source
+  fingerprint and all gate results. No unresolved defect remains in the pilot's
+  required contract; broader release qualification is tracked below.
 
 #### Implemented foundations
 
@@ -847,35 +862,39 @@ TCK outcomes green throughout this work.
   fixtures measure retained state and consumption; see the
   [comparison](cursors.md#intermediate-distinct-measurements).
 
-Gate: the named downstream pilot meets its recorded correctness, recovery,
-resource, and performance criteria through the public API, with reproducible
-evidence and no unresolved defects in its required contract. Additional Cypher
-features are required only when the pilot depends on them. The experimental
-designation remains until the release commitments below are qualified.
+Gate met: Git Graph meets its recorded correctness, recovery, resource, and
+performance criteria through the public API, with reproducible evidence and no
+unresolved defects in its required contract. Completion applies to the recorded
+pilot scope. The experimental designation remains until the release commitments
+below are qualified.
 
-### 11. Production qualification — planned
+<a id="11-production-qualification--planned"></a>
+
+### 11. Production qualification — in progress
 
 Qualify a release for an explicit query subset and operating configuration.
-The pilot supplies application evidence; this milestone establishes repeatable
-release checks and compatibility commitments. Basic automation can begin while
-the pilot runs.
+The completed pilot supplies application evidence; this milestone establishes
+repeatable release checks and compatibility commitments. The initial
+[support matrix](support.md) and [CI workflow](../.github/workflows/ci.yml) are
+defined; hosted validation and the remaining qualification gates are pending.
 
-- [ ] **Define the supported configuration.** Record supported operating systems,
-  Rust toolchains, SQLite build/configuration, local-file assumptions, and
-  concurrency limits. Start with the tested DELETE-journal contract. WAL,
-  network filesystems, and other configurations require their own evidence if
-  added to the support matrix.
+- [x] **Define the supported configuration.** [support.md](support.md) records
+  Ubuntu 24.04 x86-64 and macOS 26 arm64, Rust 1.99.0 plus rolling stable checks,
+  the locked bundled SQLite build, local DELETE-journal files, the documented
+  query subset, and serial connections with one writer. Other configurations
+  require separate evidence. Defining this scope does not claim qualification.
 - [ ] **Set API and storage compatibility policy.** Define versioning,
   deprecations, the supported schema-upgrade range, and recovery or rebuild
   procedures when an upgrade cannot proceed. Test release-to-release upgrades
   and backup/restore using retained fixtures from supported versions. Document
   downgrade limitations and the application's rollback procedure.
-- [ ] **Verify automated release checks.** No checked-in CI configuration was
-  present in the 2026-10-09 roadmap audit; existing references to CI are not
-  evidence of an automated platform matrix. Verify any external pipeline or
-  add repository-owned configuration. Run the required tests, pinned TCK,
-  doctests, formatting, and Clippy on the declared platforms; give expensive
-  workloads an explicit scheduled or release gate. Preserve commands/results.
+- [ ] **Verify automated release checks.** Repository-owned CI now runs full
+  tests, pinned TCK, benchmark smoke cases, doctests, formatting, and Clippy on
+  the declared OS/toolchain matrix. Weekly, version-tag, and opt-in manual jobs
+  retain release-profile lifecycle measurements; the Git Graph sustained run
+  remains an explicit release gate. Complete this item after recording hosted
+  matrix results and configuring required checks. See [support.md](support.md)
+  for reproduction, evidence retention, and the remaining release requirements.
 - [ ] **Qualify failure behavior and durability claims.** Add reproducible
   disk-full and I/O fault tests for writes, commit, migration, backup, and
   restore. Exercise corruption detection and failed-open/restore behavior.
@@ -902,18 +921,19 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Close the current intermediate WITH DISTINCT implementation/validation
-   cycle and record the pilot baseline. Preserve eager semantics and explicit
-   retained-state/resource boundaries.
-2. Select and validate the milestone 10 downstream pilot. Prioritize defects,
-   unsupported required queries, and measured performance problems it exposes.
-   Keep the example, cursor, persistence, and pinned TCK tests as regressions.
-3. Qualify the supported release under milestone 11. Establish automation early;
-   make compatibility and durability claims only when their gates are met.
+1. Run the checked-in CI on GitHub, review every declared OS/toolchain result,
+   and configure required checks. Preserve the first hosted check and workload
+   evidence in [support.md](support.md); the initial configuration is now defined.
+2. Define the release-to-release API/storage compatibility and rollback policy,
+   retaining upgrade and backup fixtures. Keep the application, cursor,
+   persistence, and pinned TCK tests as regressions.
+3. Qualify compatibility, correctness, and failure behavior under milestone 11,
+   then publish the reproducible release record. Make compatibility and durability
+   claims only when their gates are met.
 
-Correctness regressions remain immediate work throughout. Track pilot and
-qualification completion in their checklists instead of adding every new engine
-feature to milestone 10.
+Correctness regressions remain immediate work throughout. Track release
+qualification in its checklist and preserve the completed pilot as a regression
+baseline. Promote feature work when a concrete requirement justifies it.
 
 ### Feature follow-ups
 

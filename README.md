@@ -6,6 +6,11 @@ to parameterized SQL and CTEs; core `CREATE`, matched property, and matched
 deletion mutations run inside one SQLite transaction. It is intentionally not
 a production database or a stable library API yet.
 
+The initial [support matrix and CI contract](docs/support.md) target Rust 1.99
+and current stable on Ubuntu 24.04 x86-64 and macOS 26 Apple Silicon with bundled
+SQLite. Run `bash scripts/check.sh` for the complete local checks. Hosted validation
+and the remaining production qualification gates are tracked separately.
+
 ```rust
 use crabnet::{CypherValue, Database, Parameters};
 use serde_json::json;
