@@ -268,11 +268,18 @@ end-to-end result test for user-visible semantics.
   paths and relationship lists, path functions, prior bags, `WITH`, `UNION`,
   Rust BFS stage order and structured planning rejections. Traversal unit
   tests cover shortest-specific use of the shared fail-closed work guard.
+  Indexed-neighbor tests compare both modes with eager BFS across 64 small
+  graph shapes, all directions, zero/positive bounds, and multiple seeds;
+  all-path bags also match exhaustive trail enumeration. They verify endpoint
+  index use, dense parameter bindings, cache accounting and cancellation.
 - `tests/traversal_limits.rs` crosses the public default 100,000-state limit
   while emitting no runtime rows, then proves the connection remains usable.
   Traversal and executor unit tests separately pin exact compact-JSON byte
   accounting, empty relations, shortest-path parity, and query-wide sharing
   across `UNION` branches.
+  Constrained shortest-path tests use transfer-row budgets to prove that
+  disconnected edges and neighbors beyond the hop bound are not fetched, and
+  a failed neighbor load rolls back earlier transaction writes.
 - `tests/path_values.rs` covers public named-path results for fixed, bounded,
   mixed, and zero-hop patterns; traversal order and stored relationship
   direction; identity across cycles, diamonds, and parallel edges; direct

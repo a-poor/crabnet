@@ -1,4 +1,4 @@
-use crabnet::{CypherValue, Database, Error};
+use crabnet::{CypherValue, Database, Error, Parameters, QueryOptions};
 
 /// Creates one node per pattern and `loops_per_component` `STEP` self-loops
 /// on each, so every node is its own isolated traversal component.
@@ -149,4 +149,103 @@ fn shortest_paths_seed_from_the_constrained_start() {
         )
         .unwrap();
     assert_eq!(all.rows, [vec![CypherValue::Integer(LOOPS as i64)]]);
+}
+
+#[test]
+fn constrained_shortest_paths_do_not_load_disconnected_edges() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute("CREATE (:Start)-[:STEP]->()-[:STEP]->(:End)")
+        .unwrap();
+    database
+        .execute("UNWIND range(1, 100) AS i CREATE (n:Unrelated)-[:STEP]->(n)")
+        .unwrap();
+    let options = QueryOptions {
+        max_materialized_rows: Some(8),
+        ..QueryOptions::default()
+    };
+    for function in ["shortestPath", "allShortestPaths"] {
+        for pattern in [
+            "(:Start)-[:STEP*]->(:End)",
+            "(:End)<-[:STEP*]-(:Start)",
+            "(:Start)-[:STEP*]-(:End)",
+        ] {
+            let result = database
+                .execute_with_options(
+                    &format!("MATCH p = {function}({pattern}) RETURN length(p)"),
+                    &Parameters::new(),
+                    &options,
+                )
+                .unwrap();
+            assert_eq!(result.rows, [vec![CypherValue::Integer(2)]]);
+        }
+    }
+}
+
+#[test]
+fn shortest_neighbor_loading_stops_at_the_hop_bound() {
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE (:Start)-[:STEP]->(:End)").unwrap();
+    database
+        .execute("MATCH (end:End) UNWIND range(1, 100) AS i CREATE (end)-[:STEP]->()")
+        .unwrap();
+    for (pattern, hops, rows) in [
+        ("(:Start)-[:STEP*1..1]->(:End)", 1, 4),
+        ("(:Start)-[:STEP*0..0]->(:Start)", 0, 3),
+    ] {
+        for function in ["shortestPath", "allShortestPaths"] {
+            let options = QueryOptions {
+                max_materialized_rows: Some(rows),
+                ..QueryOptions::default()
+            };
+            let result = database
+                .execute_with_options(
+                    &format!("MATCH p = {function}({pattern}) RETURN length(p)"),
+                    &Parameters::new(),
+                    &options,
+                )
+                .unwrap();
+            assert_eq!(result.rows, [vec![CypherValue::Integer(hops)]]);
+        }
+    }
+}
+
+#[test]
+fn shortest_neighbor_budget_failure_aborts_prior_transaction_writes() {
+    let mut database = Database::in_memory().unwrap();
+    database.execute("CREATE (:Start)").unwrap();
+    database
+        .execute("MATCH (start:Start) UNWIND range(1, 10) AS i CREATE (start)-[:STEP]->()")
+        .unwrap();
+    let mut transaction = database.transaction().unwrap();
+    transaction.execute("CREATE (:Provisional)").unwrap();
+    let options = QueryOptions {
+        max_materialized_rows: Some(3),
+        ..QueryOptions::default()
+    };
+    let error = transaction
+        .execute_with_options(
+            "MATCH p = shortestPath((:Start)-[:STEP*]->()) RETURN length(p)",
+            &Parameters::new(),
+            &options,
+        )
+        .unwrap_err();
+    assert!(
+        matches!(error, Error::ResourceLimit(message) if message.contains("materialized rows"))
+    );
+    assert!(transaction.commit().is_err());
+    assert_eq!(
+        database
+            .execute("MATCH (:Provisional) RETURN count(*)")
+            .unwrap()
+            .rows,
+        [vec![CypherValue::Integer(0)]]
+    );
+    assert_eq!(
+        database
+            .execute("MATCH p = shortestPath((:Start)-[:STEP*]->()) RETURN count(p)")
+            .unwrap()
+            .rows,
+        [vec![CypherValue::Integer(10)]]
+    );
 }

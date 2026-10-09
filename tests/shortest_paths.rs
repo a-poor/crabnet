@@ -113,6 +113,39 @@ fn assert_stage_precedes(explanation: &str, earlier: &str, later: &str) {
     );
 }
 
+#[test]
+fn indexed_neighbors_keep_typed_parameter_filters_and_parallel_edge_ties() {
+    let mut database = Database::in_memory().unwrap();
+    database
+        .execute(
+            "CREATE (a:Start), (b:End), (a)-[:STEP {open:true}]->(b),
+         (a)-[:STEP {open:true}]->(b), (a)-[:STEP {open:false}]->(b),
+         (a)-[:STEP {open:1}]->(b), (a)-[:STEP]->(b), (a)-[:OTHER {open:true}]->(b)",
+        )
+        .unwrap();
+    for (value, expected) in [
+        (json!(true), 2),
+        (json!(false), 1),
+        (json!(1), 1),
+        (json!(null), 0),
+        (json!("true"), 0),
+    ] {
+        let parameters = Parameters::from([("open".into(), value)]);
+        for (left, right) in [("-", "->"), ("-", "-")] {
+            let query = format!(
+                "MATCH p = allShortestPaths((:Start){left}[:STEP* {{open:$open}}]{right}(:End)) RETURN count(p)"
+            );
+            let result = database.execute_with(&query, &parameters).unwrap();
+            assert_eq!(result.rows, [vec![CypherValue::Integer(expected)]]);
+        }
+    }
+    let physical =
+        explain_physical("MATCH p = shortestPath((:Start)-[*]->(:End)) RETURN length(p)").unwrap();
+    assert!(physical.contains("neighbor-source:"));
+    assert!(physical.contains("?1 current-node"));
+    assert!(!physical.contains("edge-source:"));
+}
+
 fn direct_and_longer_graph() -> Database {
     let mut database = Database::in_memory().unwrap();
     database

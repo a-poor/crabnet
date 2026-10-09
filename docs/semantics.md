@@ -1104,6 +1104,26 @@ positive relationship-unique cycle; `shortestPath` emits one such tie and
 unconditionally permissive; unlike Neo4j, it has no configuration gate for
 legacy shortest-path common nodes.
 
+When the same `MATCH` constrains the start endpoint with a label or inline
+property, shortest search loads neighbors on demand through SQLite's outgoing
+or incoming endpoint index. Undirected search probes both indexes and includes
+self-loops once. Each node's ordered, filtered neighbor list is cached for the
+producer, including empty lists, so tied paths and later seeds reuse it.
+Disconnected edges are not loaded, and nodes at the upper hop bound are not
+expanded. Type and typed property filters retain their bound parameters.
+Search still explores the reachable region within its bounds; it does not
+stop at the first requested endpoint, since selection is per endpoint pair.
+Without a start domain, the producer keeps the eager eligible-edge source.
+Constraints from earlier clauses alone do not enable neighbor loading.
+
+Cached keys and steps count against retained traversal memory, while each
+fetched edge row counts against SQL-to-Rust materialization limits. Cache hits
+do not transfer another SQL row. Frontier and visited entries are released per
+start; cached neighbors are released when the producer finishes. All probes
+use the query's connection, snapshot, cancellation/deadline checks, and SQLite
+work budget. `explain_physical` shows `neighbor-source` and its final
+`current-node` binding for this strategy.
+
 When bound, a shortest result uses the same `PathValue`, fresh relationship-list
 binding, `length`, `nodes`, `relationships`, pending identity, and batch
 hydration contracts as other variable-length paths. It preserves incoming bag

@@ -1198,8 +1198,11 @@ impl Compiler {
             )));
         }
 
-        let (edge_sql, edge_bindings) =
-            Self::compile_eligible_edge_query(relationship_type, properties);
+        let neighbor_direction = matches!(kind, HybridExpansionKind::Shortest(_))
+            .then_some(direction)
+            .filter(|_| start_domain.is_some());
+        let (edge_sql, neighbor_sql, edge_bindings) =
+            Self::compile_eligible_edge_query(relationship_type, properties, neighbor_direction);
         let output = RuntimeSlot(self.inputs.len());
         let spec = TrailExpansionSpec {
             traversal,
@@ -1207,6 +1210,7 @@ impl Compiler {
             minimum,
             maximum,
             edge_sql,
+            neighbor_sql,
             edge_bindings,
             start_domain,
             end_domain,
@@ -1250,7 +1254,8 @@ impl Compiler {
     fn compile_eligible_edge_query(
         relationship_type: Option<&str>,
         properties: &[(String, ValueExpr)],
-    ) -> (String, Vec<SqlParameter>) {
+        neighbor_direction: Option<Direction>,
+    ) -> (String, Option<String>, Vec<SqlParameter>) {
         let mut compiler = Self::new();
         let edge = "trail_edge";
         let mut filters = Vec::new();
@@ -1268,14 +1273,37 @@ impl Compiler {
                 BinaryOp::Equal,
             ));
         }
-        let mut sql =
+        let select =
             format!("SELECT {edge}.id, {edge}.from_node, {edge}.to_node FROM edges AS {edge}");
+        let neighbor_sql = neighbor_direction.map(|direction| {
+            // Static filters share the whole-edge source's bindings. The
+            // executor supplies just the final current-node binding per probe.
+            let current = format!("?{}", compiler.bindings.len() + 1);
+            let probe = |endpoint: &str| {
+                let mut conditions = vec![format!("{edge}.{endpoint} = {current}")];
+                conditions.extend(filters.iter().cloned());
+                format!("{select} WHERE {}", conditions.join(" AND "))
+            };
+            let sql = match direction {
+                Direction::Right => probe("from_node"),
+                Direction::Left => probe("to_node"),
+                Direction::Undirected => format!(
+                    "{} UNION ALL {} AND {edge}.from_node <> {current}",
+                    probe("from_node"),
+                    probe("to_node")
+                ),
+            };
+            // UNION ALL preserves parallel edges while excluding the second
+            // copy of self-loops. Each arm can use its endpoint-leading index.
+            format!("{sql} ORDER BY 1")
+        });
+        let mut sql = select;
         if !filters.is_empty() {
             sql.push_str(" WHERE ");
             sql.push_str(&filters.join(" AND "));
         }
         sql.push_str(&format!(" ORDER BY {edge}.id"));
-        (sql, compiler.into_static_bindings())
+        (sql, neighbor_sql, compiler.into_static_bindings())
     }
 
     /// Compile the label and inline-property constraints that this `MATCH`

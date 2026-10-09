@@ -672,8 +672,8 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   cover 1,000 and 10,000 packages with three fresh-file trials each, query
   latency distributions, and child-process peak RSS. A scalar key projection
   removed an import scan bottleneck using the existing property index.
-  Remaining node-upsert costs and shortest-path scaling deserve profiling
-  before plan reuse or semantic-deduplication changes.
+  Remaining node-upsert costs deserve profiling before plan reuse or
+  semantic-deduplication changes. Shortest-path input loading is addressed below.
 - [x] **Computed property-index keys.** Small deterministic expressions such
   as `row.id`, nested/dynamic indexing, arithmetic, selected scalar functions,
   and CASE can now drive node-property probes in MERGE matchers.
@@ -687,6 +687,16 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   mutation re-matching, whole
   patterns, and rollback. The dependency-graph node import uses direct map keys;
   Criterion compares direct and projected keys for first and repeat imports.
+- [x] **Constrained shortest-path input loading.** Same-clause start domains
+  use indexed neighbor queries and cache only expanded nodes' filtered lists.
+  Outgoing, incoming, and undirected searches preserve tie order, parallel
+  edges, same-endpoint cycles, and hop bounds. Cache memory remains charged
+  across seeds while frontier/visited memory is released per search. Transfer
+  and SQLite work budgets and cancellation remain query-wide. Small-graph
+  differential/oracle tests and public resource regressions cover the source
+  change. The scaling example and Criterion group hold a 64-node reachable
+  component fixed while adding disconnected eligible edges. Unconstrained
+  starts still load eagerly; the runtime output relation remains buffered.
   [Release measurements](dependency-graph.md#computed-merge-keys-2026-10-08-follow-up)
   show 3.4× faster initial and 9.3× faster repeat direct-key imports at 1,000
   packages; the record also compares the alias workaround and 10,000-package
@@ -719,8 +729,9 @@ predicates, and expression DELETE and property SET/REMOVE targets are also compl
 Next extend cursors through measured buffering bottlenecks, or add graph-value
 scalar operations and
 expression targets for other mutations.
-Performance work should start with the measured node-upsert cost and
-shortest-path scaling. Track completion in milestone 10 rather than a separate
+Performance follow-ups should profile the remaining node-upsert cost or
+reachable-region shortest search after the indexed-input improvement.
+Track completion in milestone 10 rather than a separate
 TODO file.
 Fix correctness regressions as they appear and keep reviewing TCK changes;
 temporal support and broad differential testing remain follow-up conformance

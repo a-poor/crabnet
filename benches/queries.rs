@@ -11,6 +11,9 @@ use crabnet::{CypherValue, Database, Parameters, QueryResult};
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use serde_json::json;
 
+#[path = "../examples/shortest_path_scaling/fixture.rs"]
+mod shortest_fixture;
+
 /// Nodes created by one multi-pattern `CREATE`; also the community size.
 const COMMUNITY: usize = 250;
 /// Outgoing `KNOWS` edges per person inside its community.
@@ -507,6 +510,19 @@ fn bench_traversal(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_shortest_scaling(c: &mut Criterion) {
+    let mut group = c.benchmark_group("shortest_scaling");
+    group.sample_size(20);
+    for unrelated in [0, 1_000, 10_000] {
+        let mut database = shortest_fixture::graph(unrelated).unwrap();
+        assert_eq!(integer(&run(&mut database, shortest_fixture::QUERY)), 32);
+        group.bench_function(BenchmarkId::new("unrelated_edges", unrelated), |b| {
+            b.iter(|| run(&mut database, black_box(shortest_fixture::QUERY)))
+        });
+    }
+    group.finish();
+}
+
 fn bench_writes(c: &mut Criterion) {
     let mut group = c.benchmark_group("write");
     group.throughput(Throughput::Elements(1));
@@ -792,6 +808,7 @@ criterion_group!(
     bench_planning,
     bench_reads,
     bench_traversal,
+    bench_shortest_scaling,
     bench_writes,
     bench_merge,
     bench_computed_merge_keys

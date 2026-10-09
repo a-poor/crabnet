@@ -3,7 +3,7 @@ use std::{
     io::{self, Write},
 };
 
-use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
+use rusqlite::{CachedStatement, Connection, ToSql, params_from_iter, types::Value as SqlValue};
 #[cfg(test)]
 use serde_json::{Value, json};
 
@@ -361,6 +361,52 @@ pub(super) fn materialize_shortest(
     budget: &mut TrailBudget,
 ) -> Result<SqlValue> {
     let checkpoint = budget.memory_checkpoint();
+    if let Some(sql) = &spec.neighbor_sql {
+        if spec.maximum.is_some_and(|maximum| spec.minimum > maximum) {
+            return Ok(SqlValue::Text(
+                EncodedRows::new(spec.traversal, budget)?.finish(spec.traversal, budget)?,
+            ));
+        }
+        let seeds = load_domain(
+            connection,
+            spec.start_domain
+                .as_ref()
+                .expect("neighbor source has a start domain"),
+            spec.traversal,
+            budget,
+        )?;
+        let end_domain = spec
+            .end_domain
+            .as_ref()
+            .map(|domain| {
+                load_domain(connection, domain, spec.traversal, budget).map(BTreeSet::from_iter)
+            })
+            .transpose()?;
+        let mut neighbors = ShortestNeighbors {
+            adjacency: BTreeMap::new(),
+            query: Some(NeighborQuery {
+                statement: connection.prepare_cached(sql)?,
+                bindings: &spec.edge_bindings,
+                direction: spec.direction,
+            }),
+        };
+        let rows = search_shortest_paths(
+            &mut neighbors,
+            ShortestEndpoints {
+                seeds: &seeds,
+                end_domain: end_domain.as_ref(),
+            },
+            (spec.minimum, spec.maximum.unwrap_or(usize::MAX)),
+            mode,
+            spec.traversal,
+            budget,
+        )?;
+        drop(neighbors);
+        drop(seeds);
+        drop(end_domain);
+        budget.release_to(checkpoint);
+        return Ok(SqlValue::Text(rows));
+    }
     let Some(inputs) = load_expansion_inputs(connection, spec, budget)? else {
         let rows = EncodedRows::new(spec.traversal, budget)?.finish(spec.traversal, budget)?;
         return Ok(SqlValue::Text(rows));
@@ -612,6 +658,69 @@ fn enumerate_trails(
     rows.finish(traversal, budget)
 }
 
+/// Cache neighbor lists across tied prefixes, cycle searches, and seeds. The
+/// optional query fills a list only when its node is expanded; without it,
+/// `adjacency` is the complete eager source used for unconstrained searches.
+struct ShortestNeighbors<'a> {
+    adjacency: BTreeMap<String, Vec<TrailStep>>,
+    query: Option<NeighborQuery<'a>>,
+}
+
+struct NeighborQuery<'a> {
+    statement: CachedStatement<'a>,
+    bindings: &'a [SqlValue],
+    direction: TrailDirection,
+}
+
+impl ShortestNeighbors<'_> {
+    fn steps(
+        &mut self,
+        node: &str,
+        traversal: usize,
+        budget: &mut TrailBudget,
+    ) -> Result<&[TrailStep]> {
+        budget.control.check()?;
+        if let Some(query) = &mut self.query
+            && !self.adjacency.contains_key(node)
+        {
+            debug_assert!(query.statement.readonly());
+            let bindings = query
+                .bindings
+                .iter()
+                .map(|value| value as &dyn ToSql)
+                .chain(std::iter::once(&node as &dyn ToSql));
+            let mut rows = query.statement.query(params_from_iter(bindings))?;
+            // Cache empty lists too, so ties and later seeds do not repeatedly
+            // probe a dead end. Charge each key and step before retaining it.
+            budget.retain(traversal, id_cost(node))?;
+            let mut steps = Vec::new();
+            while let Some(row) = rows.next()? {
+                budget.control.record_sql_row(row, 3)?;
+                let from: String = row.get(1)?;
+                let next_node = match query.direction {
+                    TrailDirection::Right => row.get(2)?,
+                    TrailDirection::Left => from,
+                    TrailDirection::Undirected if from == node => row.get(2)?,
+                    TrailDirection::Undirected => from,
+                };
+                let step = TrailStep {
+                    edge_id: row.get(0)?,
+                    next_node,
+                };
+                budget.retain(traversal, step_cost(&step))?;
+                steps.push(step);
+            }
+            self.adjacency.insert(node.to_owned(), steps);
+        }
+        Ok(self.adjacency.get(node).map_or(&[], Vec::as_slice))
+    }
+}
+
+struct ShortestEndpoints<'a> {
+    seeds: &'a [String],
+    end_domain: Option<&'a BTreeSet<String>>,
+}
+
 // Run one BFS per stored start node. The first depth recorded for an end node
 // is its minimum; equal-depth states are retained only for allShortestPaths.
 // Eligible edges arrive in ID order, making shortestPath's unspecified tied
@@ -629,18 +738,56 @@ fn enumerate_shortest_paths(
         edges,
         end_domain,
     } = graph;
-    let mut rows = EncodedRows::new(traversal, budget)?;
     let (minimum, maximum) = bounds;
     let effective_maximum = maximum.unwrap_or(edges.len()).min(edges.len());
     if minimum > effective_maximum {
-        return rows.finish(traversal, budget);
+        return EncodedRows::new(traversal, budget)?.finish(traversal, budget);
     }
 
     let checkpoint = budget.memory_checkpoint();
     let adjacency = adjacency(edges, direction, traversal, budget)?;
+    let mut neighbors = ShortestNeighbors {
+        adjacency,
+        query: None,
+    };
+    // The shared search also handles on-demand sources, whose finite search
+    // does not require a global edge count: distances prune ordinary paths,
+    // and the cycle search forbids reusing relationships.
+    let rows = search_shortest_paths(
+        &mut neighbors,
+        ShortestEndpoints {
+            seeds: nodes,
+            end_domain,
+        },
+        (minimum, effective_maximum),
+        mode,
+        traversal,
+        budget,
+    )?;
+    drop(neighbors);
+    budget.release_to(checkpoint);
+    Ok(rows)
+}
+
+fn search_shortest_paths(
+    neighbors: &mut ShortestNeighbors<'_>,
+    endpoints: ShortestEndpoints<'_>,
+    bounds: (usize, usize),
+    mode: ShortestMode,
+    traversal: usize,
+    budget: &mut TrailBudget,
+) -> Result<String> {
+    let ShortestEndpoints {
+        seeds: nodes,
+        end_domain,
+    } = endpoints;
+    let (minimum, effective_maximum) = bounds;
+    let mut rows = EncodedRows::new(traversal, budget)?;
     let include_all = mode == ShortestMode::All;
     for start in nodes {
-        let start_checkpoint = budget.memory_checkpoint();
+        // Neighbor cache charges may be interleaved with this seed's search.
+        // Release only frontier/visited/cycle ownership here, not a checkpoint.
+        let mut search = RetainedBytes::default();
         let seed = TrailState {
             end_node: start.clone(),
             edge_ids: Vec::new(),
@@ -653,9 +800,9 @@ fn enumerate_shortest_paths(
             }
         }
 
-        budget.retain(traversal, depth_entry_cost(start))?;
+        search.retain(budget, traversal, depth_entry_cost(start))?;
         let mut best_depth = BTreeMap::from([(start.clone(), 0_usize)]);
-        budget.retain(traversal, state_cost(&seed))?;
+        search.retain(budget, traversal, state_cost(&seed))?;
         let mut pending = VecDeque::from([seed]);
         while let Some(state) = pending.pop_front() {
             let state_bytes = state_cost(&state);
@@ -663,9 +810,7 @@ fn enumerate_shortest_paths(
                 if state.edge_ids.len() >= effective_maximum {
                     break 'expand;
                 }
-                let Some(steps) = adjacency.get(&state.end_node) else {
-                    break 'expand;
-                };
+                let steps = neighbors.steps(&state.end_node, traversal, budget)?;
                 for step in steps {
                     budget.control.check()?;
                     if state.edge_ids.contains(&step.edge_id) {
@@ -677,7 +822,7 @@ fn enumerate_shortest_paths(
                         Some(best) if depth > *best => continue,
                         Some(best) if depth == *best && !include_all => continue,
                         None => {
-                            budget.retain(traversal, depth_entry_cost(&step.next_node))?;
+                            search.retain(budget, traversal, depth_entry_cost(&step.next_node))?;
                             best_depth.insert(step.next_node.clone(), depth);
                         }
                         Some(_) => {}
@@ -690,11 +835,11 @@ fn enumerate_shortest_paths(
                     if depth >= minimum && admits_end(end_domain, &next.end_node) {
                         rows.push(start, &next, traversal, budget)?;
                     }
-                    budget.retain(traversal, state_cost(&next))?;
+                    search.retain(budget, traversal, state_cost(&next))?;
                     pending.push_back(next);
                 }
             }
-            budget.release(state_bytes);
+            search.release(budget, state_bytes);
         }
         // A positive cycle back to `start` needs its own search: a longer
         // arrival at an intermediate node can preserve the edge that closes
@@ -702,21 +847,20 @@ fn enumerate_shortest_paths(
         if minimum > 0 && admits_end(end_domain, start) {
             for cycle in enumerate_shortest_cycles(
                 start,
-                &adjacency,
+                neighbors,
                 effective_maximum,
                 include_all,
                 traversal,
                 budget,
             )? {
                 rows.push(start, &cycle, traversal, budget)?;
+                budget.release(state_cost(&cycle));
             }
         }
         // The visited map and any retained cycles belong to this start only.
         drop(best_depth);
-        budget.release_to(start_checkpoint);
+        search.release_all(budget);
     }
-    drop(adjacency);
-    budget.release_to(checkpoint);
     rows.finish(traversal, budget)
 }
 
@@ -726,19 +870,18 @@ fn depth_entry_cost(node: &str) -> usize {
 
 fn enumerate_shortest_cycles(
     start: &str,
-    adjacency: &BTreeMap<String, Vec<TrailStep>>,
+    neighbors: &mut ShortestNeighbors<'_>,
     maximum: usize,
     include_all: bool,
     traversal: usize,
     budget: &mut TrailBudget,
 ) -> Result<Vec<TrailState>> {
-    let Some(first_steps) = adjacency.get(start) else {
-        return Ok(Vec::new());
-    };
+    let first_count = neighbors.steps(start, traversal, budget)?.len();
     let mut best_cycle_depth = None;
     let mut cycles = Vec::new();
 
-    for first in first_steps {
+    for index in 0..first_count {
+        let first = &neighbors.steps(start, traversal, budget)?[index];
         budget.admit(traversal)?;
         let first_state = TrailState {
             end_node: first.next_node.clone(),
@@ -775,9 +918,7 @@ fn enumerate_shortest_cycles(
                 if depth >= maximum || best_cycle_depth.is_some_and(|best| depth >= best) {
                     break 'expand;
                 }
-                let Some(steps) = adjacency.get(&state.end_node) else {
-                    break 'expand;
-                };
+                let steps = neighbors.steps(&state.end_node, traversal, budget)?;
                 for step in steps {
                     budget.control.check()?;
                     if state.edge_ids.contains(&step.edge_id) {
@@ -968,6 +1109,274 @@ fn encoded_trail(start: &str, state: &TrailState) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        Database, Parameters,
+        planner::{self, Plan, PreparedPhysicalOperator, PreparedValueOperator},
+    };
+
+    fn shortest_spec(query: &str) -> ResolvedTrailExpansion {
+        let Plan::Read(plan) = planner::compile(query).unwrap() else {
+            panic!("expected read");
+        };
+        let parameters = Parameters::from([("open".into(), json!(true))]);
+        let PreparedPhysicalOperator::Sqlite(fragment) = plan.prepare(&parameters).unwrap().root
+        else {
+            panic!("expected SQLite consumer");
+        };
+        let PreparedValueOperator::ShortestExpand { spec, .. } =
+            fragment.inputs.into_iter().next().unwrap()
+        else {
+            panic!("expected shortest producer");
+        };
+        spec
+    }
+
+    #[test]
+    fn shortest_neighbor_queries_use_directional_indexes_and_dense_bindings() {
+        let database = Database::in_memory().unwrap();
+        for (pattern, indexes) in [
+            (
+                "(:Seed)-[:STEP* {open: $open}]->()",
+                vec!["edges_from_type_to"],
+            ),
+            (
+                "(:Seed)<-[:STEP* {open: $open}]-()",
+                vec!["edges_to_type_from"],
+            ),
+            (
+                "(:Seed)-[:STEP* {open: $open}]-()",
+                vec!["edges_from_type_to", "edges_to_type_from"],
+            ),
+            (
+                "(:Seed)-[*]-()",
+                vec!["edges_from_type_to", "edges_to_type_from"],
+            ),
+        ] {
+            let spec = shortest_spec(&format!(
+                "MATCH p = shortestPath({pattern}) RETURN length(p)"
+            ));
+            let sql = spec.neighbor_sql.unwrap();
+            let statement = database.connection.prepare(&sql).unwrap();
+            assert!(statement.readonly());
+            assert_eq!(statement.column_count(), 3);
+            assert_eq!(statement.parameter_count(), spec.edge_bindings.len() + 1);
+            for index in 1..=statement.parameter_count() {
+                assert_eq!(
+                    statement.parameter_name(index),
+                    Some(format!("?{index}").as_str())
+                );
+            }
+            let mut bindings = spec.edge_bindings;
+            bindings.push(SqlValue::Text("bound ' β node".into()));
+            let details = database
+                .connection
+                .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+                .unwrap()
+                .query_map(params_from_iter(&bindings), |row| row.get::<_, String>(3))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+                .join("\n");
+            for index in indexes {
+                assert!(
+                    details.contains(&format!("SEARCH trail_edge USING INDEX {index}")),
+                    "{details}"
+                );
+            }
+            assert!(!details.contains("SCAN trail_edge"), "{details}");
+        }
+        let spec = shortest_spec("MATCH p = shortestPath(()-[:STEP*]->(:Target)) RETURN length(p)");
+        assert!(
+            spec.neighbor_sql.is_none(),
+            "no start domain uses the eager source"
+        );
+    }
+
+    #[test]
+    fn indexed_shortest_matches_eager_search_and_exhaustive_trails() {
+        let database = Database::in_memory().unwrap();
+        let connection = &database.connection;
+        connection
+            .execute_batch(
+                "INSERT INTO nodes (id, labels) VALUES ('a','[\"Seed\",\"Target\"]'),
+             ('b','[\"Seed\"]'), ('c','[\"Seed\",\"Target\"]'), ('z','[]');",
+            )
+            .unwrap();
+        let possible = [
+            edge("aa", "a", "a"),
+            edge("ab1", "a", "b"),
+            edge("ab2", "a", "b"),
+            edge("bc", "b", "c"),
+            edge("ca", "c", "a"),
+            edge("cc", "c", "c"),
+        ];
+        let seeds = ["a".into(), "b".into(), "c".into()];
+        let end_domain = BTreeSet::from(["a".into(), "c".into()]);
+        for (left, right) in [("-", "->"), ("<-", "-"), ("-", "-")] {
+            for bounds in ["0..0", "0..3", "1..3", "1.."] {
+                let spec = shortest_spec(&format!(
+                    "MATCH p = allShortestPaths((:Seed){left}[:STEP*{bounds}]{right}(:Target)) RETURN length(p)"
+                ));
+                for mask in 0..1 << possible.len() {
+                    connection.execute("DELETE FROM edges", []).unwrap();
+                    let mut edges = possible
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| mask & (1 << i) != 0)
+                        .map(|(_, edge)| edge.clone())
+                        .collect::<Vec<_>>();
+                    edges.push(edge("zz", "z", "z"));
+                    for edge in &edges {
+                        connection.execute("INSERT INTO edges (id,edge_type,from_node,to_node) VALUES (?1,'STEP',?2,?3)",
+                            [&edge.id, &edge.from, &edge.to]).unwrap();
+                    }
+                    let graph = ExpansionGraph {
+                        seeds: &seeds,
+                        edges: &edges,
+                        end_domain: Some(&end_domain),
+                    };
+                    for mode in [ShortestMode::One, ShortestMode::All] {
+                        let mut indexed_budget = TrailBudget::new(10_000);
+                        indexed_budget.retain(0, 77).unwrap(); // Another producer's live memory.
+                        let SqlValue::Text(indexed) =
+                            materialize_shortest(connection, &spec, mode, &mut indexed_budget)
+                                .unwrap()
+                        else {
+                            panic!("expected encoded relation");
+                        };
+                        assert_eq!(indexed_budget.memory_used(), 77);
+                        assert_eq!(indexed_budget.payload_used(), indexed.len());
+                        let mut eager_budget = TrailBudget::new(10_000);
+                        let eager = enumerate_shortest_paths(
+                            graph,
+                            spec.direction,
+                            (spec.minimum, spec.maximum),
+                            mode,
+                            0,
+                            &mut eager_budget,
+                        )
+                        .unwrap();
+                        assert_eq!(
+                            indexed, eager,
+                            "mask={mask}, direction={:?}, bounds={bounds}, mode={mode:?}",
+                            spec.direction
+                        );
+                        assert_eq!(indexed_budget.state_used, eager_budget.state_used);
+                        if mode == ShortestMode::All {
+                            // Exhaustive trail enumeration is independent of BFS pruning.
+                            let trails = enumerate_trails(
+                                graph,
+                                spec.direction,
+                                spec.minimum,
+                                spec.maximum,
+                                0,
+                                &mut TrailBudget::new(10_000),
+                            )
+                            .unwrap();
+                            let mut best = BTreeMap::<(String, String), (u64, Vec<String>)>::new();
+                            for row in decode_rows(&trails) {
+                                let key = (
+                                    row["start_id"].as_str().unwrap().to_owned(),
+                                    row["end_id"].as_str().unwrap().to_owned(),
+                                );
+                                let depth = row["depth"].as_u64().unwrap();
+                                let entry = best.entry(key).or_insert((depth, Vec::new()));
+                                if depth < entry.0 {
+                                    *entry = (depth, Vec::new());
+                                }
+                                if depth == entry.0 {
+                                    entry.1.push(row.to_string());
+                                }
+                            }
+                            let mut expected = best
+                                .into_values()
+                                .flat_map(|(_, paths)| paths)
+                                .collect::<Vec<_>>();
+                            let mut actual = decode_rows(&indexed)
+                                .into_iter()
+                                .map(|row| row.to_string())
+                                .collect::<Vec<_>>();
+                            expected.sort();
+                            actual.sort();
+                            assert_eq!(actual, expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn cached_neighbors_charge_once_and_check_cancellation_on_hits() {
+        let database = Database::in_memory().unwrap();
+        database
+            .connection
+            .execute_batch(
+                "INSERT INTO nodes (id) VALUES ('a'), ('b');
+             INSERT INTO edges (id, edge_type, from_node, to_node) VALUES ('ab','STEP','a','b');",
+            )
+            .unwrap();
+        let spec = shortest_spec("MATCH p = shortestPath((:Seed)-[:STEP*]->()) RETURN length(p)");
+        let token = crate::CancellationToken::new();
+        let options = QueryOptions {
+            cancellation: Some(token.clone()),
+            max_materialized_rows: Some(1),
+            ..QueryOptions::default()
+        };
+        let mut budget = TrailBudget::configured(&options.traversal, QueryControl::new(&options));
+        let mut neighbors = ShortestNeighbors {
+            adjacency: BTreeMap::new(),
+            query: Some(NeighborQuery {
+                statement: database
+                    .connection
+                    .prepare_cached(spec.neighbor_sql.as_ref().unwrap())
+                    .unwrap(),
+                bindings: &spec.edge_bindings,
+                direction: spec.direction,
+            }),
+        };
+        for _ in 0..2 {
+            assert_eq!(neighbors.steps("a", 0, &mut budget).unwrap().len(), 1);
+            assert!(neighbors.steps("b", 0, &mut budget).unwrap().is_empty());
+            assert_eq!(
+                budget.memory_used(),
+                id_cost("a") + id_cost("b") + id_cost("ab") + id_cost("b")
+            );
+        }
+        token.cancel();
+        assert!(matches!(
+            neighbors.steps("a", 0, &mut budget),
+            Err(Error::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn indexed_shortest_memory_boundary_is_exact_and_released_between_producers() {
+        let mut database = Database::in_memory().unwrap();
+        database.execute("CREATE (a:Seed)-[:STEP]->(b:Seed)-[:STEP]->(c:Seed)-[:STEP]->(a), (b)-[:STEP]->(b)").unwrap();
+        let spec =
+            shortest_spec("MATCH p = allShortestPaths((:Seed)-[:STEP*]-(:Seed)) RETURN length(p)");
+        let run = |budget: &mut TrailBudget| {
+            materialize_shortest(&database.connection, &spec, ShortestMode::All, budget)
+        };
+        let mut measured = TrailBudget::new(10_000);
+        measured.retain(0, 77).unwrap();
+        let expected = run(&mut measured).unwrap();
+        assert_eq!(measured.memory_used(), 77);
+        let peak = measured.memory_peak();
+        let mut exact = TrailBudget::new(10_000).with_memory_limit(peak);
+        exact.retain(0, 77).unwrap();
+        for _ in 0..2 {
+            assert_eq!(run(&mut exact).unwrap(), expected);
+            assert_eq!(exact.memory_used(), 77);
+        }
+        assert_eq!(exact.memory_peak(), peak);
+        let mut short = TrailBudget::new(10_000).with_memory_limit(peak - 1);
+        short.retain(0, 77).unwrap();
+        assert!(
+            matches!(run(&mut short), Err(Error::ResourceLimit(message)) if message.contains("retained-memory"))
+        );
+    }
 
     fn edge(id: &str, from: &str, to: &str) -> StoredEdge {
         StoredEdge {

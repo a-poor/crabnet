@@ -177,6 +177,9 @@ pub(crate) struct TrailExpansionSpec {
     pub(crate) minimum: usize,
     pub(crate) maximum: Option<usize>,
     pub(crate) edge_sql: String,
+    /// Per-node edge source for constrained shortest paths. Its last binding
+    /// (after `edge_bindings`) is the current node ID supplied by the search.
+    pub(crate) neighbor_sql: Option<String>,
     pub(crate) edge_bindings: Vec<SqlParameter>,
     pub(crate) start_domain: Option<NodeDomainSpec>,
     pub(crate) end_domain: Option<NodeDomainSpec>,
@@ -190,6 +193,7 @@ impl TrailExpansionSpec {
             minimum: self.minimum,
             maximum: self.maximum,
             edge_sql: self.edge_sql.clone(),
+            neighbor_sql: self.neighbor_sql.clone(),
             edge_bindings: resolve_bindings(&self.edge_bindings, parameters)?,
             start_domain: self
                 .start_domain
@@ -212,6 +216,7 @@ pub(crate) struct ResolvedTrailExpansion {
     pub(crate) minimum: usize,
     pub(crate) maximum: Option<usize>,
     pub(crate) edge_sql: String,
+    pub(crate) neighbor_sql: Option<String>,
     pub(crate) edge_bindings: Vec<SqlValue>,
     pub(crate) start_domain: Option<ResolvedNodeDomain>,
     pub(crate) end_domain: Option<ResolvedNodeDomain>,
@@ -524,7 +529,23 @@ fn render_value_operator(operator: &ValueOperator, output: &mut String, index: &
         spec.minimum,
         maximum
     ));
-    render_source(output, "edge-source", &spec.edge_sql, &spec.edge_bindings);
+    if let Some(sql) = &spec.neighbor_sql {
+        render_source(
+            output,
+            "neighbor-source",
+            sql,
+            &spec.edge_bindings,
+            Some("current-node"),
+        );
+    } else {
+        render_source(
+            output,
+            "edge-source",
+            &spec.edge_sql,
+            &spec.edge_bindings,
+            None,
+        );
+    }
     render_domain(output, "start-domain", spec.start_domain.as_ref());
     render_domain(output, "end-domain", spec.end_domain.as_ref());
     *index += 1;
@@ -532,16 +553,22 @@ fn render_value_operator(operator: &ValueOperator, output: &mut String, index: &
 
 fn render_domain(output: &mut String, name: &str, domain: Option<&NodeDomainSpec>) {
     match domain {
-        Some(domain) => render_source(output, name, &domain.sql, &domain.bindings),
+        Some(domain) => render_source(output, name, &domain.sql, &domain.bindings, None),
         None => output.push_str(&format!("      {name}: unrestricted\n")),
     }
 }
 
-fn render_source(output: &mut String, name: &str, sql: &str, bindings: &[SqlParameter]) {
+fn render_source(
+    output: &mut String,
+    name: &str,
+    sql: &str,
+    bindings: &[SqlParameter],
+    runtime: Option<&str>,
+) {
     output.push_str(&format!(
         "      {name}:\n        sql: {sql}\n        bindings:\n"
     ));
-    if bindings.is_empty() {
+    if bindings.is_empty() && runtime.is_none() {
         output.push_str("          none\n");
     } else {
         for (binding_index, binding) in bindings.iter().enumerate() {
@@ -551,6 +578,9 @@ fn render_source(output: &mut String, name: &str, sql: &str, bindings: &[SqlPara
                 binding.kind_name()
             ));
         }
+    }
+    if let Some(runtime) = runtime {
+        output.push_str(&format!("          ?{} {runtime}\n", bindings.len() + 1));
     }
 }
 
@@ -625,6 +655,7 @@ mod tests {
                 minimum: 1,
                 maximum: Some(2),
                 edge_sql: "SELECT id, from_node, to_node FROM edges WHERE edge_type = ?1".into(),
+                neighbor_sql: None,
                 edge_bindings: vec![SqlParameter::Text(format!("edge-{slot}"))],
                 start_domain: None,
                 end_domain: None,

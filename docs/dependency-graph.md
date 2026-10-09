@@ -190,11 +190,12 @@ needed. The computed-key planner follow-up is now implemented, removing that
 query-shaping requirement. This result does not establish that plan caching
 is the principal bottleneck.
 
-Two performance questions now have evidence behind them. Node upserts still
+Two performance questions emerged from this run. Node upserts still
 take about 77% of initial import time at 10,000 packages, so profile matcher,
 mutation, and property-index maintenance costs before adding plan reuse.
 Shortest-path latency grows with the surrounding graph despite fixed endpoints
-and hop count; inspect eligible-edge loading and adjacency construction next.
+and hop count; the neighbor-loading follow-up below addresses eligible-edge
+loading and adjacency construction.
 The eight-result distinct neighborhood queries stay nearly flat, giving no
 reason to prioritize semantic deduplication for this workload.
 
@@ -245,3 +246,69 @@ can introduce errors when no candidate nodes exist. Edge-import aliases
 therefore remain in place. The `merge_keys` Criterion group also compares
 direct and projected keys for first and repeat 1,000-row in-memory merges:
 `cargo bench --bench queries -- merge_keys`.
+
+### Shortest-path neighbor loading: 2026-10-08 follow-up
+
+Constrained shortest-path queries now load filtered neighbors through SQLite's
+endpoint indexes as BFS expands each node. The producer caches those lists
+across tied paths, positive-cycle searches, and start nodes. Unrelated
+components do not enter the cache. Same-clause start labels or inline
+properties enable this strategy; an unrestricted start still uses the eager
+source. The existing endpoint property constraints in the dependency-graph
+application enable it without an application query change.
+
+The isolated workload in
+[`examples/shortest_path_scaling.rs`](../examples/shortest_path_scaling.rs)
+holds a 64-node, 125-edge component fixed, with the same next-one/next-two
+topology as the application fixture. It adds 0, 1,000, or 10,000 disconnected
+nodes, each with one relationship of the eligible type. Every timed query
+must return 32 hops; an untimed hydrated-path check verifies endpoints and
+every relationship. Unlike the application workload, this fixture is in
+memory and measures `RETURN length(p)` without endpoint-existence checks or
+application shaping. Setup is reported separately.
+
+```sh
+cargo build --release --example shortest_path_scaling
+python3 scripts/measure_dependency_graph.py target/release/examples/shortest_path_scaling 10000 100
+cargo bench --bench queries -- shortest_scaling
+```
+
+The first query is separate from the repeated samples, but follows fixture
+creation on the same connection and is not a cold-cache result. Process RSS
+includes fixture construction and SQLite; it is not the traversal accounting
+budget. The regression tests independently enforce transfer-row and exact
+retained-memory boundaries.
+
+An instrumented pre-change release run separated eligible-edge loading,
+adjacency construction, and BFS plus runtime-row encoding. With 10,000
+unrelated edges, their median times were 6.711 ms, 4.605 ms, and 0.167 ms,
+respectively. With none, they were 0.046 ms, 0.023 ms, and 0.110 ms. The
+search examined 125 candidate steps at every scale, while the eager source
+loaded 125, 1,125, and 10,125 edges. Phase timers exclude endpoint-domain
+queries, destruction, planning, and the consuming SQLite fragment.
+
+The end-to-end comparison used uninstrumented release binaries, Rust 1.99.0,
+and macOS 26.5.1 arm64. The baseline is commit `519db19` with the identical
+benchmark example copied into an isolated checkout. Three fresh-process trials
+per engine and scale each collected 100 repeated samples. Engine order
+alternated between trials; builds and tests finished before measurement. All
+18 runs passed the length and hydrated-path checks. The table gives medians
+across trials of each run's nearest-rank p50 / p95.
+
+| Unrelated edges | Before p50 / p95 | After p50 / p95 | Median speedup |
+| ---: | ---: | ---: | ---: |
+| 0 | 0.288 / 0.776 ms | 0.333 / 0.792 ms | 0.86× |
+| 1,000 | 1.192 / 2.880 ms | 0.342 / 0.799 ms | 3.48× |
+| 10,000 | 17.358 / 25.936 ms | 0.346 / 0.877 ms | 50.12× |
+
+The small graph pays about 0.046 ms (16%) more for individual neighbor probes.
+With unrelated data, median query time stays near the small-graph result.
+This does not establish a speedup when most of a large graph is reachable:
+search still explores that region, and neighbor probes have per-node overhead.
+At 10,000 unrelated edges, trial p50s ranged from 16.326–17.852 ms before and
+0.331–0.486 ms after. Whole-process peak RSS ranged from 25.56–26.19 MiB before
+and 22.19–22.30 MiB after. These are local observations, not guarantees or
+isolated query-memory measurements. The
+[measurement record](measurements/shortest-neighbors-2026-10-08.json) contains
+all samples, phase-profile medians, environment details, source and binary
+hashes, and process measurements.
