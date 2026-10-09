@@ -199,7 +199,7 @@ fn global_and_joined_traversal_shapes_keep_explicit_buffering() {
         "MATCH p=(:S)-[:R*]->(b), (c) RETURN b,c",
         "MATCH p=(:S)-[:R*]->(b)-[:R]->(c) RETURN p",
         "MATCH p=(:S)-[:R*]->(b)-[:R*]->(c) RETURN p",
-        "MATCH p=(:S)-[:R*]->(b) UNWIND nodes(p) AS n RETURN n",
+        "MATCH p=(:S)-[:R*]->(b) UNWIND nodes(p) AS n UNWIND [n] AS m RETURN m",
         "MATCH p=shortestPath((:S)-[:R*]->(b)) RETURN p",
         "RETURN null AS x UNION ALL MATCH p=(:S)-[:R*]->() RETURN count(*) AS x",
     ] {

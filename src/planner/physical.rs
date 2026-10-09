@@ -292,7 +292,8 @@ pub(crate) struct SqlFragment {
     pub(crate) output_shapes: Vec<OutputShape>,
     pub(crate) arguments: Vec<FragmentArgument>,
     pub(crate) inputs: Vec<ValueOperator>,
-    /// A distributive, at-most-one-row projection for a single trail input.
+    /// A distributive projection for a single trail input, optionally expanded
+    /// through one UNWIND before its at-most-one-row member consumer.
     /// The eager fragment keeps its original SQL pagination.
     pub(crate) trail_cursor: Option<Box<TrailCursorSpec>>,
 }
@@ -300,7 +301,8 @@ pub(crate) struct SqlFragment {
 #[derive(Clone, Debug)]
 pub(crate) struct TrailCursorSpec {
     pub(crate) sql: String,
-    pub(crate) argument_count: usize,
+    pub(crate) arguments: Vec<FragmentArgument>,
+    pub(crate) unwind: Option<TrailUnwindSpec>,
     pub(crate) offset: Option<ValueExpr>,
     pub(crate) limit: Option<ValueExpr>,
 }
@@ -308,9 +310,21 @@ pub(crate) struct TrailCursorSpec {
 #[derive(Clone)]
 pub(crate) struct PreparedTrailCursor {
     pub(crate) sql: String,
-    pub(crate) argument_count: usize,
+    pub(crate) arguments: Vec<PreparedFragmentArgument>,
+    pub(crate) unwind: Option<TrailUnwindSpec>,
     pub(crate) offset: usize,
     pub(crate) limit: Option<usize>,
+}
+
+/// The input query returns one row of carried bindings followed by an encoded
+/// list. Its parameters precede the carried bindings and current member in the
+/// consumer's parameter vector. Only the list value, not its projected rows,
+/// is retained while the cursor advances through members.
+#[derive(Clone, Debug)]
+pub(crate) struct TrailUnwindSpec {
+    pub(crate) sql: String,
+    pub(crate) argument_count: usize,
+    pub(crate) carried_count: usize,
 }
 
 impl SqlFragment {
@@ -379,7 +393,19 @@ impl SqlFragment {
                 .map(|cursor| {
                     Ok::<_, Error>(Box::new(PreparedTrailCursor {
                         sql: cursor.sql,
-                        argument_count: cursor.argument_count,
+                        arguments: cursor
+                            .arguments
+                            .into_iter()
+                            .map(|argument| match argument {
+                                FragmentArgument::Static(parameter) => parameter
+                                    .resolve(parameters)
+                                    .map(PreparedFragmentArgument::Value),
+                                FragmentArgument::Runtime(slot) => {
+                                    Ok(PreparedFragmentArgument::Runtime(slot))
+                                }
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                        unwind: cursor.unwind,
                         offset: cursor
                             .offset
                             .as_ref()

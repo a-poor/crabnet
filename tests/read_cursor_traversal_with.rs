@@ -109,7 +109,7 @@ fn non_rowwise_stages_and_other_producers_remain_buffered() {
         "MATCH p=(:S)-[:R*]->(b) WITH b RETURN b ORDER BY b.x",
         "MATCH p=(:S)-[:R*]->(b) WITH b MATCH (n) RETURN n,b",
         "MATCH p=(:S)-[:R*]->(b) WITH b OPTIONAL MATCH (b)-[:R]->(c) RETURN b,c",
-        "MATCH p=(:S)-[:R*]->(b) WITH p UNWIND nodes(p) AS n RETURN n",
+        "MATCH p=(:S)-[:R*]->(b) WITH p UNWIND nodes(p) AS n UNWIND [n] AS m RETURN m",
         "WITH 1 AS x MATCH p=(:S)-[:R*]->(b) WITH p,x RETURN p,x",
         "MATCH p=(:S)-[:R*]->(b)-[:R*]->(c) WITH p RETURN p",
         "MATCH p=shortestPath((:S)-[:R*]->(b)) WITH p RETURN p",

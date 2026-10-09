@@ -738,11 +738,21 @@ existing semantic tests and pinned TCK outcomes green throughout this work.
   filters. Typed paths/entities/lists, volatile aliases, final DISTINCT/UNION/
   pagination, hydration, and constrained neighbor probes compose through these
   stages. WITH DISTINCT, aggregation, ordering, intermediate pagination, and
-  additional MATCH/OPTIONAL MATCH/UNWIND stages retain buffering. Ten integration
-  tests cover bags/scopes, early exit, error evaluation, resource controls,
-  snapshots and transaction rollback. The shared example and Criterion group
+  additional MATCH/OPTIONAL MATCH stages retain buffering; the following slice
+  adds UNWIND. Ten integration tests cover bags/scopes, early exit, error
+  evaluation, resource controls, snapshots and transaction rollback. The shared example and Criterion group
   measure the same traversal through two WITH stages; see the
   [comparison](cursors.md#traversal-with-measurements).
+- [x] **One UNWIND in Rust traversal cursors.** A single trail producer streams
+  through one list expansion and plain WITH stages on either side. The cursor
+  freezes one input row/list per trail, then projects members individually;
+  typed values, duplicates, nulls, volatile scope, final DISTINCT/UNION/pages,
+  partial errors, hydration, budgets, snapshots, and rollback are covered by
+  ten integration tests. Multiple UNWINDs and global stages retain buffering.
+  List construction still materializes one complete value, charged with its
+  input row to transfer limits. Node-list and configurable scalar-fanout
+  examples/benchmarks measure full and partial consumption; see the
+  [comparison](cursors.md#traversal-unwind-measurements).
 
 Gate: the example completes its lifecycle using the public API, documented
 failure paths preserve graph state, persistent data survives reopening, and
@@ -769,7 +779,7 @@ collections, graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-awa
 `coalesce` and `CASE`, direct path-list `size`, path aggregation/grouping and
 predicates, and expression DELETE and property SET/REMOVE targets are also complete.
 Single-trail Rust cursors, constrained neighbor loading, and following plain
-WITH projections/filters are complete. Next broaden cursor shapes or
+WITH projections/filters around one UNWIND are complete. Next broaden cursor shapes or
 unconstrained graph-input loading where
 measurements justify it, or add graph-value
 scalar operations and expression targets for other mutations.

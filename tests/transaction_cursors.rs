@@ -264,7 +264,7 @@ fn errors_starting_buffered_or_cancelled_cursors_abort_before_returning() {
             },
         ),
         (
-            "MATCH p=(:Start)-[:LINK*1..40]->() UNWIND ['bad'] AS v RETURN p,v[0]",
+            "MATCH p=(:Start)-[:LINK*1..40]->() WITH DISTINCT p UNWIND ['bad'] AS v RETURN p,v[0]",
             QueryOptions::default(),
         ),
     ] {

@@ -1698,10 +1698,11 @@ execution strategy explicit before starting:
 
 Eligible Rust traversal is one MATCH with a single deep/open-ended relationship
 and its two endpoint nodes, followed by non-aggregating, unordered projections
-and filters, including chains of plain WITH stages.
+and filters, including one UNWIND with plain WITH stages before or after it.
 Filters, path/relationship-list outputs, DISTINCT, and final pagination compose
-incrementally. Each trail produces at most one consuming SQL row. Additional
-joins, multiple producers, OPTIONAL MATCH, UNWIND, global sorting or aggregation,
+incrementally. Each trail produces at most one consuming SQL row without UNWIND,
+or one per surviving member with it. Additional joins, multiple producers,
+OPTIONAL MATCH, multiple UNWIND stages, global sorting or aggregation,
 and shortest-path producers retain buffered execution. Any WITH DISTINCT,
 aggregation, ORDER BY, SKIP, or LIMIT, or a stage before the initial MATCH,
 also retains buffering. Eager
@@ -1727,8 +1728,15 @@ placeholder rows as SQL transfers. DISTINCT pagination retains projection
 evaluation before deduplication. Hydration retains its existing read-ahead/error
 boundary. Plain WITH stages retain per-row typed values and evaluated aliases;
 their computations still run for rows skipped by final pagination. A later
-WITH error can follow already-yielded rows, and early exit can leave suffix
-errors unobserved. See the
+WITH or member projection error can follow already-yielded rows, and early exit
+can leave suffix errors unobserved. UNWIND freezes its live input bindings and
+encoded list once per trail; following projections run once per member. Null
+members retain their types, while empty/null/non-list inputs produce no rows.
+Bare path-list expansion retains identities and reads member entities on demand.
+List construction still completes before the first member; a large single
+list or input row can consume substantial memory. The frozen row and list count
+as an additional SQL transfer, before copying, followed by each consumer row;
+these values are outside the retained traversal-memory counter. See the
 [traversal cursor guide](cursors.md#incremental-rust-traversal).
 
 Incremental `UNION ALL` visits branches from left to right and preserves bags,

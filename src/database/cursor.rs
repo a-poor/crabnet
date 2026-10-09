@@ -27,8 +27,8 @@ use crate::{
 #[non_exhaustive]
 pub enum ReadMode {
     /// SQLite fragments and eligible single-trail projections, including
-    /// rowwise WITH stages, compose through UNION, DISTINCT, pagination, and
-    /// batch hydration without buffering the
+    /// one UNWIND and rowwise WITH stages, compose through UNION, DISTINCT,
+    /// pagination, and batch hydration without buffering the
     /// complete result. Rust trails retain graph inputs and a search frontier.
     /// DISTINCT retains seen rows; hydration retains one batch of entities.
     /// SQLite may still buffer internally for sorting, grouping, or traversal.
@@ -151,6 +151,44 @@ struct TrailRows<'read> {
     shapes: &'read [OutputShape],
     producer: Option<TrailStream<'read>>,
     finished: bool,
+    unwind: Option<UnwindRows<'read>>,
+}
+
+struct UnwindRows<'read> {
+    statement: CachedStatement<'read>,
+    argument_count: usize,
+    carried_count: usize,
+    list: String,
+    position: usize,
+}
+
+impl UnwindRows<'_> {
+    fn next_member(&mut self, context: &ExecutionContext) -> Result<Option<SqlValue>> {
+        context.check()?;
+        let remaining = self.list[self.position..].trim_start();
+        let remaining = remaining
+            .strip_prefix(',')
+            .unwrap_or(remaining)
+            .trim_start();
+        if remaining.is_empty() || remaining.starts_with(']') {
+            self.list.clear();
+            self.position = 0;
+            return Ok(None);
+        }
+        // SQLite supplies valid JSON. Read only the next member, preserving
+        // integer/real syntax and nested graph envelopes without decoding the
+        // unread suffix into a second collection.
+        let mut parser = serde_json::Deserializer::from_str(remaining);
+        parser.disable_recursion_limit();
+        let mut values = parser.into_iter::<&serde_json::value::RawValue>();
+        let member = values
+            .next()
+            .transpose()
+            .map_err(|error| Error::Data(format!("invalid streaming UNWIND member: {error}")))?
+            .ok_or_else(|| Error::Data("missing UNWIND member".into()))?;
+        self.position = self.list.len() - remaining.len() + values.byte_offset();
+        Ok(Some(SqlValue::Text(member.get().to_owned())))
+    }
 }
 
 impl TrailRows<'_> {
@@ -166,34 +204,84 @@ impl TrailRows<'_> {
             )?);
         }
         loop {
+            if let Some(unwind) = &mut self.unwind {
+                if let Some(member) = unwind.next_member(context)? {
+                    self.bindings[unwind.argument_count + unwind.carried_count] = member;
+                    if let Some(row) = self.project(context)? {
+                        return Ok(Some(row));
+                    }
+                    continue;
+                }
+                self.bindings[unwind.argument_count..=unwind.argument_count + unwind.carried_count]
+                    .fill(SqlValue::Null);
+            }
             let Some(encoded) = self.producer.as_mut().expect("started producer").next()? else {
                 self.producer = None;
                 self.finished = true;
                 return Ok(None);
             };
             self.bindings[self.runtime_index] = SqlValue::Text(encoded);
-            *self.bindings.last_mut().expect("cursor skip binding") =
-                SqlValue::Integer(i64::from(self.skip > 0));
-            let mut rows = self.statement.query(params_from_iter(&self.bindings))?;
-            let Some(row) = rows.next()? else {
+            if let Some(unwind) = &mut self.unwind {
+                let mut rows = unwind
+                    .statement
+                    .query(params_from_iter(&self.bindings[..unwind.argument_count]))?;
+                if let Some(row) = rows.next()? {
+                    context.record_sql_row(row, unwind.carried_count + 1)?;
+                    for index in 0..unwind.carried_count {
+                        self.bindings[unwind.argument_count + index] = row.get(index)?;
+                    }
+                    unwind.list = row.get(unwind.carried_count)?;
+                    if !unwind.list.starts_with('[') {
+                        return Err(Error::Data("streaming UNWIND input is not an array".into()));
+                    }
+                    unwind.position = 1;
+                    if rows.next()?.is_some() {
+                        return Err(Error::Data(
+                            "streaming UNWIND input produced multiple rows".into(),
+                        ));
+                    }
+                }
                 continue;
-            };
-            context.record_sql_row(row, self.shapes.len())?;
-            let row = (self.skip == 0)
-                .then(|| decode_pending_row(row, self.shapes, context))
-                .transpose()?;
-            // Endpoint identity joins and rowwise WITH stages produce at most
-            // one row per trail. Fail closed if a future planner breaks that rule.
-            if rows.next()?.is_some() {
-                return Err(Error::Data(
-                    "streaming trail projection produced multiple rows".into(),
-                ));
             }
-            if row.is_some() {
-                return Ok(row);
+            if let Some(row) = self.project(context)? {
+                return Ok(Some(row));
             }
-            self.skip -= 1;
         }
+    }
+
+    fn project(&mut self, context: &ExecutionContext) -> Result<Option<PendingRow>> {
+        *self.bindings.last_mut().expect("cursor skip binding") =
+            SqlValue::Integer(i64::from(self.skip > 0));
+        // The member query has no references to the input query's parameters.
+        // Avoid copying a large list parameter into SQLite again per member.
+        let unused_prefix = self.unwind.as_ref().map_or(0, |u| u.argument_count);
+        let null = SqlValue::Null;
+        let mut rows =
+            self.statement
+                .query(params_from_iter(self.bindings.iter().enumerate().map(
+                    |(index, value)| {
+                        if index < unused_prefix { &null } else { value }
+                    },
+                )))?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        context.record_sql_row(row, self.shapes.len())?;
+        let row = (self.skip == 0)
+            .then(|| decode_pending_row(row, self.shapes, context))
+            .transpose()?;
+        // Endpoint joins and rowwise WITH stages produce at most one row
+        // per trail or UNWIND member. Fail closed if that rule changes.
+        if rows.next()?.is_some() {
+            return Err(Error::Data(
+                "streaming trail projection produced multiple rows".into(),
+            ));
+        }
+        if row.is_some() {
+            return Ok(row);
+        }
+        self.skip -= 1;
+        Ok(None)
     }
 }
 
@@ -433,6 +521,14 @@ impl<'db> PreparedRead<'db> {
                     if !statement.readonly() {
                         return Err(Error::Data("read fragment is not read-only".into()));
                     }
+                    if let Some(unwind) = fragment
+                        .trail_cursor
+                        .as_ref()
+                        .and_then(|cursor| cursor.unwind.as_ref())
+                        && !connection.prepare(&unwind.sql)?.readonly()
+                    {
+                        return Err(Error::Data("UNWIND input is not read-only".into()));
+                    }
                     // Trail projections restart a cached statement per row.
                     // Validate now; acquire its owned cursor handle on start.
                     Ok(fragment.trail_cursor.is_none().then_some(statement))
@@ -519,10 +615,9 @@ impl PreparedRead<'_> {
                                 return Err(Error::Data("invalid streaming trail input".into()));
                             };
                             let mut runtime_index = None;
-                            let mut bindings = fragment
+                            let mut bindings = cursor
                                 .arguments
                                 .iter()
-                                .take(cursor.argument_count)
                                 .enumerate()
                                 .map(|(index, argument)| match argument {
                                     PreparedFragmentArgument::Value(value) => Ok(value.clone()),
@@ -546,6 +641,21 @@ impl PreparedRead<'_> {
                                 shapes: &fragment.output_shapes,
                                 producer: None,
                                 finished: false,
+                                unwind: cursor
+                                    .unwind
+                                    .as_ref()
+                                    .map(|unwind| -> Result<_> {
+                                        Ok(UnwindRows {
+                                            statement: self
+                                                .connection
+                                                .prepare_cached(&unwind.sql)?,
+                                            argument_count: unwind.argument_count,
+                                            carried_count: unwind.carried_count,
+                                            list: String::new(),
+                                            position: 0,
+                                        })
+                                    })
+                                    .transpose()?,
                             }));
                             return Ok(Stream::Paginate {
                                 input: Box::new(stream),

@@ -10,9 +10,9 @@ mod fixture;
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    if !(2..=4).contains(&args.len()) || !matches!(args[0].as_str(), "eager" | "cursor" | "first") {
+    if !(2..=5).contains(&args.len()) || !matches!(args[0].as_str(), "eager" | "cursor" | "first") {
         return Err(
-            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with]"
+            "usage: cursor_traversal <eager|cursor|first> <depth:1..16> [unrelated:0..100000] [direct|with|unwind-nodes|unwind] [fanout:1..100000]"
                 .into(),
         );
     }
@@ -26,12 +26,20 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("depth must be 1..16; unrelated must be <= 100000".into());
     }
     let shape = args.get(3).map_or("direct", String::as_str);
-    if !matches!(shape, "direct" | "with") {
-        return Err("shape must be direct or with".into());
+    if !matches!(shape, "direct" | "with" | "unwind-nodes" | "unwind") {
+        return Err("shape must be direct, with, unwind-nodes or unwind".into());
+    }
+    let fanout: usize = args
+        .get(4)
+        .map(|value| value.parse())
+        .transpose()?
+        .unwrap_or(128);
+    if !(1..=100_000).contains(&fanout) {
+        return Err("fanout must be 1..100000".into());
     }
     println!(
         "{}",
-        serde_json::to_string_pretty(&measure(&args[0], depth, unrelated, shape)?)?
+        serde_json::to_string_pretty(&measure(&args[0], depth, unrelated, shape, fanout)?)?
     );
     Ok(())
 }
@@ -41,6 +49,7 @@ fn measure(
     depth: usize,
     unrelated: usize,
     shape: &str,
+    fanout: usize,
 ) -> crabnet::Result<serde_json::Value> {
     let setup = Instant::now();
     let mut db = if unrelated == 0 {
@@ -50,34 +59,46 @@ fn measure(
     };
     let setup_ms = setup.elapsed().as_secs_f64() * 1000.0;
     let options = fixture::options();
-    let query = if shape == "with" {
-        fixture::WITH_QUERY
-    } else {
-        fixture::QUERY
+    let query = match shape {
+        "with" => fixture::WITH_QUERY,
+        "unwind-nodes" => fixture::UNWIND_NODES_QUERY,
+        "unwind" => fixture::UNWIND_QUERY,
+        _ => fixture::QUERY,
     };
+    let parameters = Parameters::from([("fanout".into(), json!(fanout))]);
     let started = Instant::now();
     let mut first_row_ms = None;
     let mut histogram = vec![0usize; depth + 1];
+    let mut member_checks = vec![(0u64, 0u64); depth + 1];
     let mut consume = |row: Vec<CypherValue>| {
         first_row_ms.get_or_insert_with(|| started.elapsed().as_secs_f64() * 1000.0);
-        let [CypherValue::Integer(hops), CypherValue::Integer(endpoint)] = row.as_slice() else {
+        let [CypherValue::Integer(hops), CypherValue::Integer(endpoint)] = &row[..2] else {
             panic!("unexpected row: {row:?}")
         };
         assert_eq!(hops, endpoint);
+        if shape.starts_with("unwind") {
+            let CypherValue::Integer(member) = row[2] else {
+                panic!("invalid member")
+            };
+            assert!(if shape == "unwind-nodes" {
+                (0..=*hops).contains(&member)
+            } else {
+                (1..=fanout as i64).contains(&member)
+            });
+            member_checks[*hops as usize].0 += member as u64;
+            member_checks[*hops as usize].1 += (member as u64).pow(2);
+        }
         assert!((1..=depth as i64).contains(hops));
         histogram[*hops as usize] += 1;
         black_box(row);
     };
     let mut read_mode = None;
     if mode == "eager" {
-        for row in db
-            .execute_with_options(query, &Parameters::new(), &options)?
-            .rows
-        {
+        for row in db.execute_with_options(query, &parameters, &options)?.rows {
             consume(row);
         }
     } else {
-        let mut read = db.prepare_read_with_options(query, &Parameters::new(), &options)?;
+        let mut read = db.prepare_read_with_options(query, &parameters, &options)?;
         read_mode = Some(format!("{:?}", read.mode()));
         let mut cursor = read.cursor()?;
         if mode == "first" {
@@ -94,15 +115,34 @@ fn measure(
         assert_eq!(consumed_rows, 1);
         assert_eq!(histogram[1], 1);
     } else {
-        assert_eq!(consumed_rows, fixture::potential_rows(depth));
+        assert_eq!(consumed_rows, fixture::output_rows(depth, shape, fanout));
         for (hops, count) in histogram.iter().enumerate().skip(1) {
-            assert_eq!(*count, 1 << hops);
+            let last = match shape {
+                "unwind-nodes" => hops,
+                "unwind" => fanout,
+                _ => 0,
+            } as u64;
+            let multiplier = match shape {
+                "unwind-nodes" => hops + 1,
+                "unwind" => fanout,
+                _ => 1,
+            };
+            assert_eq!(*count, (1 << hops) * multiplier);
+            if shape.starts_with("unwind") {
+                assert_eq!(
+                    member_checks[hops],
+                    (
+                        (1 << hops) * last * (last + 1) / 2,
+                        (1 << hops) * last * (last + 1) * (2 * last + 1) / 6
+                    )
+                );
+            }
         }
     }
     Ok(
         json!({"mode":mode,"read_mode":read_mode,"shape":shape,"depth":depth,"nodes":depth+1+unrelated,"edges":depth*2+unrelated,
         "unrelated_edges":unrelated,"reachable_nodes":depth+1,"reachable_edges":depth*2,
-        "potential_rows":fixture::potential_rows(depth),"consumed_rows":consumed_rows,"depth_histogram":histogram,
+        "potential_trails":fixture::potential_rows(depth),"fanout":fanout,"potential_rows":fixture::output_rows(depth,shape,fanout),"consumed_rows":consumed_rows,"depth_histogram":histogram,
         "setup_ms":setup_ms,"first_row_ms":first_row_ms,"query_ms":query_ms}),
     )
 }
@@ -114,7 +154,7 @@ mod tests {
     fn every_mode_validates_trail_multiplicity_and_early_exit() {
         for depth in [1, 4, 7] {
             for mode in ["eager", "cursor", "first"] {
-                let report = measure(mode, depth, 0, "direct").unwrap();
+                let report = measure(mode, depth, 0, "direct", 128).unwrap();
                 assert_eq!(
                     report["consumed_rows"],
                     if mode == "first" {
@@ -134,7 +174,7 @@ mod tests {
     fn unrelated_edges_preserve_the_reachable_bag() {
         for unrelated in [0, 10] {
             for mode in ["eager", "cursor", "first"] {
-                let report = measure(mode, 4, unrelated, "direct").unwrap();
+                let report = measure(mode, 4, unrelated, "direct", 128).unwrap();
                 assert_eq!(report["edges"], 8 + unrelated);
                 assert_eq!(report["nodes"], 5 + unrelated);
             }
@@ -144,11 +184,30 @@ mod tests {
     #[test]
     fn with_stages_preserve_the_depth_histogram() {
         for mode in ["eager", "cursor", "first"] {
-            let report = measure(mode, 7, 10, "with").unwrap();
+            let report = measure(mode, 7, 10, "with", 128).unwrap();
             assert_eq!(
                 report["consumed_rows"],
                 if mode == "first" { 1 } else { 254 }
             );
+        }
+    }
+    #[test]
+    fn unwind_members_preserve_multiplicity_and_member_checksums() {
+        for shape in ["unwind-nodes", "unwind"] {
+            for mode in ["eager", "cursor", "first"] {
+                let report = measure(mode, 5, 0, shape, 128).unwrap();
+                assert_eq!(
+                    report["consumed_rows"],
+                    if mode == "first" {
+                        1
+                    } else {
+                        fixture::output_rows(5, shape, 128)
+                    }
+                );
+                if mode != "eager" {
+                    assert_eq!(report["read_mode"], "Incremental");
+                }
+            }
         }
     }
 }

@@ -6,6 +6,23 @@ pub const WITH_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
     WITH p AS trail,b WHERE b.id >= 1
     WITH length(trail) AS hops,b.id AS endpoint RETURN hops,endpoint";
 
+pub const UNWIND_NODES_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH p AS trail,b WHERE b.id >= 1
+    UNWIND nodes(trail) AS n
+    WITH length(trail) AS hops,b.id AS endpoint,n.id AS member RETURN hops,endpoint,member";
+pub const UNWIND_QUERY: &str = "MATCH p=(:Start)-[:NEXT*]->(b)
+    WITH length(p) AS hops,b.id AS endpoint
+    UNWIND range(1,$fanout) AS member
+    WITH hops,endpoint,member RETURN hops,endpoint,member";
+
+pub fn output_rows(depth: usize, shape: &str, fanout: usize) -> usize {
+    match shape {
+        "unwind-nodes" => (1..=depth).map(|hops| (1 << hops) * (hops + 1)).sum(),
+        "unwind" => potential_rows(depth) * fanout,
+        _ => potential_rows(depth),
+    }
+}
+
 // Two parallel relationships per hop produce 2^d distinct trails at depth d.
 // Graph input stays small while the potential runtime relation grows.
 pub fn fixture(depth: usize) -> crabnet::Result<Database> {

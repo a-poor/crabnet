@@ -495,6 +495,15 @@ parameters preflight on zero pages, and errors are terminal. Coverage includes
 hydration with earlier transaction writes, rollback/reuse, and read-only file
 snapshot pinning and cleanup on exhaustion/error/drop/panic.
 
+`tests/read_cursor_traversal_unwind.rs` adds ten tests for one UNWIND, with
+plain WITH stages on either side. They compare scalar/entity/path/nested bags,
+including nulls and repeated identities; prove per-trail versus per-member
+volatile evaluation; cover final DISTINCT/UNION/pages, empty/non-list inputs,
+resumption within one trail, early exit and later-member errors; and check
+transfer/result/traversal limits, preflight, hydration-batch rollback, read-only
+snapshots, cancellation, reuse and cleanup. The parity matrix also guards JSON
+null normalization for entity UNWIND in eager and cursor execution.
+
 The existing cursor tests retain buffered coverage with WITH DISTINCT stages and
 shortest paths; eligible transaction cursor cases now assert Incremental.
 `examples/cursor_traversal.rs` checks the complete depth histogram on a parallel
@@ -506,6 +515,11 @@ disconnected eligible self-loops while retaining the same output bag. The
 first-row latency, full-consumption time, and peak-RSS comparisons.
 The example's optional `with` shape and `cursor_traversal_with/*` Criterion
 group run two WITH stages over the same fixture and validate the same histogram.
+The `unwind-nodes` and `unwind` shapes add path-node or scalar-range fanout,
+with WITH stages on both sides. Full consumption checks each depth's row count,
+member sum and squared sum; first-row consumption checks one one-hop result.
+The scalar range accepts a fanout argument, defaulting to 128. Criterion adds
+`cursor_traversal_unwind_nodes/*` and `cursor_traversal_unwind/*`.
 
 ## Persistent application workload
 

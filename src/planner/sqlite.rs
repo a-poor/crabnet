@@ -15,7 +15,7 @@ use super::logical::{
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
-    SqlFragment, SqlParameter, TrailCursorSpec, TrailExpansionSpec, ValueOperator,
+    SqlFragment, SqlParameter, TrailCursorSpec, TrailExpansionSpec, TrailUnwindSpec, ValueOperator,
 };
 #[cfg(test)]
 use super::physical::{PreparedValueOperator, TrailDirection};
@@ -224,11 +224,7 @@ fn compile_read_with_probes(
         sql.push_str(&ordering);
     }
 
-    // Execute this projection once per yielded trail only when every outer
-    // scan is an endpoint joined by identity and later WITH stages only
-    // project/filter that row. Optional joins, additional patterns, UNWIND,
-    // sorting, aggregation, and intermediate pages/deduplication cannot be
-    // distributed over singleton input relations.
+    // Only rowwise stages and one UNWIND distribute over singleton trails.
     let trail_cursor = (single_trail_projection(input)
         && !aggregating
         && projection.order_by.is_empty()
@@ -237,11 +233,36 @@ fn compile_read_with_probes(
             compiler.inputs.as_slice(),
             [ValueOperator::TrailExpand { .. }]
         ))
-    .then(|| {
+    .then(|| -> Result<_> {
+        let mut member_compiler;
+        let (cursor_compiler, expressions, random_sources, unwind) =
+            if let Input::Pipeline(pipeline) = input
+                && let Some(index) = pipeline
+                    .stages
+                    .iter()
+                    .position(|s| matches!(s, ReadStage::Unwind(_)))
+            {
+                member_compiler = Compiler::new();
+                member_compiler.compile_stages(&pipeline.stages[..index])?;
+                let ReadStage::Unwind(stage) = &pipeline.stages[index] else {
+                    unreachable!()
+                };
+                let unwind = member_compiler.compile_cursor_unwind(stage)?;
+                member_compiler.compile_stages(&pipeline.stages[index + 1..])?;
+                let expressions = projection
+                    .expressions
+                    .iter()
+                    .map(|e| member_compiler.output_expression(e).map(|(sql, _)| sql))
+                    .collect::<Result<Vec<_>>>()?;
+                let random_sources = std::mem::take(&mut member_compiler.random_sources);
+                (&member_compiler, expressions, random_sources, Some(unwind))
+            } else {
+                (&compiler, expressions.clone(), random_sources.clone(), None)
+            };
         // SQL OFFSET skips projection evaluation. Retain that guard when a
         // cursor counts matching trails across singleton executions. The last
         // cursor-only parameter suppresses output expressions for skipped rows.
-        let skip_parameter = compiler.bindings.len() + 1;
+        let skip_parameter = cursor_compiler.bindings.len() + 1;
         let select = expressions
             .iter()
             .enumerate()
@@ -249,9 +270,11 @@ fn compile_read_with_probes(
                 format!("CASE WHEN ?{skip_parameter} THEN NULL ELSE ({sql}) END AS c{index}")
             })
             .collect::<Vec<_>>();
-        Box::new(TrailCursorSpec {
-            sql: compiler.with_ctes(compiler.select_sql_with_sources(&select, &random_sources)),
-            argument_count: compiler.bindings.len(),
+        Ok(Box::new(TrailCursorSpec {
+            sql: cursor_compiler
+                .with_ctes(cursor_compiler.select_sql_with_sources(&select, &random_sources)),
+            arguments: cursor_compiler.bindings.clone(),
+            unwind,
             // DISTINCT already owns its pagination in the physical tree.
             offset: (!projection.distinct)
                 .then(|| projection.offset.clone())
@@ -259,8 +282,9 @@ fn compile_read_with_probes(
             limit: (!projection.distinct)
                 .then(|| projection.limit.clone())
                 .flatten(),
-        })
-    });
+        }))
+    })
+    .transpose()?;
 
     // Only incremental trail projections use per-node probes. Eager execution
     // and buffered shapes retain their existing whole-edge source.
@@ -315,9 +339,16 @@ fn single_trail_projection(input: &Input) -> bool {
         Input::Match(plan) => plan,
         Input::Pipeline(ReadPipeline { stages }) => match stages.as_slice() {
             [ReadStage::Match(plan), following @ ..]
-                if following.iter().all(
-                    |stage| matches!(stage, ReadStage::With(stage) if rowwise_with(stage)),
-                ) =>
+                if following
+                    .iter()
+                    .filter(|s| matches!(s, ReadStage::Unwind(_)))
+                    .count()
+                    <= 1
+                    && following.iter().all(|stage| match stage {
+                        ReadStage::With(stage) => rowwise_with(stage),
+                        ReadStage::Unwind(stage) => !stage.expression.contains_aggregate(),
+                        _ => false,
+                    }) =>
             {
                 plan
             }
@@ -360,8 +391,8 @@ fn single_trail_projection(input: &Input) -> bool {
     })
 }
 
-// A singleton trail must remain zero or one row all the way to RETURN. Check
-// each stage, even if a later stage discards its ordering or aggregate output.
+// Each WITH must remain zero or one row per input member. Check every stage,
+// even if a later stage discards its ordering or aggregate output.
 fn rowwise_with(stage: &WithStage) -> bool {
     !stage.distinct
         && stage.order_by.is_empty()
@@ -2060,6 +2091,116 @@ impl Compiler {
         format!("SELECT * FROM {ranked} WHERE _crabnet_duplicate = 1")
     }
 
+    /// Freeze the trail's live scope and list once, then compile subsequent
+    /// stages against parameters for that scope and one encoded list member.
+    /// Path lists carry identities so entity records are read only as needed.
+    fn compile_cursor_unwind(&mut self, stage: &UnwindStage) -> Result<TrailUnwindSpec> {
+        let path_kind = if let Expr::PathFunction {
+            kind: PathFunctionKind::Nodes | PathFunctionKind::Relationships,
+            path,
+        } = &stage.expression
+        {
+            Some((
+                *path,
+                match stage.binding {
+                    UnwindBinding::Entity(_, kind) => kind,
+                    _ => return Err(Error::Data("path UNWIND requires an entity binding".into())),
+                },
+            ))
+        } else {
+            None
+        };
+        let list = if let Some((path, kind)) = path_kind {
+            let source = self.path_source(path)?;
+            let (field, filter) = match kind {
+                EntityKind::Node => ("nodes", " WHERE s.key = 0 OR m.key > 0"),
+                EntityKind::Relationship => ("relationships", ""),
+            };
+            format!(
+                "(SELECT json_group_array(m.value ORDER BY s.key, m.key) FROM json_each({source}, '$.segments') AS s, json_each(s.value, '$.{field}') AS m{filter})"
+            )
+        } else {
+            let (value, kind) = self.scalar_parts(&stage.expression)?;
+            format!("CASE WHEN ({kind}) = 'array' THEN ({value}) ELSE '[]' END")
+        };
+        let mut entities = self
+            .entities
+            .iter()
+            .map(|(slot, source)| (*slot, source.kind()))
+            .collect::<Vec<_>>();
+        entities.sort_by_key(|(slot, _)| *slot);
+        let mut scalars = self.scalars.keys().copied().collect::<Vec<_>>();
+        scalars.sort();
+        let mut paths = self.paths.keys().copied().collect::<Vec<_>>();
+        paths.sort();
+        let mut select = entities
+            .iter()
+            .map(|(slot, kind)| self.encoded_entity(*slot, *kind))
+            .collect::<Result<Vec<_>>>()?;
+        select.extend(scalars.iter().map(|slot| self.scalars[slot].clone()));
+        select.extend(paths.iter().map(|path| self.paths[path].clone()));
+        let carried_count = select.len();
+        select.push(list);
+        let sql = self.select_sql(&select);
+        let spec = TrailUnwindSpec {
+            sql: self.with_ctes(sql),
+            argument_count: self.bindings.len(),
+            carried_count,
+        };
+        self.ctes.clear();
+        self.has_recursive_cte = false;
+        self.from.clear();
+        self.filters.clear();
+        self.projected_scalars.clear();
+        self.traversals.clear();
+        self.scanned.clear();
+        self.ordering = None;
+        for (slot, kind) in entities {
+            let sql = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+                serde_json::Value::Null,
+            )));
+            self.entities
+                .insert(slot, EntitySource::Encoded { sql, kind });
+        }
+        for slot in scalars {
+            let sql = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+                serde_json::Value::Null,
+            )));
+            self.scalars.insert(slot, sql);
+        }
+        for path in paths {
+            let sql = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+                serde_json::Value::Null,
+            )));
+            self.paths.insert(path, sql);
+        }
+        let member = self.push_binding(SqlParameter::Json(ValueExpr::Literal(
+            serde_json::Value::Null,
+        )));
+        match stage.binding {
+            UnwindBinding::Scalar(slot) => {
+                self.scalars.insert(slot, member);
+            }
+            UnwindBinding::Entity(slot, kind) => {
+                let source = if path_kind.is_some() {
+                    let table = match kind {
+                        EntityKind::Node => "nodes",
+                        EntityKind::Relationship => "edges",
+                    };
+                    let alias = "_crabnet_member".to_owned();
+                    self.from.push(format!("{table} AS {alias}"));
+                    self.filters
+                        .push(format!("{alias}.id = json_extract({member}, '$')"));
+                    EntitySource::Table { alias, kind }
+                } else {
+                    EntitySource::Encoded { sql: member, kind }
+                };
+                self.entities.insert(slot, source);
+            }
+        }
+        Ok(spec)
+    }
+
     fn compile_unwind(&mut self, stage: &UnwindStage) -> Result<()> {
         let stage_index = self.ctes.len();
         let member = format!("u{stage_index}");
@@ -2116,7 +2257,9 @@ impl Compiler {
                     self.entities.insert(
                         slot,
                         EntitySource::Encoded {
-                            sql: format!("{member}.value"),
+                            // json_each exposes a null member as SQL NULL;
+                            // encoded entity bindings require JSON null text.
+                            sql: format!("COALESCE({member}.value, 'null')"),
                             kind,
                         },
                     );

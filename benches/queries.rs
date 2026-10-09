@@ -833,7 +833,7 @@ fn bench_computed_merge_keys(c: &mut Criterion) {
 
 fn bench_traversal_cursor(c: &mut Criterion) {
     let options = traversal_cursor_fixture::options();
-    let parameters = Parameters::new();
+    let parameters = params([("fanout", json!(128))]);
     for (group_name, sizes, query) in [
         (
             "cursor_traversal",
@@ -850,6 +850,16 @@ fn bench_traversal_cursor(c: &mut Criterion) {
             &[0][..],
             traversal_cursor_fixture::WITH_QUERY,
         ),
+        (
+            "cursor_traversal_unwind_nodes",
+            &[0][..],
+            traversal_cursor_fixture::UNWIND_NODES_QUERY,
+        ),
+        (
+            "cursor_traversal_unwind",
+            &[0][..],
+            traversal_cursor_fixture::UNWIND_QUERY,
+        ),
     ] {
         let mut group = c.benchmark_group(group_name);
         for &unrelated in sizes {
@@ -862,7 +872,17 @@ fn bench_traversal_cursor(c: &mut Criterion) {
                 let expected = if mode == "first" {
                     1
                 } else {
-                    traversal_cursor_fixture::potential_rows(10)
+                    traversal_cursor_fixture::output_rows(
+                        10,
+                        if query == traversal_cursor_fixture::UNWIND_NODES_QUERY {
+                            "unwind-nodes"
+                        } else if query == traversal_cursor_fixture::UNWIND_QUERY {
+                            "unwind"
+                        } else {
+                            "direct"
+                        },
+                        128,
+                    )
                 };
                 group.throughput(Throughput::Elements(expected as u64));
                 let mut consume = || {
