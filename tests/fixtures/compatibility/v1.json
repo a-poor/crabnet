@@ -1,0 +1,112 @@
+{
+  "constraints": [],
+  "nodes": [
+    {
+      "id": "1d5b8b27e4640c519ff1eb2f9db8a7d5",
+      "labels": [],
+      "properties": {
+        "empty": [],
+        "key": "bare"
+      }
+    },
+    {
+      "id": "58bc52d2205ccd770b5c6e5f4f6760c5",
+      "labels": [
+        "Person"
+      ],
+      "properties": {
+        "key": null
+      }
+    },
+    {
+      "id": "7cbb7d3aa8b31201e062178d66e78d7e",
+      "labels": [
+        "Person"
+      ],
+      "properties": {
+        "role": "missing"
+      }
+    },
+    {
+      "id": "8c449431fb63d5cda98a2f4cc0a15e1b",
+      "labels": [
+        "Person"
+      ],
+      "properties": {
+        "big": 9007199254740993,
+        "explicit": null,
+        "key": "a",
+        "nested": {
+          "items": [
+            1,
+            2.0,
+            null,
+            {
+              "flag": true
+            }
+          ]
+        },
+        "number": 1,
+        "precise": 1.2345678901234567,
+        "text": "O'Reilly\n雪"
+      }
+    },
+    {
+      "id": "a9932a6c30de9c7d0ad2115225195180",
+      "labels": [
+        "Person"
+      ],
+      "properties": {
+        "active": false,
+        "key": "b",
+        "number": 2.0
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "from": "a9932a6c30de9c7d0ad2115225195180",
+      "id": "1bfa64446a781285dee02de01399f582",
+      "properties": {},
+      "to": "8c449431fb63d5cda98a2f4cc0a15e1b",
+      "type": "BACK"
+    },
+    {
+      "from": "8c449431fb63d5cda98a2f4cc0a15e1b",
+      "id": "4ce18d4f429762100ee43eedcb8ce818",
+      "properties": {
+        "notes": [
+          "same",
+          null
+        ],
+        "weight": 2
+      },
+      "to": "a9932a6c30de9c7d0ad2115225195180",
+      "type": "LINK"
+    },
+    {
+      "from": "8c449431fb63d5cda98a2f4cc0a15e1b",
+      "id": "7798bd54d54fc9564f8007953e5c1ef4",
+      "properties": {
+        "notes": [
+          "same",
+          null
+        ],
+        "weight": 2
+      },
+      "to": "a9932a6c30de9c7d0ad2115225195180",
+      "type": "LINK"
+    },
+    {
+      "from": "a9932a6c30de9c7d0ad2115225195180",
+      "id": "caf8ddaa2ed18c6b8977f7284ce6b5d4",
+      "properties": {
+        "active": false
+      },
+      "to": "a9932a6c30de9c7d0ad2115225195180",
+      "type": "SELF"
+    }
+  ],
+  "schema_version": 1,
+  "sqlite_version": "3.53.2"
+}

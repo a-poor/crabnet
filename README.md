@@ -12,6 +12,11 @@ SQLite. Run `bash scripts/check.sh` for the complete local checks. The first hos
 matrix and lifecycle runs passed; remaining production qualification gates are
 tracked in the support document.
 
+The [compatibility policy](docs/compatibility.md) defines pre-1.0 API versioning,
+schema 1–4 upgrades to schema 5, and rollback through a retained pre-upgrade
+backup. Historical commit fixtures cover those formats; qualification of named
+release pairs remains a release gate.
+
 ```rust
 use crabnet::{CypherValue, Database, Parameters};
 use serde_json::json;

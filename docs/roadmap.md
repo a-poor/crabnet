@@ -884,11 +884,15 @@ enforcement and the remaining qualification gates are pending.
   the locked bundled SQLite build, local DELETE-journal files, the documented
   query subset, and serial connections with one writer. Other configurations
   require separate evidence. Defining this scope does not claim qualification.
-- [ ] **Set API and storage compatibility policy.** Define versioning,
-  deprecations, the supported schema-upgrade range, and recovery or rebuild
-  procedures when an upgrade cannot proceed. Test release-to-release upgrades
-  and backup/restore using retained fixtures from supported versions. Document
-  downgrade limitations and the application's rollback procedure.
+- [x] **Set API and storage compatibility policy and retain historical baselines.**
+  [compatibility.md](compatibility.md) defines pre-1.0 versioning/deprecations,
+  schema 1–4 upgrades to 5, recovery/rebuild choices, and application rollback
+  through an unchanged pre-upgrade backup. Five pinned historical writers supply
+  retained files/oracles for upgrade, identity/type/bag preservation, maintained
+  indexes/constraints, failed-upgrade rollback, refusal, and backup restoration.
+  These are main-commit baselines, not published release-pair qualification;
+  retain tagged writer fixtures and validate them against the candidate as part
+  of the release record below.
 - [ ] **Verify automated release checks — hosted validation passed; enforcement
   blocked by the repository plan.** Push and workload-enabled manual runs at
   `683b8e9` passed the four OS/toolchain checks and both lifecycle jobs. The
@@ -913,8 +917,11 @@ enforcement and the remaining qualification gates are pending.
   belongs to the chosen surface.
 - [ ] **Publish a reproducible qualification record.** Repeat sustained workload,
   contention, resource-limit, upgrade, and restore checks for the release
-  candidate. Review package metadata/licensing and dependencies, record known
-  limitations and measured regressions, and provide release/upgrade notes.
+  candidate. Add retained tagged-release writer fixtures for every supported
+  release pair and rehearse the application's upgrade/rollback procedure under
+  the [compatibility policy](compatibility.md). Review package metadata/licensing
+  and dependencies, record known limitations and measured regressions, and provide
+  release/upgrade notes.
   Link the evidence before making a stable or production-support claim.
 
 Gate: a named release meets all declared support and compatibility commitments,
@@ -924,11 +931,13 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Define the release-to-release API/storage compatibility and rollback policy,
-   retaining upgrade and backup fixtures. The first hosted matrix and lifecycle
-   evidence is recorded in [support.md](support.md).
+1. Qualify failure behavior under milestone 11, starting with reproducible
+   disk-full and I/O fault tests around writes, migration, backup, and restore.
+   The compatibility policy and historical fixtures are in place; named release
+   pairs still need candidate-specific evidence. Keep durability claims within
+   the tested fault model.
 2. Configure and verify required checks when the repository's plan permits
-   protection. This account-level limitation does not prevent compatibility
+   protection. This account-level limitation does not prevent qualification
    work; review all four matrix results manually in the meantime. Keep the
    application, cursor, persistence, and pinned TCK tests as regressions.
 3. Qualify compatibility, correctness, and failure behavior under milestone 11,

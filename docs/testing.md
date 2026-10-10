@@ -67,6 +67,15 @@ end-to-end result test for user-visible semantics.
   corrupted sources, lock failures, and connection/staging cleanup. Corruption
   fixtures use raw SQLite to violate foreign keys and persisted CHECK clauses;
   restore must reject them before touching the destination.
+- `tests/storage_compatibility.rs` uses immutable SQLite files from pinned
+  historical writers and independent JSON graph oracles. It checks all main
+  formats 1–5 for upgrades, typed data/identity and bags, maintained indexes and
+  constraints, failed-migration rollback/retry, refusal without mutation, and
+  backup restoration while retaining the original rollback source. Ordinary
+  tests use temporary copies and never rebuild historical code. Fixture
+  provenance, hash verification, and authoring instructions live in the
+  [fixture README](../tests/fixtures/compatibility/README.md). Add tagged release
+  writers before claiming release-to-release qualification.
 - `tests/recovery.rs` launches its own test binary as a controlled child writer.
   A readiness message follows either a spilled uncommitted transaction or a
   completed commit. The parent checks the journal/main-file evidence before

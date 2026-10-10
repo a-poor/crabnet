@@ -26,9 +26,7 @@ pub enum CypherValue {
 
 /// A node returned by a Cypher query.
 ///
-/// Crabnet currently stores at most one label, but the result shape uses a
-/// list so that lifting that storage restriction will not require an API
-/// change.
+/// Labels are distinct and appear in insertion order.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NodeValue {

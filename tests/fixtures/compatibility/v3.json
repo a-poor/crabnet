@@ -1,0 +1,110 @@
+{
+  "constraints": [],
+  "nodes": [
+    {
+      "id": "18dc7dce95cee801fbffa1f501102af5",
+      "labels": [
+        "Person"
+      ],
+      "properties": {
+        "active": false,
+        "key": "b",
+        "number": 2.0
+      }
+    },
+    {
+      "id": "2386d69c4cd77408ee28b5bb5851148e",
+      "labels": [
+        "Person",
+        "Member"
+      ],
+      "properties": {
+        "big": 9007199254740993,
+        "key": "a",
+        "nested": {
+          "items": [
+            1,
+            2.0,
+            null,
+            {
+              "flag": true
+            }
+          ]
+        },
+        "number": 1,
+        "precise": 1.2345678901234567,
+        "text": "O'Reilly\n雪"
+      }
+    },
+    {
+      "id": "38224966ce1a7d8d3d518fec86ebd12a",
+      "labels": [],
+      "properties": {
+        "empty": [],
+        "key": "bare"
+      }
+    },
+    {
+      "id": "60d5784b233bc2ee26223665ad58d6c4",
+      "labels": [
+        "Person"
+      ],
+      "properties": {
+        "role": "missing"
+      }
+    },
+    {
+      "id": "f651f50ed97a6ebc1a4be17b1a113792",
+      "labels": [
+        "Person"
+      ],
+      "properties": {}
+    }
+  ],
+  "relationships": [
+    {
+      "from": "18dc7dce95cee801fbffa1f501102af5",
+      "id": "561f54cc367c15bb1200b57e09a23a59",
+      "properties": {},
+      "to": "2386d69c4cd77408ee28b5bb5851148e",
+      "type": "BACK"
+    },
+    {
+      "from": "2386d69c4cd77408ee28b5bb5851148e",
+      "id": "71c0e45fbdd4eb4980445cf38c12500d",
+      "properties": {
+        "notes": [
+          "same",
+          null
+        ],
+        "weight": 2
+      },
+      "to": "18dc7dce95cee801fbffa1f501102af5",
+      "type": "LINK"
+    },
+    {
+      "from": "2386d69c4cd77408ee28b5bb5851148e",
+      "id": "b7748be1be961a26e928a1980926b59c",
+      "properties": {
+        "notes": [
+          "same",
+          null
+        ],
+        "weight": 2
+      },
+      "to": "18dc7dce95cee801fbffa1f501102af5",
+      "type": "LINK"
+    },
+    {
+      "from": "18dc7dce95cee801fbffa1f501102af5",
+      "id": "dbb73451fcce365eef76a901f4cc45c0",
+      "properties": {
+        "active": false
+      },
+      "to": "18dc7dce95cee801fbffa1f501102af5",
+      "type": "SELF"
+    }
+  ],
+  "schema_version": 3,
+  "sqlite_version": "3.53.2"
+}

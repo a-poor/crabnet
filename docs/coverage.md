@@ -2,8 +2,9 @@
 
 This is a living inventory of Crabnet's observable Cypher behavior. It describes the
 current implementation, not the full parser AST and not a promise of openCypher
-conformance. The project is still experimental: databases may be recreated when the
-schema changes, and there is deliberately no schema-migration compatibility policy yet.
+conformance. The project is still experimental. The [compatibility policy](compatibility.md)
+defines API versioning, supported schema upgrades, and application rollback;
+historical format coverage is distinct from qualification of named release pairs.
 
 ## Status vocabulary
 
@@ -143,6 +144,7 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 | File opening and contention | Covered | `OpenOptions` selects create-or-open, existing read/write, or read-only access and a connection-local busy timeout. Twelve tests in `opening.rs` cover missing/empty/foreign/future files, invalid options, read-only hybrid bags and rejected writes, migration policy, concurrent initialization/migration, reader visibility, competing/waiting writers, blocked opening/reads/commit, rollback, and connection reuse. Schema unit tests retain failed-migration coverage. The example uses read-only query handles and existing-only mutation handles. See the [contract](semantics.md#file-opening-and-contention). |
 | Backup and restore | Covered | Nine tests in `backup.rs` cover snapshots from memory and read-only files, identity/parallel-relationship bags, preserved constraints, replacement of an existing graph and prepared statements, observer visibility, exclusion of uncommitted changes, rejection of missing/old/future/foreign/corrupt or inconsistent sources, lock failures, same-file restore, connection reuse, and no-overwrite publication including aliases/symlinks. Full SQLite integrity, foreign-key, and explicit persisted CHECK validation precede restore. |
 | Process-termination recovery | Covered | `recovery.rs` kills synchronized child processes before and after commit. It proves dirty-page spill and a hot rollback journal before killing the uncommitted writer, then checks exact rollback, retained commits, constraints, property/label indexes, integrity, further writes, and backup/restore after reopening. Read-only recovery refusal is covered. Power-loss and I/O fault injection, corruption repair, and broader filesystem/journal support remain follow-ups. |
+| Historical storage compatibility | Covered for pinned commits | Five tests in `storage_compatibility.rs` use [retained files and graph oracles](../tests/fixtures/compatibility/README.md) from five historical writers (schemas 1–5). They cover writable upgrades/read-only refusal, exact typed graph/identity and relationship bags, index/constraint writes, transaction rollback, failed-upgrade DDL/data/version rollback and retry, unsupported-format refusal, and backup restoration through an upgraded copy while preserving the original. Schemas 4–5 retain public-API backups; 1–3 retain clean closed-file copies. Published release-pair qualification remains a gate under the [policy](compatibility.md). |
 
 ## Prioritized next-test backlog
 
@@ -158,7 +160,7 @@ move the row into the matrix when green.
 The active milestone and task status live in [roadmap.md](roadmap.md).
 Milestone 10 is complete for the recorded Git Graph pilot. Milestone 11 is in
 progress: initial hosted matrix validation is complete; qualification now needs
-compatibility, known correctness gaps, failure behavior, and required-check
+named release-pair compatibility, known correctness gaps, failure behavior, and required-check
 enforcement. The following
 coverage extensions remain a backlog; promote them into release gates only when
 the declared contract requires them:

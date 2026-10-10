@@ -2,8 +2,9 @@
 
 This is the initial configuration targeted by milestone 11, defined on
 2026-10-09. Crabnet remains experimental. The first hosted matrix and lifecycle
-runs passed at `683b8e9`; required-check enforcement, compatibility policy,
-fault testing, and the release record remain open gates in the
+runs passed at `683b8e9`. The [compatibility policy](compatibility.md) and retained
+historical format fixtures are in place; required-check enforcement, named
+release-pair validation, fault testing, and the release record remain open gates in
 [roadmap](roadmap.md#11-production-qualification--in-progress).
 
 ## Initial matrix
@@ -60,10 +61,12 @@ of file locking, process recovery, and backup behavior on the new configuration.
   Known wrong-answer cases in the chosen release surface still require resolution
   or an explicit rejection before qualification. Resource counters and deadlines
   have documented boundaries; they are not a whole-process memory or time cap.
-- API and storage stability remain experimental. Schema version 5 currently
-  supports upgrades from versions 1–4, but the release-to-release compatibility
-  and rollback policy is a separate milestone 11 gate. Process-death recovery
-  coverage does not establish power-loss or disk/I/O fault guarantees.
+- The [compatibility policy](compatibility.md) defines pre-1.0 API versioning,
+  schema 1–4 upgrades to version 5, and rollback using a pre-upgrade backup.
+  Retained historical commit fixtures run in the regular matrix; named
+  release-to-release qualification remains a milestone 11 gate. Crabnet remains
+  experimental. Process-death recovery coverage does not establish power-loss
+  or disk/I/O fault guarantees.
 
 Dependency, feature, compiler-baseline, and configuration changes require a full
 matrix run and refreshed workload evidence. Library consumers resolve their own

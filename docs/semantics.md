@@ -364,6 +364,12 @@ absent, and a returned whole entity has no such key. Reading an absent
 property produces `CypherValue::Null`, and `IS NULL` is true for it. Nested
 nulls inside list and map values are stored as given.
 
+Early schema-1/2 writers stored explicit top-level null entries. Upgrading those
+files preserves the entries, and whole-entity maps can still expose them until
+they are removed. Property access, `keys()`, `properties()`, and uniqueness
+constraints treat them as absent. See the [compatibility policy](compatibility.md)
+and retained fixtures for this historical-file boundary.
+
 `NodeValue` contains an opaque `element_id`, a `labels` vector, and a recursive
 `properties` map. Nodes carry zero or more distinct labels in insertion order.
 
@@ -1529,6 +1535,13 @@ must not apply the same migration twice. Current-schema opens do not reserve
 a writer. Validation checks the expected table/column layout; it is not a full
 integrity or corruption-repair check.
 
+The [compatibility policy](compatibility.md) defines API versioning, the retained
+historical upgrade baselines, and the application upgrade/rollback procedure.
+There is no automatic downgrade: keep an unchanged pre-upgrade backup and the
+old application version. Restoring an older-schema backup requires upgrading a
+copy and producing a current-schema backup first; the original stays available
+for rollback.
+
 ### Readers, writers, and retries
 
 The tested concurrency contract uses independent connections on a local file
@@ -1575,7 +1588,8 @@ Query deadlines and cancellation do not interrupt lock sleeping, opening,
 constraint management, or explicit begin/commit/rollback. Choose the connection
 timeout alongside `QueryOptions`; a short query deadline does not shorten a
 longer lock wait. Backup/restore and process interruption follow the contract
-below. File compatibility is still experimental.
+below. Named release compatibility remains subject to qualification under the
+[compatibility policy](compatibility.md).
 
 ## Backups and process recovery
 
