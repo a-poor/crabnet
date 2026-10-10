@@ -1,0 +1,3470 @@
+{
+  "record_version": 1,
+  "review_date": "2026-10-09",
+  "crabnet_revision": "683b8e9022684e64c2b12acf1cb90432c7ecf04d",
+  "scope": "Hosted CI matrix and dependency-graph lifecycle validation; production qualification remains incomplete.",
+  "runs": [
+    {
+      "databaseId": 37999916541,
+      "number": 1,
+      "event": "push",
+      "headSha": "683b8e9022684e64c2b12acf1cb90432c7ecf04d",
+      "headBranch": "main",
+      "createdAt": "2026-10-09T22:34:07Z",
+      "updatedAt": "2026-10-09T22:44:08Z",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/a-poor/crabnet/actions/runs/37999916541",
+      "jobs": [
+        {
+          "databaseId": 114055205111,
+          "name": "Checks (macos-26, Rust stable)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-09T22:34:13Z",
+          "completedAt": "2026-10-09T22:40:00Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/37999916541/job/114055205111",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-macos-26-stable-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nDarwin lvl04-dm350-9635ddec-f787-42be-9640-032686544dd3-C25C638931B2.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:43 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_VMAPPLE arm64\nApple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\nRunner image: macos26 20260907.0351.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded errno v0.3.14\n  Downloaded shlex v2.0.1\n  Downloaded bitflags v2.13.1\n  Downloaded autocfg v1.5.1\n  Downloaded anes v0.1.6\n  Downloaded cast v0.3.0\n  Downloaded cfg-if v1.0.4\n  Downloaded logos v0.16.1\n  Downloaded anstyle v1.0.14\n  Downloaded oorandom v11.1.5\n  Downloaded logos-codegen v0.16.1\n  Downloaded smallvec v1.15.2\n  Downloaded num-traits v0.2.19\n  Downloaded serde_core v1.0.229\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded plotters-backend v0.3.7\n  Downloaded plotters-svg v0.3.7\n  Downloaded proc-macro2 v1.0.107\n  Downloaded tinytemplate v1.2.1\n  Downloaded aho-corasick v1.1.5\n  Downloaded clap_lex v1.1.1\n  Downloaded once_cell v1.21.4\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded same-file v1.0.6\n  Downloaded fallible-iterator v0.3.0\n  Downloaded fnv v1.0.7\n  Downloaded pkg-config v0.3.34\n  Downloaded quote v1.0.47\n  Downloaded tempfile v3.27.0\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded ciborium v0.2.2\n  Downloaded logos-derive v0.16.1\n  Downloaded ciborium-io v0.2.2\n  Downloaded ciborium-ll v0.2.2\n  Downloaded hashlink v0.12.1\n  Downloaded hashbrown v0.17.1\n  Downloaded memchr v2.8.3\n  Downloaded serde_derive v1.0.229\n  Downloaded unicode-ident v1.0.24\n  Downloaded walkdir v2.5.0\n  Downloaded zmij v1.0.23\n  Downloaded cc v1.4.4\n  Downloaded criterion-plot v0.6.0\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded either v1.18.0\n  Downloaded fastrand v2.5.0\n  Downloaded foldhash v0.2.0\n  Downloaded itoa v1.0.18\n  Downloaded lalrpop-util v0.23.1\n  Downloaded rayon-core v1.13.0\n  Downloaded regex v1.13.1\n  Downloaded serde v1.0.229\n  Downloaded half v2.7.1\n  Downloaded clap v4.6.7\n  Downloaded getrandom v0.4.3\n  Downloaded plotters v0.3.7\n  Downloaded syn v3.0.3\n  Downloaded rusqlite v0.40.2\n  Downloaded criterion v0.7.0\n  Downloaded clap_builder v4.6.7\n  Downloaded itertools v0.13.0\n  Downloaded rayon v1.12.0\n  Downloaded serde_json v1.0.151\n  Downloaded syn v2.0.119\n  Downloaded vcpkg v0.2.15\n  Downloaded zerocopy v0.8.57\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "18053811b1c788c7cf7f814bc10db2bd2051d9b09474162c289c58271e04386a",
+            "environment.log": "35508c446f2770b058a42d2674fbf118fa7061c3b3973910663b843509186f94"
+          }
+        },
+        {
+          "databaseId": 114055205347,
+          "name": "Checks (ubuntu-24.04, Rust 1.99.0)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-09T22:34:11Z",
+          "completedAt": "2026-10-09T22:42:36Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/37999916541/job/114055205347",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-ubuntu-24.04-1.99.0-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nLinux runnervmmprz5 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\ncc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\nRunner image: ubuntu24 20261004.327.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded anes v0.1.6\n  Downloaded anstyle v1.0.14\n  Downloaded autocfg v1.5.1\n  Downloaded bitflags v2.13.1\n  Downloaded ciborium-io v0.2.2\n  Downloaded cfg-if v1.0.4\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded cast v0.3.0\n  Downloaded ciborium-ll v0.2.2\n  Downloaded fnv v1.0.7\n  Downloaded logos-derive v0.16.1\n  Downloaded plotters-backend v0.3.7\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded errno v0.3.14\n  Downloaded itoa v1.0.18\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded clap_lex v1.1.1\n  Downloaded same-file v1.0.6\n  Downloaded logos v0.16.1\n  Downloaded plotters-svg v0.3.7\n  Downloaded pkg-config v0.3.34\n  Downloaded quote v1.0.47\n  Downloaded shlex v2.0.1\n  Downloaded tinytemplate v1.2.1\n  Downloaded zmij v1.0.23\n  Downloaded aho-corasick v1.1.5\n  Downloaded ciborium v0.2.2\n  Downloaded foldhash v0.2.0\n  Downloaded either v1.18.0\n  Downloaded fallible-iterator v0.3.0\n  Downloaded fastrand v2.5.0\n  Downloaded lalrpop-util v0.23.1\n  Downloaded walkdir v2.5.0\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded criterion-plot v0.6.0\n  Downloaded oorandom v11.1.5\n  Downloaded smallvec v1.15.2\n  Downloaded tempfile v3.27.0\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded hashlink v0.12.1\n  Downloaded once_cell v1.21.4\n  Downloaded proc-macro2 v1.0.107\n  Downloaded unicode-ident v1.0.24\n  Downloaded getrandom v0.4.3\n  Downloaded logos-codegen v0.16.1\n  Downloaded serde_derive v1.0.229\n  Downloaded clap v4.6.7\n  Downloaded num-traits v0.2.19\n  Downloaded serde_core v1.0.229\n  Downloaded half v2.7.1\n  Downloaded rayon-core v1.13.0\n  Downloaded serde v1.0.229\n  Downloaded memchr v2.8.3\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded cc v1.4.4\n  Downloaded criterion v0.7.0\n  Downloaded itertools v0.13.0\n  Downloaded regex v1.13.1\n  Downloaded plotters v0.3.7\n  Downloaded serde_json v1.0.151\n  Downloaded clap_builder v4.6.7\n  Downloaded hashbrown v0.17.1\n  Downloaded rayon v1.12.0\n  Downloaded rusqlite v0.40.2\n  Downloaded vcpkg v0.2.15\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v2.0.119\n  Downloaded syn v3.0.3\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded linux-raw-sys v0.12.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "a3f39514287d4f83034eca83cf1dd09c36a621b464981acd87c932cf2a553205",
+            "environment.log": "541134baf4f8cb8998216bbebc3b4c1ec4a118552b657740229aa7c3ad1cf140"
+          }
+        },
+        {
+          "databaseId": 114055205428,
+          "name": "Checks (ubuntu-24.04, Rust stable)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-09T22:34:11Z",
+          "completedAt": "2026-10-09T22:44:07Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/37999916541/job/114055205428",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-ubuntu-24.04-stable-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nLinux runnervmmprz5 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\ncc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\nRunner image: ubuntu24 20261004.327.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded autocfg v1.5.1\n  Downloaded cc v1.4.4\n  Downloaded anstyle v1.0.14\n  Downloaded bitflags v2.13.1\n  Downloaded cast v0.3.0\n  Downloaded anes v0.1.6\n  Downloaded aho-corasick v1.1.5\n  Downloaded errno v0.3.14\n  Downloaded logos-derive v0.16.1\n  Downloaded unicode-ident v1.0.24\n  Downloaded quote v1.0.47\n  Downloaded tinytemplate v1.2.1\n  Downloaded foldhash v0.2.0\n  Downloaded lalrpop-util v0.23.1\n  Downloaded regex v1.13.1\n  Downloaded num-traits v0.2.19\n  Downloaded walkdir v2.5.0\n  Downloaded ciborium-ll v0.2.2\n  Downloaded plotters-backend v0.3.7\n  Downloaded proc-macro2 v1.0.107\n  Downloaded fnv v1.0.7\n  Downloaded same-file v1.0.6\n  Downloaded either v1.18.0\n  Downloaded cfg-if v1.0.4\n  Downloaded fallible-iterator v0.3.0\n  Downloaded logos v0.16.1\n  Downloaded pkg-config v0.3.34\n  Downloaded plotters-svg v0.3.7\n  Downloaded shlex v2.0.1\n  Downloaded smallvec v1.15.2\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded ciborium-io v0.2.2\n  Downloaded clap_lex v1.1.1\n  Downloaded criterion-plot v0.6.0\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded getrandom v0.4.3\n  Downloaded half v2.7.1\n  Downloaded itertools v0.13.0\n  Downloaded itoa v1.0.18\n  Downloaded oorandom v11.1.5\n  Downloaded rayon v1.12.0\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded fastrand v2.5.0\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded logos-codegen v0.16.1\n  Downloaded ciborium v0.2.2\n  Downloaded clap v4.6.7\n  Downloaded hashlink v0.12.1\n  Downloaded memchr v2.8.3\n  Downloaded once_cell v1.21.4\n  Downloaded tempfile v3.27.0\n  Downloaded zmij v1.0.23\n  Downloaded rayon-core v1.13.0\n  Downloaded serde_core v1.0.229\n  Downloaded plotters v0.3.7\n  Downloaded serde_derive v1.0.229\n  Downloaded zerocopy v0.8.57\n  Downloaded criterion v0.7.0\n  Downloaded serde v1.0.229\n  Downloaded clap_builder v4.6.7\n  Downloaded rusqlite v0.40.2\n  Downloaded hashbrown v0.17.1\n  Downloaded serde_json v1.0.151\n  Downloaded syn v3.0.3\n  Downloaded vcpkg v0.2.15\n  Downloaded regex-syntax v0.8.11\n  Downloaded syn v2.0.119\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded linux-raw-sys v0.12.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "6364b37d3b21bf120330396ff37daeb04c7ed1ffea686751e51689e6d1880bd7",
+            "environment.log": "61f87c76299839be370cd32dea572ab0b555fa8a7a386295ce86f31e659c6208"
+          }
+        },
+        {
+          "databaseId": 114055205463,
+          "name": "Checks (macos-26, Rust 1.99.0)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-09T22:34:14Z",
+          "completedAt": "2026-10-09T22:40:31Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/37999916541/job/114055205463",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-macos-26-1.99.0-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nDarwin dsm12-be218-521f9444-2d4e-4903-a2f1-80d489733393-9AB594715FF3.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:43 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_VMAPPLE arm64\nApple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\nRunner image: macos26 20260907.0351.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded logos-derive v0.16.1\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded cast v0.3.0\n  Downloaded plotters-backend v0.3.7\n  Downloaded clap_lex v1.1.1\n  Downloaded fallible-iterator v0.3.0\n  Downloaded lalrpop-util v0.23.1\n  Downloaded errno v0.3.14\n  Downloaded fnv v1.0.7\n  Downloaded cfg-if v1.0.4\n  Downloaded ciborium-ll v0.2.2\n  Downloaded plotters-svg v0.3.7\n  Downloaded same-file v1.0.6\n  Downloaded anstyle v1.0.14\n  Downloaded autocfg v1.5.1\n  Downloaded ciborium-io v0.2.2\n  Downloaded itoa v1.0.18\n  Downloaded logos v0.16.1\n  Downloaded oorandom v11.1.5\n  Downloaded either v1.18.0\n  Downloaded fastrand v2.5.0\n  Downloaded quote v1.0.47\n  Downloaded walkdir v2.5.0\n  Downloaded anes v0.1.6\n  Downloaded criterion-plot v0.6.0\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded foldhash v0.2.0\n  Downloaded tinytemplate v1.2.1\n  Downloaded zmij v1.0.23\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded ciborium v0.2.2\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded hashlink v0.12.1\n  Downloaded shlex v2.0.1\n  Downloaded tempfile v3.27.0\n  Downloaded bitflags v2.13.1\n  Downloaded proc-macro2 v1.0.107\n  Downloaded smallvec v1.15.2\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded pkg-config v0.3.34\n  Downloaded once_cell v1.21.4\n  Downloaded getrandom v0.4.3\n  Downloaded half v2.7.1\n  Downloaded logos-codegen v0.16.1\n  Downloaded num-traits v0.2.19\n  Downloaded plotters v0.3.7\n  Downloaded rayon-core v1.13.0\n  Downloaded serde v1.0.229\n  Downloaded serde_core v1.0.229\n  Downloaded unicode-ident v1.0.24\n  Downloaded clap v4.6.7\n  Downloaded serde_derive v1.0.229\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded aho-corasick v1.1.5\n  Downloaded cc v1.4.4\n  Downloaded memchr v2.8.3\n  Downloaded serde_json v1.0.151\n  Downloaded criterion v0.7.0\n  Downloaded itertools v0.13.0\n  Downloaded rusqlite v0.40.2\n  Downloaded hashbrown v0.17.1\n  Downloaded clap_builder v4.6.7\n  Downloaded rayon v1.12.0\n  Downloaded regex v1.13.1\n  Downloaded vcpkg v0.2.15\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v3.0.3\n  Downloaded syn v2.0.119\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "932c0192bc0f913a198b2c5fbb0dac70772026d17aa4cf9f3975b576bcce928e",
+            "environment.log": "d9990549dcaac1f2b3593bb0c4f4fad4c98a906ea69d1287ce67605b1f654858"
+          }
+        },
+        {
+          "databaseId": 114058095311,
+          "name": "Lifecycle (${{ matrix.os }})",
+          "status": "completed",
+          "conclusion": "skipped",
+          "startedAt": "2026-10-09T22:44:08Z",
+          "completedAt": "2026-10-09T22:44:07Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/37999916541/job/114058095311",
+          "steps": []
+        }
+      ]
+    },
+    {
+      "databaseId": 38009609675,
+      "number": 2,
+      "event": "workflow_dispatch",
+      "headSha": "683b8e9022684e64c2b12acf1cb90432c7ecf04d",
+      "headBranch": "main",
+      "createdAt": "2026-10-10T00:34:07Z",
+      "updatedAt": "2026-10-10T00:48:26Z",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675",
+      "inputs": {
+        "workloads": true
+      },
+      "jobs": [
+        {
+          "databaseId": 114086313695,
+          "name": "Checks (macos-26, Rust 1.99.0)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-10T00:34:14Z",
+          "completedAt": "2026-10-10T00:40:07Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675/job/114086313695",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-macos-26-1.99.0-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nDarwin dsm12-be222-a9a97480-7ae1-45a3-9ad1-38096fd14951-120013AE4210.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:43 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_VMAPPLE arm64\nApple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\nRunner image: macos26 20260907.0351.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded ciborium-io v0.2.2\n  Downloaded autocfg v1.5.1\n  Downloaded ciborium v0.2.2\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded criterion-plot v0.6.0\n  Downloaded fnv v1.0.7\n  Downloaded cfg-if v1.0.4\n  Downloaded clap_lex v1.1.1\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded ciborium-ll v0.2.2\n  Downloaded plotters-backend v0.3.7\n  Downloaded fallible-iterator v0.3.0\n  Downloaded walkdir v2.5.0\n  Downloaded zmij v1.0.23\n  Downloaded errno v0.3.14\n  Downloaded logos-derive v0.16.1\n  Downloaded plotters-svg v0.3.7\n  Downloaded itoa v1.0.18\n  Downloaded cast v0.3.0\n  Downloaded oorandom v11.1.5\n  Downloaded shlex v2.0.1\n  Downloaded anstyle v1.0.14\n  Downloaded either v1.18.0\n  Downloaded fastrand v2.5.0\n  Downloaded tinytemplate v1.2.1\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded foldhash v0.2.0\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded logos v0.16.1\n  Downloaded same-file v1.0.6\n  Downloaded lalrpop-util v0.23.1\n  Downloaded pkg-config v0.3.34\n  Downloaded quote v1.0.47\n  Downloaded smallvec v1.15.2\n  Downloaded anes v0.1.6\n  Downloaded once_cell v1.21.4\n  Downloaded tempfile v3.27.0\n  Downloaded bitflags v2.13.1\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded getrandom v0.4.3\n  Downloaded hashlink v0.12.1\n  Downloaded logos-codegen v0.16.1\n  Downloaded num-traits v0.2.19\n  Downloaded proc-macro2 v1.0.107\n  Downloaded serde_core v1.0.229\n  Downloaded serde_derive v1.0.229\n  Downloaded unicode-ident v1.0.24\n  Downloaded clap v4.6.7\n  Downloaded rayon-core v1.13.0\n  Downloaded half v2.7.1\n  Downloaded serde v1.0.229\n  Downloaded memchr v2.8.3\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded cc v1.4.4\n  Downloaded criterion v0.7.0\n  Downloaded itertools v0.13.0\n  Downloaded clap_builder v4.6.7\n  Downloaded hashbrown v0.17.1\n  Downloaded plotters v0.3.7\n  Downloaded regex v1.13.1\n  Downloaded serde_json v1.0.151\n  Downloaded aho-corasick v1.1.5\n  Downloaded rayon v1.12.0\n  Downloaded rusqlite v0.40.2\n  Downloaded vcpkg v0.2.15\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v3.0.3\n  Downloaded syn v2.0.119\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "2d1722591c12564c4895de1873f1a59659f2a8cd9130041a287e60b37482a3a8",
+            "environment.log": "26930d02f4c21120f217170219b27c19b309d5473d6ff964df760bef5a015580"
+          }
+        },
+        {
+          "databaseId": 114086313802,
+          "name": "Checks (ubuntu-24.04, Rust stable)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-10T00:34:11Z",
+          "completedAt": "2026-10-10T00:42:55Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675/job/114086313802",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-ubuntu-24.04-stable-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nLinux runnervmmprz5 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\ncc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\nRunner image: ubuntu24 20261004.327.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded bitflags v2.13.1\n  Downloaded anstyle v1.0.14\n  Downloaded ciborium-ll v0.2.2\n  Downloaded anes v0.1.6\n  Downloaded autocfg v1.5.1\n  Downloaded cfg-if v1.0.4\n  Downloaded cast v0.3.0\n  Downloaded clap_lex v1.1.1\n  Downloaded errno v0.3.14\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded ciborium-io v0.2.2\n  Downloaded fnv v1.0.7\n  Downloaded plotters-svg v0.3.7\n  Downloaded itoa v1.0.18\n  Downloaded same-file v1.0.6\n  Downloaded logos v0.16.1\n  Downloaded either v1.18.0\n  Downloaded criterion-plot v0.6.0\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded logos-derive v0.16.1\n  Downloaded plotters-backend v0.3.7\n  Downloaded pkg-config v0.3.34\n  Downloaded tinytemplate v1.2.1\n  Downloaded walkdir v2.5.0\n  Downloaded zmij v1.0.23\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded foldhash v0.2.0\n  Downloaded lalrpop-util v0.23.1\n  Downloaded ciborium v0.2.2\n  Downloaded fallible-iterator v0.3.0\n  Downloaded quote v1.0.47\n  Downloaded oorandom v11.1.5\n  Downloaded aho-corasick v1.1.5\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded hashlink v0.12.1\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded fastrand v2.5.0\n  Downloaded once_cell v1.21.4\n  Downloaded shlex v2.0.1\n  Downloaded tempfile v3.27.0\n  Downloaded getrandom v0.4.3\n  Downloaded logos-codegen v0.16.1\n  Downloaded smallvec v1.15.2\n  Downloaded unicode-ident v1.0.24\n  Downloaded serde_core v1.0.229\n  Downloaded half v2.7.1\n  Downloaded num-traits v0.2.19\n  Downloaded proc-macro2 v1.0.107\n  Downloaded serde_derive v1.0.229\n  Downloaded clap v4.6.7\n  Downloaded serde v1.0.229\n  Downloaded rayon-core v1.13.0\n  Downloaded memchr v2.8.3\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded cc v1.4.4\n  Downloaded criterion v0.7.0\n  Downloaded hashbrown v0.17.1\n  Downloaded itertools v0.13.0\n  Downloaded plotters v0.3.7\n  Downloaded serde_json v1.0.151\n  Downloaded regex v1.13.1\n  Downloaded rusqlite v0.40.2\n  Downloaded clap_builder v4.6.7\n  Downloaded rayon v1.12.0\n  Downloaded vcpkg v0.2.15\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v2.0.119\n  Downloaded syn v3.0.3\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded linux-raw-sys v0.12.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "7a3287c0d00e35c8fe346d898fe0c581ff089cf1f423b37425be6a681d9580cf",
+            "environment.log": "6dd8b884c8007808b707924451837a4f3f46b0eff9b754da5f9ef10b63f647e0"
+          }
+        },
+        {
+          "databaseId": 114086313905,
+          "name": "Checks (macos-26, Rust stable)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-10T00:34:14Z",
+          "completedAt": "2026-10-10T00:39:59Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675/job/114086313905",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-macos-26-stable-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nDarwin iad11-ei415-20a99547-965f-43ad-8323-04b1abe1e01f-FA445BDB3BE9.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:43 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_VMAPPLE arm64\nApple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\nRunner image: macos26 20260907.0351.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded criterion-plot v0.6.0\n  Downloaded ciborium-io v0.2.2\n  Downloaded fnv v1.0.7\n  Downloaded aho-corasick v1.1.5\n  Downloaded oorandom v11.1.5\n  Downloaded rayon-core v1.13.0\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded proc-macro2 v1.0.107\n  Downloaded serde v1.0.229\n  Downloaded walkdir v2.5.0\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded cc v1.4.4\n  Downloaded logos v0.16.1\n  Downloaded either v1.18.0\n  Downloaded lalrpop-util v0.23.1\n  Downloaded plotters v0.3.7\n  Downloaded regex-automata v0.4.18\n  Downloaded syn v2.0.119\n  Downloaded cast v0.3.0\n  Downloaded regex v1.13.1\n  Downloaded clap_builder v4.6.7\n  Downloaded fastrand v2.5.0\n  Downloaded shlex v2.0.1\n  Downloaded rayon v1.12.0\n  Downloaded serde_core v1.0.229\n  Downloaded anes v0.1.6\n  Downloaded ciborium v0.2.2\n  Downloaded smallvec v1.15.2\n  Downloaded ciborium-ll v0.2.2\n  Downloaded half v2.7.1\n  Downloaded plotters-svg v0.3.7\n  Downloaded same-file v1.0.6\n  Downloaded autocfg v1.5.1\n  Downloaded cfg-if v1.0.4\n  Downloaded clap_lex v1.1.1\n  Downloaded itoa v1.0.18\n  Downloaded logos-derive v0.16.1\n  Downloaded pkg-config v0.3.34\n  Downloaded anstyle v1.0.14\n  Downloaded tinytemplate v1.2.1\n  Downloaded bitflags v2.13.1\n  Downloaded errno v0.3.14\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded plotters-backend v0.3.7\n  Downloaded fallible-iterator v0.3.0\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded once_cell v1.21.4\n  Downloaded quote v1.0.47\n  Downloaded serde_derive v1.0.229\n  Downloaded unicode-ident v1.0.24\n  Downloaded zmij v1.0.23\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded foldhash v0.2.0\n  Downloaded hashlink v0.12.1\n  Downloaded logos-codegen v0.16.1\n  Downloaded tempfile v3.27.0\n  Downloaded clap v4.6.7\n  Downloaded getrandom v0.4.3\n  Downloaded num-traits v0.2.19\n  Downloaded memchr v2.8.3\n  Downloaded rustix v1.1.4\n  Downloaded criterion v0.7.0\n  Downloaded itertools v0.13.0\n  Downloaded vcpkg v0.2.15\n  Downloaded hashbrown v0.17.1\n  Downloaded rusqlite v0.40.2\n  Downloaded serde_json v1.0.151\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v3.0.3\n  Downloaded regex-syntax v0.8.11\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "d2296831cb407478a24651ed75b6d0084ed16260db961b551850452c5508fe12",
+            "environment.log": "47951a975a2f2f8bc39c4d6d76dd44000c08dc17c59e3351f496936c96aad850"
+          }
+        },
+        {
+          "databaseId": 114086313932,
+          "name": "Checks (ubuntu-24.04, Rust 1.99.0)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-10T00:34:11Z",
+          "completedAt": "2026-10-10T00:44:58Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675/job/114086313932",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record build environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Check all targets, TCK, docs, formatting, and Clippy",
+              "conclusion": "success"
+            },
+            {
+              "name": "Verify dependency and TCK pins stayed unchanged",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain check evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "validation": {
+            "tests_passed": 901,
+            "doctests_passed": 11,
+            "benchmark_smoke_cases_passed": 143,
+            "formatting": "passed",
+            "clippy": "passed",
+            "lockfile_and_tck_pins": "unchanged"
+          },
+          "artifact_name": "checks-ubuntu-24.04-1.99.0-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nLinux runnervmmprz5 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\ncc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\nRunner image: ubuntu24 20261004.327.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded cc v1.4.4\n  Downloaded serde_derive v1.0.229\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded fallible-iterator v0.3.0\n  Downloaded ciborium v0.2.2\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded ciborium-io v0.2.2\n  Downloaded hashlink v0.12.1\n  Downloaded either v1.18.0\n  Downloaded autocfg v1.5.1\n  Downloaded once_cell v1.21.4\n  Downloaded rayon-core v1.13.0\n  Downloaded fastrand v2.5.0\n  Downloaded errno v0.3.14\n  Downloaded smallvec v1.15.2\n  Downloaded plotters-svg v0.3.7\n  Downloaded serde v1.0.229\n  Downloaded cfg-if v1.0.4\n  Downloaded ciborium-ll v0.2.2\n  Downloaded shlex v2.0.1\n  Downloaded tinytemplate v1.2.1\n  Downloaded cast v0.3.0\n  Downloaded clap_lex v1.1.1\n  Downloaded itoa v1.0.18\n  Downloaded anstyle v1.0.14\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded same-file v1.0.6\n  Downloaded logos-derive v0.16.1\n  Downloaded lalrpop-util v0.23.1\n  Downloaded logos v0.16.1\n  Downloaded plotters-backend v0.3.7\n  Downloaded fnv v1.0.7\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded criterion-plot v0.6.0\n  Downloaded serde_core v1.0.229\n  Downloaded quote v1.0.47\n  Downloaded tempfile v3.27.0\n  Downloaded pkg-config v0.3.34\n  Downloaded walkdir v2.5.0\n  Downloaded oorandom v11.1.5\n  Downloaded anes v0.1.6\n  Downloaded foldhash v0.2.0\n  Downloaded num-traits v0.2.19\n  Downloaded zmij v1.0.23\n  Downloaded bitflags v2.13.1\n  Downloaded half v2.7.1\n  Downloaded logos-codegen v0.16.1\n  Downloaded proc-macro2 v1.0.107\n  Downloaded getrandom v0.4.3\n  Downloaded unicode-ident v1.0.24\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded clap v4.6.7\n  Downloaded plotters v0.3.7\n  Downloaded memchr v2.8.3\n  Downloaded hashbrown v0.17.1\n  Downloaded itertools v0.13.0\n  Downloaded rusqlite v0.40.2\n  Downloaded aho-corasick v1.1.5\n  Downloaded clap_builder v4.6.7\n  Downloaded regex v1.13.1\n  Downloaded serde_json v1.0.151\n  Downloaded rayon v1.12.0\n  Downloaded vcpkg v0.2.15\n  Downloaded syn v2.0.119\n  Downloaded zerocopy v0.8.57\n  Downloaded syn v3.0.3\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded regex-automata v0.4.18\n  Downloaded libc v0.2.189\n  Downloaded open-cypher v0.2.1\n  Downloaded libsqlite3-sys v0.38.2\n  Downloaded linux-raw-sys v0.12.1\n  Downloaded criterion v0.7.0\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "checks.log": "8b730d9769947544506a581c57e216291ec69d9a4d71034282978060a98846ac",
+            "environment.log": "31f87df0459f2054bfc9ba4aff87630b0b1bedf6e29318853527617520ed1394"
+          }
+        },
+        {
+          "databaseId": 114088732991,
+          "name": "Lifecycle (ubuntu-24.04)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-10T00:45:01Z",
+          "completedAt": "2026-10-10T00:48:25Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675/job/114088732991",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record workload environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Build release workload",
+              "conclusion": "success"
+            },
+            {
+              "name": "Measure and verify fresh lifecycle fixtures",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain workload evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "trials": [
+            {
+              "file": "1000-1.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/tmp/tmp.zcTuY5svAn/1000-1.sqlite",
+                "database_bytes": 2097152,
+                "debug_assertions": false,
+                "delete_ms": 1.912245,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 1950,
+                "final_packages": 999,
+                "first_import": {
+                  "commit_ms": 4.386094999999999,
+                  "edges_created": 1952,
+                  "edges_deleted": 0,
+                  "edges_ms": 193.912655,
+                  "generation": 1,
+                  "nodes_created": 1000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 417.944279,
+                  "prune_ms": 5.720949,
+                  "total_ms": 623.918455
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 1952,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 1000
+                },
+                "open_ms": 5.100772,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 1.051377,
+                    "max_ms": 0.630886,
+                    "p50_ms": 0.534234,
+                    "p95_ms": 0.615668,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 1.0498949999999998,
+                    "max_ms": 0.677293,
+                    "p50_ms": 0.533293,
+                    "p95_ms": 0.658338,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.463933,
+                    "max_ms": 0.12128799999999999,
+                    "p50_ms": 0.086573,
+                    "p95_ms": 0.120537,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.873302,
+                    "max_ms": 1.325453,
+                    "p50_ms": 1.110328,
+                    "p95_ms": 1.242817,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.779456,
+                "repeat_import": {
+                  "commit_ms": 4.277995,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 109.50585699999999,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 113.034583,
+                  "prune_ms": 5.761114,
+                  "total_ms": 234.160412
+                },
+                "rollback_ms": 1.0865230000000001,
+                "update_ms": 2.2430280000000002,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 1.0163295240000139,
+                  "peak_rss_bytes": 20512768,
+                  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+                  "architecture": "x86_64",
+                  "binary_sha256": "8f237331ecec1905ac186778bc11cce433bde1f6cc51149ac4565d58fd58e3f4",
+                  "command": [
+                    "/home/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/tmp/tmp.zcTuY5svAn/1000-1.sqlite",
+                    "1000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "1000-2.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/tmp/tmp.zcTuY5svAn/1000-2.sqlite",
+                "database_bytes": 2080768,
+                "debug_assertions": false,
+                "delete_ms": 2.1868920000000003,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 1950,
+                "final_packages": 999,
+                "first_import": {
+                  "commit_ms": 4.759979,
+                  "edges_created": 1952,
+                  "edges_deleted": 0,
+                  "edges_ms": 199.44325500000002,
+                  "generation": 1,
+                  "nodes_created": 1000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 338.330555,
+                  "prune_ms": 5.841695,
+                  "total_ms": 550.1234619999999
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 1952,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 1000
+                },
+                "open_ms": 3.139606,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.944496,
+                    "max_ms": 0.560133,
+                    "p50_ms": 0.503707,
+                    "p95_ms": 0.5402659999999999,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.9394060000000001,
+                    "max_ms": 0.526089,
+                    "p50_ms": 0.49883800000000006,
+                    "p95_ms": 0.519757,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.502394,
+                    "max_ms": 0.132609,
+                    "p50_ms": 0.081313,
+                    "p95_ms": 0.11497600000000001,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.6374689999999998,
+                    "max_ms": 1.31308,
+                    "p50_ms": 1.0849,
+                    "p95_ms": 1.197743,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000004",
+                        "fixture:pkg-00000006",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.806556,
+                "repeat_import": {
+                  "commit_ms": 4.261734,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 105.603106,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 114.668097,
+                  "prune_ms": 6.08335,
+                  "total_ms": 232.108012
+                },
+                "rollback_ms": 1.0457070000000002,
+                "update_ms": 2.167707,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 0.9360453769999992,
+                  "peak_rss_bytes": 20586496,
+                  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+                  "architecture": "x86_64",
+                  "binary_sha256": "8f237331ecec1905ac186778bc11cce433bde1f6cc51149ac4565d58fd58e3f4",
+                  "command": [
+                    "/home/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/tmp/tmp.zcTuY5svAn/1000-2.sqlite",
+                    "1000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "1000-3.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/tmp/tmp.zcTuY5svAn/1000-3.sqlite",
+                "database_bytes": 2093056,
+                "debug_assertions": false,
+                "delete_ms": 2.518573,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 1950,
+                "final_packages": 999,
+                "first_import": {
+                  "commit_ms": 4.3279060000000005,
+                  "edges_created": 1952,
+                  "edges_deleted": 0,
+                  "edges_ms": 206.28402400000002,
+                  "generation": 1,
+                  "nodes_created": 1000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 339.27177600000005,
+                  "prune_ms": 5.981297,
+                  "total_ms": 557.576313
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 1952,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 1000
+                },
+                "open_ms": 3.0118929999999997,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.981004,
+                    "max_ms": 0.588748,
+                    "p50_ms": 0.522633,
+                    "p95_ms": 0.55824,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.998137,
+                    "max_ms": 0.5855819999999999,
+                    "p50_ms": 0.52642,
+                    "p95_ms": 0.5722659999999999,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.485033,
+                    "max_ms": 0.128652,
+                    "p50_ms": 0.085281,
+                    "p95_ms": 0.120917,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 2.018265,
+                    "max_ms": 1.438335,
+                    "p50_ms": 1.214313,
+                    "p95_ms": 1.404952,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000001",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.919839,
+                "repeat_import": {
+                  "commit_ms": 4.204306,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 117.15634399999999,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 114.158504,
+                  "prune_ms": 6.12075,
+                  "total_ms": 243.18013
+                },
+                "rollback_ms": 1.2835640000000001,
+                "update_ms": 2.295467,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 0.9611320500000033,
+                  "peak_rss_bytes": 20574208,
+                  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+                  "architecture": "x86_64",
+                  "binary_sha256": "8f237331ecec1905ac186778bc11cce433bde1f6cc51149ac4565d58fd58e3f4",
+                  "command": [
+                    "/home/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/tmp/tmp.zcTuY5svAn/1000-3.sqlite",
+                    "1000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "10000-1.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/tmp/tmp.zcTuY5svAn/10000-1.sqlite",
+                "database_bytes": 20451328,
+                "debug_assertions": false,
+                "delete_ms": 3.716459,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 19527,
+                "final_packages": 9999,
+                "first_import": {
+                  "commit_ms": 22.559303999999997,
+                  "edges_created": 19529,
+                  "edges_deleted": 0,
+                  "edges_ms": 2170.33599,
+                  "generation": 1,
+                  "nodes_created": 10000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 3863.7351569999996,
+                  "prune_ms": 66.38009699999999,
+                  "total_ms": 6124.781138
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 19529,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 10000
+                },
+                "open_ms": 3.161285,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.9924160000000001,
+                    "max_ms": 0.5660040000000001,
+                    "p50_ms": 0.519557,
+                    "p95_ms": 0.5659540000000001,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 1.0366900000000001,
+                    "max_ms": 0.5799610000000001,
+                    "p50_ms": 0.514267,
+                    "p95_ms": 0.572085,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.657196,
+                    "max_ms": 0.143099,
+                    "p50_ms": 0.082525,
+                    "p95_ms": 0.112101,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.81339,
+                    "max_ms": 1.300175,
+                    "p50_ms": 1.090361,
+                    "p95_ms": 1.167195,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000004",
+                        "fixture:pkg-00000006",
+                        "fixture:pkg-00000008",
+                        "fixture:pkg-00000010",
+                        "fixture:pkg-00000012",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.774617,
+                "repeat_import": {
+                  "commit_ms": 59.129562,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 1364.2172509999998,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 1301.229996,
+                  "prune_ms": 65.99572099999999,
+                  "total_ms": 2792.0944
+                },
+                "rollback_ms": 1.495422,
+                "update_ms": 2.441852,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 9.998434107999998,
+                  "peak_rss_bytes": 65101824,
+                  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+                  "architecture": "x86_64",
+                  "binary_sha256": "8f237331ecec1905ac186778bc11cce433bde1f6cc51149ac4565d58fd58e3f4",
+                  "command": [
+                    "/home/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/tmp/tmp.zcTuY5svAn/10000-1.sqlite",
+                    "10000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "10000-2.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/tmp/tmp.zcTuY5svAn/10000-2.sqlite",
+                "database_bytes": 20541440,
+                "debug_assertions": false,
+                "delete_ms": 3.4449289999999997,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 19527,
+                "final_packages": 9999,
+                "first_import": {
+                  "commit_ms": 11.690037,
+                  "edges_created": 19529,
+                  "edges_deleted": 0,
+                  "edges_ms": 2154.0684579999997,
+                  "generation": 1,
+                  "nodes_created": 10000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 3881.668321,
+                  "prune_ms": 65.996909,
+                  "total_ms": 6115.5174910000005
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 19529,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 10000
+                },
+                "open_ms": 3.6714320000000003,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.9861939999999999,
+                    "max_ms": 0.5707629999999999,
+                    "p50_ms": 0.520489,
+                    "p95_ms": 0.568329,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 2.346012,
+                    "max_ms": 0.590611,
+                    "p50_ms": 0.5175730000000001,
+                    "p95_ms": 0.565002,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.560975,
+                    "max_ms": 0.120055,
+                    "p50_ms": 0.083056,
+                    "p95_ms": 0.112692,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.9001540000000001,
+                    "max_ms": 1.21214,
+                    "p50_ms": 1.1113799999999998,
+                    "p95_ms": 1.1808910000000001,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.770499,
+                "repeat_import": {
+                  "commit_ms": 78.155085,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 1232.039546,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 1291.469246,
+                  "prune_ms": 67.08460500000001,
+                  "total_ms": 2670.2849090000004
+                },
+                "rollback_ms": 1.272763,
+                "update_ms": 2.198144,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 9.872554796999992,
+                  "peak_rss_bytes": 64737280,
+                  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+                  "architecture": "x86_64",
+                  "binary_sha256": "8f237331ecec1905ac186778bc11cce433bde1f6cc51149ac4565d58fd58e3f4",
+                  "command": [
+                    "/home/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/tmp/tmp.zcTuY5svAn/10000-2.sqlite",
+                    "10000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "10000-3.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/tmp/tmp.zcTuY5svAn/10000-3.sqlite",
+                "database_bytes": 20516864,
+                "debug_assertions": false,
+                "delete_ms": 3.4771490000000003,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 19527,
+                "final_packages": 9999,
+                "first_import": {
+                  "commit_ms": 14.908994,
+                  "edges_created": 19529,
+                  "edges_deleted": 0,
+                  "edges_ms": 2123.107868,
+                  "generation": 1,
+                  "nodes_created": 10000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 3836.540972,
+                  "prune_ms": 67.892512,
+                  "total_ms": 6044.43081
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 19529,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 10000
+                },
+                "open_ms": 3.1897179999999996,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 1.037902,
+                    "max_ms": 0.625646,
+                    "p50_ms": 0.525768,
+                    "p95_ms": 0.583628,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 1.020298,
+                    "max_ms": 0.6935939999999999,
+                    "p50_ms": 0.521802,
+                    "p95_ms": 0.54798,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.602242,
+                    "max_ms": 0.148399,
+                    "p50_ms": 0.083237,
+                    "p95_ms": 0.11678899999999999,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.763656,
+                    "max_ms": 1.175451,
+                    "p50_ms": 1.1097970000000001,
+                    "p95_ms": 1.1564050000000001,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.8042929999999999,
+                "repeat_import": {
+                  "commit_ms": 114.78432199999999,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 1153.0065140000002,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 1314.175038,
+                  "prune_ms": 65.989751,
+                  "total_ms": 2649.817466
+                },
+                "rollback_ms": 1.297851,
+                "update_ms": 2.569211,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 9.762716826999991,
+                  "peak_rss_bytes": 64962560,
+                  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+                  "architecture": "x86_64",
+                  "binary_sha256": "8f237331ecec1905ac186778bc11cce433bde1f6cc51149ac4565d58fd58e3f4",
+                  "command": [
+                    "/home/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/tmp/tmp.zcTuY5svAn/10000-3.sqlite",
+                    "10000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            }
+          ],
+          "artifact_name": "lifecycle-ubuntu-24.04-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nLinux runnervmmprz5 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux\ncc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\nPython 3.14.8\nRunner image: ubuntu24 20261004.327.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded rayon v1.12.0\n  Downloaded same-file v1.0.6\n  Downloaded syn v3.0.3\n  Downloaded tempfile v3.27.0\n  Downloaded anes v0.1.6\n  Downloaded logos v0.16.1\n  Downloaded fnv v1.0.7\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded pkg-config v0.3.34\n  Downloaded itoa v1.0.18\n  Downloaded fallible-iterator v0.3.0\n  Downloaded smallvec v1.15.2\n  Downloaded criterion-plot v0.6.0\n  Downloaded logos-codegen v0.16.1\n  Downloaded half v2.7.1\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded zmij v1.0.23\n  Downloaded ciborium-io v0.2.2\n  Downloaded rayon-core v1.13.0\n  Downloaded open-cypher v0.2.1\n  Downloaded proc-macro2 v1.0.107\n  Downloaded tinytemplate v1.2.1\n  Downloaded fastrand v2.5.0\n  Downloaded plotters-backend v0.3.7\n  Downloaded logos-derive v0.16.1\n  Downloaded getrandom v0.4.3\n  Downloaded regex-automata v0.4.18\n  Downloaded serde_core v1.0.229\n  Downloaded ciborium-ll v0.2.2\n  Downloaded plotters-svg v0.3.7\n  Downloaded bitflags v2.13.1\n  Downloaded vcpkg v0.2.15\n  Downloaded memchr v2.8.3\n  Downloaded autocfg v1.5.1\n  Downloaded hashbrown v0.17.1\n  Downloaded hashlink v0.12.1\n  Downloaded cast v0.3.0\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded oorandom v11.1.5\n  Downloaded quote v1.0.47\n  Downloaded clap v4.6.7\n  Downloaded ciborium v0.2.2\n  Downloaded syn v2.0.119\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded rustix v1.1.4\n  Downloaded walkdir v2.5.0\n  Downloaded criterion v0.7.0\n  Downloaded plotters v0.3.7\n  Downloaded either v1.18.0\n  Downloaded foldhash v0.2.0\n  Downloaded once_cell v1.21.4\n  Downloaded serde_derive v1.0.229\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded cfg-if v1.0.4\n  Downloaded clap_lex v1.1.1\n  Downloaded errno v0.3.14\n  Downloaded shlex v2.0.1\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded lalrpop-util v0.23.1\n  Downloaded num-traits v0.2.19\n  Downloaded serde_json v1.0.151\n  Downloaded zerocopy v0.8.57\n  Downloaded itertools v0.13.0\n  Downloaded serde v1.0.229\n  Downloaded cc v1.4.4\n  Downloaded rusqlite v0.40.2\n  Downloaded unicode-ident v1.0.24\n  Downloaded aho-corasick v1.1.5\n  Downloaded clap_builder v4.6.7\n  Downloaded regex v1.13.1\n  Downloaded regex-syntax v0.8.11\n  Downloaded anstyle v1.0.14\n  Downloaded linux-raw-sys v0.12.1\n  Downloaded libc v0.2.189\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/home/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "1000-1.json": "7c55033ece612e3c5f1c7c8976912b52442dc73b72ce6f97199bebf9439f64e5",
+            "1000-2.json": "894b02e8f6367513a47a89e63826e1f5a66548c4fa37b87dbaf990d607a20eed",
+            "1000-3.json": "84b72734d73a358c8bfeb8ced5a8262f13aa68f83459b19a0c49a4829764c3a0",
+            "10000-1.json": "e8d1316420f8636324269c7554d247ac33ea50e44c6bfac542e4756256401d15",
+            "10000-2.json": "c30d14c956bbd2e718992fbf7f9a64a91c4c131cf6568cb2179fc7f086be5d17",
+            "10000-3.json": "95a03284226a426ce272d254a1feca9fd583c4e68f9b3c776a5f876296c76cc9",
+            "build.log": "2c8b02d94eaca6eff717aea1aa2c60f3cdb5cd8376236351af67445afaf8f8f6",
+            "environment.log": "7aa0c02335e1d463bc002441f3a26cd90f61c9a04ca4b1e94acd8e2d76bcd081"
+          }
+        },
+        {
+          "databaseId": 114088733058,
+          "name": "Lifecycle (macos-26)",
+          "status": "completed",
+          "conclusion": "success",
+          "startedAt": "2026-10-10T00:45:03Z",
+          "completedAt": "2026-10-10T00:46:13Z",
+          "url": "https://github.com/a-poor/crabnet/actions/runs/38009609675/job/114088733058",
+          "steps": [
+            {
+              "name": "Set up job",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+              "conclusion": "success"
+            },
+            {
+              "name": "Install Rust",
+              "conclusion": "success"
+            },
+            {
+              "name": "Record workload environment",
+              "conclusion": "success"
+            },
+            {
+              "name": "Build release workload",
+              "conclusion": "success"
+            },
+            {
+              "name": "Measure and verify fresh lifecycle fixtures",
+              "conclusion": "success"
+            },
+            {
+              "name": "Retain workload evidence",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
+              "conclusion": "success"
+            },
+            {
+              "name": "Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+              "conclusion": "success"
+            },
+            {
+              "name": "Complete job",
+              "conclusion": "success"
+            }
+          ],
+          "trials": [
+            {
+              "file": "1000-1.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/1000-1.sqlite",
+                "database_bytes": 2101248,
+                "debug_assertions": false,
+                "delete_ms": 1.481792,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 1950,
+                "final_packages": 999,
+                "first_import": {
+                  "commit_ms": 2.304292,
+                  "edges_created": 1952,
+                  "edges_deleted": 0,
+                  "edges_ms": 118.55633399999999,
+                  "generation": 1,
+                  "nodes_created": 1000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 207.47375000000002,
+                  "prune_ms": 3.1447089999999998,
+                  "total_ms": 335.676042
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 1952,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 1000
+                },
+                "open_ms": 4.8810839999999995,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.52925,
+                    "max_ms": 0.289208,
+                    "p50_ms": 0.241292,
+                    "p95_ms": 0.289208,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.44925,
+                    "max_ms": 0.271541,
+                    "p50_ms": 0.238667,
+                    "p95_ms": 0.263667,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.157834,
+                    "max_ms": 0.058375,
+                    "p50_ms": 0.040083999999999995,
+                    "p95_ms": 0.051125000000000004,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 0.838084,
+                    "max_ms": 0.602875,
+                    "p50_ms": 0.486,
+                    "p95_ms": 0.558125,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000001",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.34841700000000003,
+                "repeat_import": {
+                  "commit_ms": 1.69875,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 55.495416999999996,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 62.548875,
+                  "prune_ms": 3.1153750000000002,
+                  "total_ms": 123.594541
+                },
+                "rollback_ms": 0.783375,
+                "update_ms": 1.029583,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 0.5497230840000213,
+                  "peak_rss_bytes": 20480000,
+                  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+                  "architecture": "arm64",
+                  "binary_sha256": "30e025e02c59e80b8f040393d2e964eb0cd16418f7ce10e77b1890fe800d5135",
+                  "command": [
+                    "/Users/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/1000-1.sqlite",
+                    "1000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "1000-2.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/1000-2.sqlite",
+                "database_bytes": 2093056,
+                "debug_assertions": false,
+                "delete_ms": 36.801792,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 1950,
+                "final_packages": 999,
+                "first_import": {
+                  "commit_ms": 2.31075,
+                  "edges_created": 1952,
+                  "edges_deleted": 0,
+                  "edges_ms": 110.506625,
+                  "generation": 1,
+                  "nodes_created": 1000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 199.789791,
+                  "prune_ms": 3.111416,
+                  "total_ms": 316.780625
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 1952,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 1000
+                },
+                "open_ms": 1.462959,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.5023340000000001,
+                    "max_ms": 0.315792,
+                    "p50_ms": 0.24375,
+                    "p95_ms": 0.26941699999999996,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.472208,
+                    "max_ms": 0.274459,
+                    "p50_ms": 0.23975,
+                    "p95_ms": 0.273,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.167625,
+                    "max_ms": 0.047833,
+                    "p50_ms": 0.036541000000000004,
+                    "p95_ms": 0.040375,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 0.777583,
+                    "max_ms": 0.571042,
+                    "p50_ms": 0.474875,
+                    "p95_ms": 0.558458,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.371792,
+                "repeat_import": {
+                  "commit_ms": 1.845083,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 59.474667000000004,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 64.382583,
+                  "prune_ms": 3.098833,
+                  "total_ms": 129.691583
+                },
+                "rollback_ms": 6.578334,
+                "update_ms": 0.908042,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 0.573555583000001,
+                  "peak_rss_bytes": 20054016,
+                  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+                  "architecture": "arm64",
+                  "binary_sha256": "30e025e02c59e80b8f040393d2e964eb0cd16418f7ce10e77b1890fe800d5135",
+                  "command": [
+                    "/Users/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/1000-2.sqlite",
+                    "1000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "1000-3.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/1000-3.sqlite",
+                "database_bytes": 2064384,
+                "debug_assertions": false,
+                "delete_ms": 1.5636249999999998,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 1950,
+                "final_packages": 999,
+                "first_import": {
+                  "commit_ms": 2.6844170000000003,
+                  "edges_created": 1952,
+                  "edges_deleted": 0,
+                  "edges_ms": 111.123208,
+                  "generation": 1,
+                  "nodes_created": 1000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 201.818375,
+                  "prune_ms": 3.137375,
+                  "total_ms": 319.77225
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 1952,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 1000
+                },
+                "open_ms": 1.407667,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.501542,
+                    "max_ms": 0.26629200000000003,
+                    "p50_ms": 0.24058400000000002,
+                    "p95_ms": 0.25429199999999996,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.45287499999999997,
+                    "max_ms": 0.29604199999999997,
+                    "p50_ms": 0.240583,
+                    "p95_ms": 0.261042,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.15712500000000001,
+                    "max_ms": 0.047333,
+                    "p50_ms": 0.036458000000000004,
+                    "p95_ms": 0.041,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 0.7757499999999999,
+                    "max_ms": 0.522209,
+                    "p50_ms": 0.469584,
+                    "p95_ms": 0.515417,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000004",
+                        "fixture:pkg-00000006",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.328458,
+                "repeat_import": {
+                  "commit_ms": 1.495541,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 58.678167,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 60.983166999999995,
+                  "prune_ms": 3.682333,
+                  "total_ms": 125.591958
+                },
+                "rollback_ms": 0.987959,
+                "update_ms": 0.956708,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 0.5280282500000055,
+                  "peak_rss_bytes": 20070400,
+                  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+                  "architecture": "arm64",
+                  "binary_sha256": "30e025e02c59e80b8f040393d2e964eb0cd16418f7ce10e77b1890fe800d5135",
+                  "command": [
+                    "/Users/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/1000-3.sqlite",
+                    "1000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "10000-1.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/10000-1.sqlite",
+                "database_bytes": 20459520,
+                "debug_assertions": false,
+                "delete_ms": 20.203959,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 19527,
+                "final_packages": 9999,
+                "first_import": {
+                  "commit_ms": 28.565832999999998,
+                  "edges_created": 19529,
+                  "edges_deleted": 0,
+                  "edges_ms": 1483.886583,
+                  "generation": 1,
+                  "nodes_created": 10000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 2435.334167,
+                  "prune_ms": 40.002542000000005,
+                  "total_ms": 3988.9553749999995
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 19529,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 10000
+                },
+                "open_ms": 1.332458,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.694542,
+                    "max_ms": 0.34441700000000003,
+                    "p50_ms": 0.304916,
+                    "p95_ms": 0.324542,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.573917,
+                    "max_ms": 0.32458299999999995,
+                    "p50_ms": 0.287459,
+                    "p95_ms": 0.324541,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.393209,
+                    "max_ms": 0.06804099999999999,
+                    "p50_ms": 0.039959,
+                    "p95_ms": 0.063083,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.068041,
+                    "max_ms": 0.7789999999999999,
+                    "p50_ms": 0.5379999999999999,
+                    "p95_ms": 0.752458,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000004",
+                        "fixture:pkg-00000006",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.49050000000000005,
+                "repeat_import": {
+                  "commit_ms": 8.004833,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 740.6542499999999,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 881.38075,
+                  "prune_ms": 41.904208,
+                  "total_ms": 1672.972833
+                },
+                "rollback_ms": 0.878792,
+                "update_ms": 1.345708,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 6.397158332999993,
+                  "peak_rss_bytes": 75546624,
+                  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+                  "architecture": "arm64",
+                  "binary_sha256": "30e025e02c59e80b8f040393d2e964eb0cd16418f7ce10e77b1890fe800d5135",
+                  "command": [
+                    "/Users/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/10000-1.sqlite",
+                    "10000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "10000-2.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/10000-2.sqlite",
+                "database_bytes": 20525056,
+                "debug_assertions": false,
+                "delete_ms": 2.463292,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 19527,
+                "final_packages": 9999,
+                "first_import": {
+                  "commit_ms": 5.441292000000001,
+                  "edges_created": 19529,
+                  "edges_deleted": 0,
+                  "edges_ms": 1186.626583,
+                  "generation": 1,
+                  "nodes_created": 10000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 2282.6913329999998,
+                  "prune_ms": 38.413250000000005,
+                  "total_ms": 3514.2750419999998
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 19529,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 10000
+                },
+                "open_ms": 1.770292,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.580791,
+                    "max_ms": 0.316917,
+                    "p50_ms": 0.267125,
+                    "p95_ms": 0.311,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.564375,
+                    "max_ms": 0.322417,
+                    "p50_ms": 0.275292,
+                    "p95_ms": 0.32008299999999995,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.326041,
+                    "max_ms": 0.053542000000000006,
+                    "p50_ms": 0.036291000000000004,
+                    "p95_ms": 0.042624999999999996,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 1.031167,
+                    "max_ms": 0.639417,
+                    "p50_ms": 0.481958,
+                    "p95_ms": 0.617458,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.453167,
+                "repeat_import": {
+                  "commit_ms": 14.098708,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 664.478709,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 709.871,
+                  "prune_ms": 42.103708,
+                  "total_ms": 1431.466542
+                },
+                "rollback_ms": 1.237792,
+                "update_ms": 1.1415,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 5.619231166999981,
+                  "peak_rss_bytes": 80642048,
+                  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+                  "architecture": "arm64",
+                  "binary_sha256": "30e025e02c59e80b8f040393d2e964eb0cd16418f7ce10e77b1890fe800d5135",
+                  "command": [
+                    "/Users/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/10000-2.sqlite",
+                    "10000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            },
+            {
+              "file": "10000-3.json",
+              "result": {
+                "crabnet_version": "0.1.0",
+                "database": "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/10000-3.sqlite",
+                "database_bytes": 20512768,
+                "debug_assertions": false,
+                "delete_ms": 2.103125,
+                "deletion": {
+                  "edges_deleted": 2,
+                  "nodes_deleted": 1
+                },
+                "final_dependencies": 19527,
+                "final_packages": 9999,
+                "first_import": {
+                  "commit_ms": 5.83475,
+                  "edges_created": 19529,
+                  "edges_deleted": 0,
+                  "edges_ms": 1258.3218330000002,
+                  "generation": 1,
+                  "nodes_created": 10000,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 2321.085916,
+                  "prune_ms": 41.247333,
+                  "total_ms": 3627.752375
+                },
+                "fixture": {
+                  "batch_size": 128,
+                  "component_size": 64,
+                  "dependencies": 19529,
+                  "forward_offsets": [
+                    1,
+                    2
+                  ],
+                  "packages": 10000
+                },
+                "open_ms": 1.434,
+                "queries": {
+                  "dependencies_4_hops": {
+                    "first_ms": 0.521541,
+                    "max_ms": 0.285875,
+                    "p50_ms": 0.24487499999999998,
+                    "p95_ms": 0.27216700000000005,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000001",
+                        "name": "package-1",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000002",
+                        "name": "package-2",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000003",
+                        "name": "package-3",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000004",
+                        "name": "package-4",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000005",
+                        "name": "package-5",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000006",
+                        "name": "package-6",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000007",
+                        "name": "package-7",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000008",
+                        "name": "package-8",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "dependents_4_hops": {
+                    "first_ms": 0.52775,
+                    "max_ms": 0.272083,
+                    "p50_ms": 0.241167,
+                    "p95_ms": 0.264084,
+                    "result": [
+                      {
+                        "id": "fixture:pkg-00000055",
+                        "name": "package-55",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000056",
+                        "name": "package-56",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000057",
+                        "name": "package-57",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000058",
+                        "name": "package-58",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000059",
+                        "name": "package-59",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000060",
+                        "name": "package-60",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000061",
+                        "name": "package-61",
+                        "version": "1.0.0"
+                      },
+                      {
+                        "id": "fixture:pkg-00000062",
+                        "name": "package-62",
+                        "version": "1.0.0"
+                      }
+                    ],
+                    "samples": 20
+                  },
+                  "lookup": {
+                    "first_ms": 0.258917,
+                    "max_ms": 0.062333,
+                    "p50_ms": 0.036334,
+                    "p95_ms": 0.051834,
+                    "result": 1,
+                    "samples": 20
+                  },
+                  "shortest_path": {
+                    "first_ms": 0.911833,
+                    "max_ms": 0.5217499999999999,
+                    "p50_ms": 0.483333,
+                    "p95_ms": 0.517083,
+                    "result": {
+                      "hops": 32,
+                      "packages": [
+                        "fixture:pkg-00000000",
+                        "fixture:pkg-00000002",
+                        "fixture:pkg-00000003",
+                        "fixture:pkg-00000005",
+                        "fixture:pkg-00000007",
+                        "fixture:pkg-00000009",
+                        "fixture:pkg-00000011",
+                        "fixture:pkg-00000013",
+                        "fixture:pkg-00000015",
+                        "fixture:pkg-00000017",
+                        "fixture:pkg-00000019",
+                        "fixture:pkg-00000021",
+                        "fixture:pkg-00000023",
+                        "fixture:pkg-00000025",
+                        "fixture:pkg-00000027",
+                        "fixture:pkg-00000029",
+                        "fixture:pkg-00000031",
+                        "fixture:pkg-00000033",
+                        "fixture:pkg-00000035",
+                        "fixture:pkg-00000037",
+                        "fixture:pkg-00000039",
+                        "fixture:pkg-00000041",
+                        "fixture:pkg-00000043",
+                        "fixture:pkg-00000045",
+                        "fixture:pkg-00000047",
+                        "fixture:pkg-00000049",
+                        "fixture:pkg-00000051",
+                        "fixture:pkg-00000053",
+                        "fixture:pkg-00000055",
+                        "fixture:pkg-00000057",
+                        "fixture:pkg-00000059",
+                        "fixture:pkg-00000061",
+                        "fixture:pkg-00000063"
+                      ]
+                    },
+                    "samples": 20
+                  }
+                },
+                "query_ids": {
+                  "source": "fixture:pkg-00000000",
+                  "target": "fixture:pkg-00000063"
+                },
+                "reopen_ms": 0.413833,
+                "repeat_import": {
+                  "commit_ms": 8.076082999999999,
+                  "edges_created": 0,
+                  "edges_deleted": 0,
+                  "edges_ms": 586.245,
+                  "generation": 2,
+                  "nodes_created": 0,
+                  "nodes_deleted": 0,
+                  "nodes_ms": 678.8450419999999,
+                  "prune_ms": 34.811125,
+                  "total_ms": 1308.963959
+                },
+                "rollback_ms": 1.326583,
+                "update_ms": 1.1757090000000001,
+                "verified": {
+                  "reopen_identity": true,
+                  "repeat_identity": true,
+                  "rollback": true
+                },
+                "workload_version": 1,
+                "measurement": {
+                  "elapsed_seconds": 5.566010459000012,
+                  "peak_rss_bytes": 75644928,
+                  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+                  "architecture": "arm64",
+                  "binary_sha256": "30e025e02c59e80b8f040393d2e964eb0cd16418f7ce10e77b1890fe800d5135",
+                  "command": [
+                    "/Users/runner/work/crabnet/crabnet/target/release/examples/dependency_graph",
+                    "demo",
+                    "/var/folders/36/tjdph2t965j8snz9_vkdnw0r0000gn/T/tmp.fC42mN1ZLF/10000-3.sqlite",
+                    "10000",
+                    "20",
+                    "128"
+                  ]
+                }
+              }
+            }
+          ],
+          "artifact_name": "lifecycle-macos-26-1",
+          "environment_log": "683b8e9022684e64c2b12acf1cb90432c7ecf04d\nrustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\ncargo 1.99.0 (5f94df478 2026-08-27)\nDarwin lvl10-bj362-e651b5cf-79f8-4f6e-b497-2ab88d05937a-F251A4FBE205.local 25.6.0 Darwin Kernel Version 25.6.0: Fri Jul 31 19:16:43 PDT 2026; root:xnu-12377.161.14~5/RELEASE_ARM64_VMAPPLE arm64\nApple clang version 21.0.0 (clang-2100.1.1.101)\nTarget: arm64-apple-darwin25.6.0\nThread model: posix\nInstalledDir: /Applications/Xcode_26.6.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin\nPython 3.14.7\nRunner image: macos26 20260907.0351.1\n    Updating crates.io index\n Downloading crates ...\n  Downloaded hashlink v0.12.1\n  Downloaded plotters v0.3.7\n  Downloaded unicode-ident v1.0.24\n  Downloaded crossbeam-epoch v0.9.21\n  Downloaded crossbeam-utils v0.8.23\n  Downloaded anes v0.1.6\n  Downloaded autocfg v1.5.1\n  Downloaded anstyle v1.0.14\n  Downloaded memchr v2.8.3\n  Downloaded cast v0.3.0\n  Downloaded cc v1.4.4\n  Downloaded itoa v1.0.18\n  Downloaded aho-corasick v1.1.5\n  Downloaded criterion v0.7.0\n  Downloaded clap v4.6.7\n  Downloaded serde_derive v1.0.229\n  Downloaded ciborium-ll v0.2.2\n  Downloaded proc-macro2 v1.0.107\n  Downloaded regex v1.13.1\n  Downloaded clap_lex v1.1.1\n  Downloaded fallible-streaming-iterator v0.1.9\n  Downloaded tempfile v3.27.0\n  Downloaded criterion-plot v0.6.0\n  Downloaded tinytemplate v1.2.1\n  Downloaded serde_json v1.0.151\n  Downloaded rusqlite v0.40.2\n  Downloaded crossbeam-deque v0.8.8\n  Downloaded pkg-config v0.3.34\n  Downloaded getrandom v0.4.3\n  Downloaded lalrpop-util v0.23.1\n  Downloaded cfg-if v1.0.4\n  Downloaded logos-derive v0.16.1\n  Downloaded plotters-svg v0.3.7\n  Downloaded ciborium v0.2.2\n  Downloaded fnv v1.0.7\n  Downloaded foldhash v0.2.0\n  Downloaded hashbrown v0.17.1\n  Downloaded itertools v0.13.0\n  Downloaded syn v3.0.3\n  Downloaded ciborium-io v0.2.2\n  Downloaded once_cell v1.21.4\n  Downloaded quote v1.0.47\n  Downloaded zmij v1.0.23\n  Downloaded num-traits v0.2.19\n  Downloaded same-file v1.0.6\n  Downloaded smallvec v1.15.2\n  Downloaded walkdir v2.5.0\n  Downloaded either v1.18.0\n  Downloaded half v2.7.1\n  Downloaded logos-codegen v0.16.1\n  Downloaded fallible-iterator v0.3.0\n  Downloaded serde_core v1.0.229\n  Downloaded zerocopy-derive v0.8.57\n  Downloaded plotters-backend v0.3.7\n  Downloaded syn v2.0.119\n  Downloaded errno v0.3.14\n  Downloaded rayon v1.12.0\n  Downloaded oorandom v11.1.5\n  Downloaded bitflags v2.13.1\n  Downloaded shlex v2.0.1\n  Downloaded find-msvc-tools v0.1.11\n  Downloaded logos v0.16.1\n  Downloaded rayon-core v1.13.0\n  Downloaded serde v1.0.229\n  Downloaded vcpkg v0.2.15\n  Downloaded clap_builder v4.6.7\n  Downloaded zerocopy v0.8.57\n  Downloaded regex-syntax v0.8.11\n  Downloaded rustix v1.1.4\n  Downloaded libc v0.2.189\n  Downloaded regex-automata v0.4.18\n  Downloaded fastrand v2.5.0\n  Downloaded open-cypher v0.2.1\n  Downloaded libsqlite3-sys v0.38.2\nlibsqlite3-sys v0.38.2\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled\"\n\u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\"\n\u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet)\n\u2502           \u2514\u2500\u2500 crabnet feature \"default\" (command-line)\n\u251c\u2500\u2500 libsqlite3-sys feature \"bundled_bindings\"\n\u2502   \u251c\u2500\u2500 rusqlite feature \"modern_sqlite\"\n\u2502   \u2502   \u2514\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"cc\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"bundled\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"default\"\n\u2502   \u2514\u2500\u2500 rusqlite v0.40.2\n\u2502       \u251c\u2500\u2500 rusqlite feature \"backup\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"bundled\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"cache\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\"\n\u2502       \u2502       \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"ffi-sqlite-wasm-rs\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"default\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"functions\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hashlink\"\n\u2502       \u2502   \u2514\u2500\u2500 rusqlite feature \"cache\" (*)\n\u2502       \u251c\u2500\u2500 rusqlite feature \"hooks\"\n\u2502       \u2502   \u2514\u2500\u2500 crabnet v0.1.0 (/Users/runner/work/crabnet/crabnet) (*)\n\u2502       \u2514\u2500\u2500 rusqlite feature \"modern_sqlite\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"default\" (*)\n\u251c\u2500\u2500 libsqlite3-sys feature \"pkg-config\"\n\u2502   \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n\u2514\u2500\u2500 libsqlite3-sys feature \"vcpkg\"\n    \u2514\u2500\u2500 libsqlite3-sys feature \"min_sqlite_version_3_34_1\" (*)\n",
+          "artifact_files_sha256": {
+            "1000-1.json": "26dcce137a914436c3aa479b9c10b585e58c20d3d7f1b62f667cbc6e524b181e",
+            "1000-2.json": "ff4492abe3121596945d638a7ac68f691f78a015fe1ef86322797caa0e9b8f47",
+            "1000-3.json": "e25cdb50df1c6f8007462fd60bb0588b12d8df798e59fe72241129c0fec5ea3b",
+            "10000-1.json": "14a67d5f0e3aead878ff02eab3d06e4908a72b974889cb4796daca762bba232a",
+            "10000-2.json": "7fed741c2167f7219cde892d7131de7ed69b531c2aea924f5cb0c9ecba675c06",
+            "10000-3.json": "f7f5a3d6b1cb6226217436b1550d8bf253d975dfd279214968e2eca6be8a77fb",
+            "build.log": "8272da5f41c477959521fc08b50a9af12ef5d9d91f32a9cddb43d1214d4ab1f6",
+            "environment.log": "9f6c716f0ee7865a235484304224b86db790d677542c7e5ffd011b2aad7c0b21"
+          }
+        }
+      ]
+    }
+  ],
+  "required_checks": {
+    "enforcement": "unavailable",
+    "repository_visibility": "private",
+    "http_status": 403,
+    "endpoints": [
+      "repos/a-poor/crabnet/rulesets",
+      "repos/a-poor/crabnet/branches/main/protection"
+    ],
+    "message": "Upgrade to GitHub Pro or make this repository public to enable this feature.",
+    "settings_changed": false
+  }
+}

@@ -402,8 +402,10 @@ smoke sizes), doctests, formatting, Clippy, and whitespace checks. It rejects
 `CRABNET_TCK_UPDATE`; update pins separately and review every change. The
 [CI workflow](../.github/workflows/ci.yml) runs the same checks across the
 [initial support matrix](support.md), retains logs, and schedules larger
-lifecycle measurements. Hosted validation is pending until the workflow runs;
-the configuration alone is not a production qualification result.
+lifecycle measurements. The first hosted matrix and workload runs passed at
+`683b8e9`; [support.md](support.md#qualification-evidence) links their preserved
+evidence. Required-check enforcement is unavailable under the current private
+repository plan; successful checks alone do not complete production qualification.
 
 The full suite need not run after every edit; focused commands keep the inner
 loop fast, while the final checks prevent changes in one planner layer from
@@ -648,7 +650,8 @@ the path and traversal integration suites remain the semantic oracle.
 Application usability (milestone 10) is complete for the recorded
 [Git Graph pilot](git-graph-pilot.md). Production qualification (milestone 11)
 is in progress: the [supported configuration and CI](support.md) are defined,
-with hosted validation and the remaining release gates pending;
+with initial hosted validation complete and the enforcement, compatibility,
+correctness, and failure-behavior gates still open;
 its checklist and current working order live in [roadmap.md](roadmap.md). Multi-query
 transactions, `WITH DISTINCT`, entity collection/expansion, path-list `UNWIND`,
 aggregate expressions, and application node uniqueness constraints are complete.

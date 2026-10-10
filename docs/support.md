@@ -1,9 +1,9 @@
 # Supported configuration and qualification
 
 This is the initial configuration targeted by milestone 11, defined on
-2026-10-09. Crabnet remains experimental. Defining a matrix and adding CI does
-not complete production qualification: hosted results, compatibility policy,
-fault testing, and the release record remain required gates in the
+2026-10-09. Crabnet remains experimental. The first hosted matrix and lifecycle
+runs passed at `683b8e9`; required-check enforcement, compatibility policy,
+fault testing, and the release record remain open gates in the
 [roadmap](roadmap.md#11-production-qualification--in-progress).
 
 ## Initial matrix
@@ -98,10 +98,13 @@ the tested revision, exact compiler, runner image, SQLite dependency features,
 and command output for 30 days. Preserve release evidence outside expiring
 artifacts. No automated publish, deployment, or release creation occurs.
 
-All four `Checks (...)` matrix jobs must pass before merging. After their first
-hosted run, configure repository rules to require those check names; workflow
-files alone do not enable branch protection. The initial local validation and
-pending hosted evidence are recorded below.
+All four `Checks (...)` matrix jobs must pass before merging. Enforcement is
+currently manual: on 2026-10-09, both the repository rulesets and classic branch
+protection APIs returned HTTP 403 for this private repository, stating that
+GitHub Pro or public visibility is required. Neither account nor repository
+settings were changed. When the repository's plan supports protection, require
+those four check names and verify enforcement. The workflow's successful runs
+do not close this remaining enforcement gate.
 
 ## Workload and release gates
 
@@ -145,7 +148,22 @@ correctness, and fault-model gates still apply before any production claim.
   An initial system-Python 3.9 attempt failed in report hashing; explicit Python
   setup fixes that prerequisite. These local checks do not validate a hosted
   runner or GitHub's trigger, artifact, and required-check configuration.
-- This slice adds the initial matrix and repository-owned workflow. Hosted
-  Ubuntu/macOS matrix results and repository required-check settings remain
-  pending until the workflow is pushed and run. They must be linked here before
-  the automated-release-check milestone is marked complete.
+- The first [push run](https://github.com/a-poor/crabnet/actions/runs/37999916541)
+  passed all four matrix jobs at
+  `683b8e9022684e64c2b12acf1cb90432c7ecf04d`. Each passed 901 tests, 143 benchmark
+  smoke cases, 11 doctests, formatting, Clippy, and dependency/TCK pin verification.
+  Lifecycle jobs were skipped as specified for an ordinary branch push.
+- The [manual run with workloads enabled](https://github.com/a-poor/crabnet/actions/runs/38009609675)
+  passed the same four checks and both lifecycle jobs at that exact revision.
+  All 12 lifecycle trials passed: three each at 1,000 and 10,000 packages on
+  each platform, with repeat identity, rollback, and reopen identity verified.
+  Rust `stable` resolved to 1.99.0 on both platforms; lifecycle jobs used Python
+  3.14.8. Runner images were `ubuntu24 20261004.327.1` and
+  `macos26 20260907.0351.1`.
+- The versioned [hosted evidence record](measurements/hosted-ci-2026-10-09.json)
+  preserves run/job identities and results, environment logs, artifact file
+  SHA-256 hashes, and all 12 raw lifecycle reports. Artifact uploads succeeded
+  and the downloaded reports were reviewed. Shared-runner timings remain
+  observations, not a new performance guarantee. Required-check enforcement
+  remains unavailable under the current private-repository plan, so the
+  automated-release-check roadmap item remains open for that specific gap.

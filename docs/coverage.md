@@ -148,8 +148,8 @@ schema changes, and there is deliberately no schema-migration compatibility poli
 
 The [support matrix and CI contract](support.md) define which OS/toolchain pairs
 must run this coverage. The repository workflow retains check results and larger
-lifecycle measurements; hosted evidence is still required before marking the
-automated release checks complete.
+lifecycle measurements. The first hosted matrix and workload runs passed at
+`683b8e9`; required-check enforcement remains blocked by the repository plan.
 
 Add a case here before or alongside implementation work. Once work starts, turn the
 smallest relevant case into a normal failing test, run it by name while iterating, and
@@ -157,8 +157,9 @@ move the row into the matrix when green.
 
 The active milestone and task status live in [roadmap.md](roadmap.md).
 Milestone 10 is complete for the recorded Git Graph pilot. Milestone 11 is in
-progress: validate the defined matrix on hosted CI, then qualify compatibility,
-known correctness gaps, and failure behavior. The following
+progress: initial hosted matrix validation is complete; qualification now needs
+compatibility, known correctness gaps, failure behavior, and required-check
+enforcement. The following
 coverage extensions remain a backlog; promote them into release gates only when
 the declared contract requires them:
 

@@ -875,8 +875,9 @@ below are qualified.
 Qualify a release for an explicit query subset and operating configuration.
 The completed pilot supplies application evidence; this milestone establishes
 repeatable release checks and compatibility commitments. The initial
-[support matrix](support.md) and [CI workflow](../.github/workflows/ci.yml) are
-defined; hosted validation and the remaining qualification gates are pending.
+[support matrix](support.md) and [CI workflow](../.github/workflows/ci.yml) passed
+their first hosted matrix and lifecycle runs at `683b8e9`. Required-check
+enforcement and the remaining qualification gates are pending.
 
 - [x] **Define the supported configuration.** [support.md](support.md) records
   Ubuntu 24.04 x86-64 and macOS 26 arm64, Rust 1.99.0 plus rolling stable checks,
@@ -888,13 +889,15 @@ defined; hosted validation and the remaining qualification gates are pending.
   procedures when an upgrade cannot proceed. Test release-to-release upgrades
   and backup/restore using retained fixtures from supported versions. Document
   downgrade limitations and the application's rollback procedure.
-- [ ] **Verify automated release checks.** Repository-owned CI now runs full
-  tests, pinned TCK, benchmark smoke cases, doctests, formatting, and Clippy on
-  the declared OS/toolchain matrix. Weekly, version-tag, and opt-in manual jobs
-  retain release-profile lifecycle measurements; the Git Graph sustained run
-  remains an explicit release gate. Complete this item after recording hosted
-  matrix results and configuring required checks. See [support.md](support.md)
-  for reproduction, evidence retention, and the remaining release requirements.
+- [ ] **Verify automated release checks — hosted validation passed; enforcement
+  blocked by the repository plan.** Push and workload-enabled manual runs at
+  `683b8e9` passed the four OS/toolchain checks and both lifecycle jobs. The
+  [evidence record](measurements/hosted-ci-2026-10-09.json) preserves results,
+  environments, hashes, and 12 raw lifecycle reports. Both GitHub protection
+  APIs returned HTTP 403 for the current private-repository plan. Complete this
+  item when required checks can be configured and verified; until then, review
+  all four results manually before merging. The Git Graph sustained run remains
+  an explicit release gate. See [support.md](support.md) for the exact limits.
 - [ ] **Qualify failure behavior and durability claims.** Add reproducible
   disk-full and I/O fault tests for writes, commit, migration, backup, and
   restore. Exercise corruption detection and failed-open/restore behavior.
@@ -921,12 +924,13 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Run the checked-in CI on GitHub, review every declared OS/toolchain result,
-   and configure required checks. Preserve the first hosted check and workload
-   evidence in [support.md](support.md); the initial configuration is now defined.
-2. Define the release-to-release API/storage compatibility and rollback policy,
-   retaining upgrade and backup fixtures. Keep the application, cursor,
-   persistence, and pinned TCK tests as regressions.
+1. Define the release-to-release API/storage compatibility and rollback policy,
+   retaining upgrade and backup fixtures. The first hosted matrix and lifecycle
+   evidence is recorded in [support.md](support.md).
+2. Configure and verify required checks when the repository's plan permits
+   protection. This account-level limitation does not prevent compatibility
+   work; review all four matrix results manually in the meantime. Keep the
+   application, cursor, persistence, and pinned TCK tests as regressions.
 3. Qualify compatibility, correctness, and failure behavior under milestone 11,
    then publish the reproducible release record. Make compatibility and durability
    claims only when their gates are met.
