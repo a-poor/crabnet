@@ -106,8 +106,17 @@ end-to-end result test for user-visible semantics.
   default; registrations and fault state are scoped to temporary database paths.
   This model uses DELETE journaling, FULL synchronization, no cache spill, and
   healthy rollback I/O. Persistent/partial I/O errors, OS ENOSPC, journal deletion,
-  and migration/backup/restore faults remain follow-ups. Run
-  `cargo test --locked --lib database::storage_failures` for both fault models.
+  and backup/restore faults remain follow-ups.
+  The `migration_io` child adds two sweeps over retained schema 1–4 files,
+  arming the same VFS before initialization. It covers both a retained failed
+  connection and the owning constructor's cleanup. A commit-hook marker proves
+  statement and commit coverage. Before any retry, raw SQLite checks the old
+  application/version markers, schema cookie, every schema object, and every
+  table's typed row bag, plus integrity, foreign keys, and writer lock release.
+  Public retry and read-only reopen must match the independent historical JSON
+  graph oracle; subsequent index/constraint writes must persist. Fixture files
+  are copied, never modified. Run
+  `cargo test --locked --lib database::storage_failures` for all three slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

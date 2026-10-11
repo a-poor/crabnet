@@ -41,6 +41,16 @@ not build old code, download dependencies, or modify retained snapshots:
 cargo test --locked --test storage_compatibility
 ```
 
+The migration I/O fault sweeps also copy schemas 1–4 and use their JSON oracles.
+They check raw schema/data rollback before retrying through the public opener:
+
+```sh
+cargo test --locked --lib database::storage_failures::migration_io
+```
+
+See the [migration fault model](../../../docs/semantics.md#migration-io-failures)
+for injection boundaries and limits.
+
 To audit file hashes (Python 3.12+):
 
 ```sh

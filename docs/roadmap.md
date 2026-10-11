@@ -911,9 +911,14 @@ enforcement and the remaining qualification gates are pending.
   every journal/database write and sync in healthy standalone/transaction commit
   traces, including after earlier page writes, with exact rollback, original
   error codes, lock release, reopening, and successful retry. Its forwarding VFS
-  fails before the selected native call and permits healthy rollback I/O. Add
-  migration/backup/restore fault tests, filesystem ENOSPC, and models for
-  persistent/partial I/O and journal deletion/truncation failures.
+  fails before the selected native call and permits healthy rollback I/O.
+  [Migration I/O sweeps](semantics.md#migration-io-failures) extend that model to
+  historical schema 1–4 files, both during statements and at commit, through
+  retained-connection and failed-open cleanup paths. They check the old format
+  with raw SQLite before public retry, then verify typed historical oracles,
+  index/constraint writes, and reopening. Add backup/restore fault tests,
+  filesystem ENOSPC, and models for persistent/partial I/O and journal
+  deletion/truncation failures.
   Exercise corruption detection and failed-open/restore behavior.
   Use a documented fault model to test power-loss/torn-write recovery before
   claiming it; current process-termination tests cover a narrower failure model.
@@ -941,11 +946,11 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to migration, backup, and restore, using
-   the commit slice's test-only forwarding VFS where applicable. Backup's
-   filesystem sync/publication steps also need their own injection boundary.
-   Page-count-cap and one-shot commit write/sync tests are in place; filesystem
-   ENOSPC, persistent/partial errors, and journal deletion/truncation remain
+1. Extend milestone 11's fault coverage to backup and restore, using the
+   test-only forwarding VFS where applicable. Backup's filesystem sync/publication
+   steps also need their own injection boundary.
+   Page-count-cap and one-shot commit/migration write/sync tests are in place;
+   filesystem ENOSPC, persistent/partial errors, and journal deletion/truncation remain
    unqualified. The compatibility policy and historical fixtures are in place;
    named release pairs still need candidate-specific evidence. Keep durability
    claims within the tested model.

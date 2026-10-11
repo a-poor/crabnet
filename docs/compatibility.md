@@ -68,8 +68,11 @@ Supported upgrades preserve node and relationship IDs, label insertion order,
 property value kinds and precision, relationship multiplicity/endpoints, and installed
 uniqueness declarations. Derived indexes must continue to select and enforce
 the same data. Migration DDL, backfills, and the version marker commit together;
-ordinary errors leave the previous persisted schema and data intact. Process
-death coverage is narrower than power-loss or I/O-fault qualification.
+ordinary errors leave the previous persisted schema and data intact.
+[Migration I/O tests](semantics.md#migration-io-failures) verify this with one-shot
+write/sync faults over retained schema 1–4 files, including raw inspection
+before retry and successful public reopen. This model permits healthy rollback
+I/O; persistent/partial failures and power loss remain unqualified.
 
 Early writers stored explicit top-level null entries. Migration retains those
 entries, including their appearance in whole-entity property maps. Property

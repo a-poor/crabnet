@@ -68,8 +68,10 @@ of file locking, process recovery, and backup behavior on the new configuration.
   experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
   cover `SQLITE_FULL` during writes using a page-count cap.
   [Commit I/O tests](semantics.md#commit-io-failures) cover modeled one-shot
-  journal/database write and sync errors with healthy rollback I/O. These and
-  process-death recovery do not establish filesystem ENOSPC, persistent/partial
+  journal/database write and sync errors with healthy rollback I/O.
+  [Migration I/O tests](semantics.md#migration-io-failures) apply that model to
+  retained schema 1–4 upgrades, verifying the old format before public retry.
+  These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 
 Dependency, feature, compiler-baseline, and configuration changes require a full

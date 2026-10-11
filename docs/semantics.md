@@ -1677,7 +1677,7 @@ foreign keys and recompute property/label index contents.
 These are process-termination tests, not simulated power failure or faulty
 storage. Torn writes, corruption repair, network filesystems, and
 journal/durability tuning remain outside this tested contract. Allocation
-failures and modeled commit I/O errors have the separate coverage below.
+failures and modeled commit/migration I/O errors have the separate coverage below.
 Existing atomic migration and failed-migration tests remain in place.
 
 ## Storage allocation failures
@@ -1708,9 +1708,10 @@ reopening. Integrity and foreign-key checks also pass.
 This fault model caps database growth without exhausting the host filesystem.
 It tests handling of `SQLITE_FULL` during statement execution, with the filesystem
 still able to perform journal and rollback I/O. It does not inject OS-level
-ENOSPC or failures in migration, backup, or restore. Commit write/sync failures
-have the separate model below. Applications should resolve the storage problem
-and verify recovery before retrying the whole failed query or transaction;
+ENOSPC or allocation failures in migration, backup, or restore. Commit and
+migration write/sync failures have the separate coverage below. Applications
+should resolve the storage problem and verify recovery before retrying the
+whole failed query or transaction;
 earlier provisional results do not represent committed work.
 
 ## Commit I/O failures
@@ -1751,10 +1752,51 @@ raw-connection or fault-control API is added.
 This is a model of one failed SQLite I/O call with healthy rollback I/O. It does
 not exhaust the host disk, inject OS-level ENOSPC, partially perform a failed
 write, or model persistent errors during rollback. It also excludes journal
-deletion/truncation faults, migration, backup/restore, WAL, torn writes, and
+deletion/truncation faults, backup/restore, WAL, torn writes, and
 power loss. In particular, these tests do not establish that every possible
 commit error implies rollback: resolve the storage problem and verify recovery
 before retrying after faults outside this model.
+
+## Migration I/O failures
+
+For the one-shot write/sync fault model above, a failed upgrade from a valid
+main schema 1–4 file restores the original schema and contents, including
+`application_id`, `user_version`, SQLite's schema cookie, table/index/trigger
+definitions, and all table rows. The error retains `Error::Sqlite` and the
+extended `SQLITE_IOERR_WRITE` or `SQLITE_IOERR_FSYNC` code. After the fault
+clears, a normal writable open can retry the upgrade; a read-only open still
+refuses the older format until that upgrade succeeds.
+
+Two tests in `src/database/storage_failures/migration_io.rs` copy the retained
+[historical files and independent graph oracles](../tests/fixtures/compatibility/README.md)
+and arm the forwarding VFS before initialization. One calls the initialization
+routine used by public opens while retaining the failed connection; the other
+uses the owning connection constructor to exercise cleanup on failed open.
+For each historical input and path, a healthy upgrade supplies the write/sync
+trace. Every event is then failed in a fresh copy. A commit-hook marker proves
+coverage both during migration statements and at their final commit. Assertions
+match the healthy I/O prefix and exact failed event, and check successful
+rollback page writes after main-file faults.
+
+Before any retry, raw SQLite readers compare every stored object and table row
+with the original snapshot. Row comparisons retain SQLite types, real-value
+bits, BLOB keys, and multiplicity; integrity and foreign-key checks cover the
+physical indexes as well. Another connection with zero busy timeout can write
+and commit while the retained failed connection is still alive. Closing and
+reopening raw readers must still show the old format, so a later migration
+cannot hide partial DDL, backfills, or a prematurely advanced version marker.
+Retry uses the public existing-file opener with the native VFS. Typed graph
+results must match the historical JSON oracle after upgrade and read-only
+reopen, including IDs, label order, nested values, relationship bags, and
+constraints. Subsequent writes exercise migrated label/property/uniqueness
+maintenance and must survive another reopen.
+
+These tests use DELETE journaling, FULL synchronization, disabled cache spill,
+and one failed call before native I/O with healthy rollback afterward. They
+do not model persistent/partial I/O errors, allocation failure during migration,
+journal deletion/truncation, WAL, power loss, or backup/restore faults. Retained
+inputs are pinned historical commits; published release-pair qualification is
+still a separate gate under the [compatibility policy](compatibility.md).
 
 ## Read cursors
 

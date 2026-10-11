@@ -1,10 +1,11 @@
 //! Allocation-failure tests using the real SQLite pager, through the public API.
 //! Private connection access is limited to fault setup, observation, and checks.
-//! The child module also injects one-shot write/sync failures at commit.
+//! Child modules also inject one-shot write/sync failures at commit and migration.
 //! Neither model simulates filesystem ENOSPC or power loss.
 
 mod commit_io;
 mod io_vfs;
+mod migration_io;
 
 use std::{
     path::Path,
@@ -150,10 +151,11 @@ fn snapshot(database: &mut Database) -> Snapshot {
 }
 
 fn assert_integrity(database: &Database) {
-    let mut statement = database
-        .connection
-        .prepare("PRAGMA integrity_check")
-        .unwrap();
+    assert_connection_integrity(&database.connection);
+}
+
+fn assert_connection_integrity(connection: &Connection) {
+    let mut statement = connection.prepare("PRAGMA integrity_check").unwrap();
     let messages = statement
         .query_map([], |row| row.get::<_, String>(0))
         .unwrap()
@@ -161,8 +163,7 @@ fn assert_integrity(database: &Database) {
         .unwrap();
     assert_eq!(messages, ["ok"]);
     assert!(
-        !database
-            .connection
+        !connection
             .prepare("PRAGMA foreign_key_check")
             .unwrap()
             .exists([])

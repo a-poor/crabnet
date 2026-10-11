@@ -93,6 +93,10 @@ impl Control {
         state.fail_at = None;
         std::mem::take(&mut state.events)
     }
+
+    pub(super) fn event_count(&self) -> usize {
+        lock(&self.0).events.len()
+    }
 }
 
 pub(super) struct Registration {
@@ -107,6 +111,13 @@ impl Drop for Registration {
 }
 
 pub(super) fn open(path: &Path) -> (Database, Registration) {
+    let (connection, registration) = connect(path);
+    (Database::from_connection(connection).unwrap(), registration)
+}
+
+/// Connect without running Crabnet initialization, so migration faults can be
+/// armed before any schema work. The fixture file must already exist.
+pub(super) fn connect(path: &Path) -> (Connection, Registration) {
     register_vfs();
     // Fixtures already exist. Canonicalization matches xFullPathname even if
     // the platform's temporary directory contains symlinks (e.g. /var on macOS).
@@ -130,7 +141,7 @@ pub(super) fn open(path: &Path) -> (Database, Registration) {
         c"crabnet-test-commit-io",
     )
     .unwrap();
-    (Database::from_connection(connection).unwrap(), registration)
+    (connection, registration)
 }
 
 #[repr(C)]
