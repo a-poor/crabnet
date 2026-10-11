@@ -127,8 +127,8 @@ end-to-end result test for user-visible semantics.
   integrity, reopening before retry, original-connection reuse, and successful
   retry. Replacement page count/file length, observer visibility, primed caches,
   mutation TEMP state, and subsequent writes surviving reopen are verified.
-  Source reads, differing page sizes, and truncation/deletion faults are outside
-  this restore model.
+  Differing page sizes and truncation/deletion faults are outside this restore
+  model; source reads have their own coverage below.
   The `backup_io` child adds five tests using the public backup implementation's
   private per-call I/O adapter. Three copy sweeps cover writable, read-only, and
   in-memory sources, with every staging write/sync failed against absent and
@@ -139,9 +139,23 @@ end-to-end result test for user-visible semantics.
   sidecar cleanup, source lock release before reuse, and public retries on the
   same source handle. Retried backups are restored over existing graphs; exact
   identities/indexes/constraints and subsequent writes must survive reopen.
-  Source reads, staging creation/open/close, cleanup failures, and power loss
-  are outside this backup model. Run
-  `cargo test --locked --lib database::storage_failures` for all five slices.
+  Staging creation/open/close, cleanup failures, and power loss are outside
+  this backup model.
+  The `source_read_io` child adds four sweeps over validation and copy reads:
+  writable/read-only backup sources with absent/existing destinations, and
+  growing/shrinking restores. Cold caches and a copy-boundary marker ensure
+  both phases perform real reads. Each healthy read supplies a byte range and
+  occurrence within its phase; matching those targets avoids depending on
+  SQLite's validation scan order. Tests verify direct `SQLITE_IOERR_READ` errors
+  or preserved integrity-check diagnostics, one exact failed read, healthy
+  subsequent I/O, unchanged source/protected destination bytes, staging cleanup,
+  exact graph/index/constraint preservation, locks released before handle reuse,
+  and public retries followed by writes surviving reopen. Destination traces
+  prove that some copy read faults follow earlier writes. A fifth test verifies
+  path isolation and one-shot consumption without resetting the controller.
+  Source opening/initialization, persistent/partial reads, and source journal
+  recovery remain outside this model. Run
+  `cargo test --locked --lib database::storage_failures` for all six slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

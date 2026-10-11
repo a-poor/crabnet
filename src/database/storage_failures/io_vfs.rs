@@ -1,9 +1,9 @@
-//! Test-only forwarding VFS for DELETE-journal write/sync fault injection.
+//! Test-only forwarding VFS for DELETE-journal read/write/sync fault injection.
 //!
 //! One process-lifetime registration (never the default VFS) delegates to the
 //! original native VFS. Per-path registrations are removed on drop; open files
 //! retain their own Arc so even a connection outliving its controller is safe.
-//! Only xWrite/xSync are intercepted, before the native operation. A fault is
+//! Only xRead/xWrite/xSync are intercepted, before the native operation. A fault is
 //! consumed once, leaving rollback I/O healthy. Version-1 file methods exclude
 //! WAL and mmap; neither is part of this harness's contract.
 //!
@@ -33,6 +33,7 @@ pub(super) enum FileKind {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Operation {
+    Read,
     Write,
     Sync,
 }
@@ -40,6 +41,7 @@ pub(super) enum Operation {
 impl Operation {
     pub(super) fn error_code(self) -> c_int {
         match self {
+            Self::Read => ffi::SQLITE_IOERR_READ,
             Self::Write => ffi::SQLITE_IOERR_WRITE,
             Self::Sync => ffi::SQLITE_IOERR_FSYNC,
         }
@@ -51,7 +53,7 @@ pub(super) struct Event {
     pub file: FileKind,
     pub operation: Operation,
     pub offset: i64,
-    // Write byte count or sync flags.
+    // Read/write byte count or sync flags.
     pub amount: c_int,
     pub result: c_int,
 }
@@ -59,7 +61,9 @@ pub(super) struct Event {
 #[derive(Default)]
 struct State {
     recording: bool,
+    reads: bool,
     fail_at: Option<usize>,
+    read_target: Option<(i64, c_int, usize)>,
     events: Vec<Event>,
 }
 
@@ -82,15 +86,32 @@ impl Control {
     pub(super) fn start(&self, fail_at: Option<usize>) {
         *lock(&self.0) = State {
             recording: true,
+            reads: false,
             fail_at,
+            read_target: None,
             events: Vec::new(),
         };
+    }
+
+    /// Keep existing write/sync sweeps unchanged; source-read sweeps opt in.
+    pub(super) fn start_reads(&self) {
+        self.start(None);
+        lock(&self.0).reads = true;
+    }
+
+    /// Target the nth read of these bytes. Integrity-check scan order can vary
+    /// between connections, so a global read ordinal is not a stable target.
+    pub(super) fn fail_read(&self, expected: &Event, occurrence: usize) {
+        assert_eq!(expected.file, FileKind::Database);
+        assert_eq!(expected.operation, Operation::Read);
+        lock(&self.0).read_target = Some((expected.offset, expected.amount, occurrence));
     }
 
     pub(super) fn stop(&self) -> Vec<Event> {
         let mut state = lock(&self.0);
         state.recording = false;
         state.fail_at = None;
+        state.read_target = None;
         std::mem::take(&mut state.events)
     }
 
@@ -118,6 +139,10 @@ pub(super) fn open(path: &Path) -> (Database, Registration) {
 /// Connect without running Crabnet initialization, so migration faults can be
 /// armed before any schema work. The fixture file must already exist.
 pub(super) fn connect(path: &Path) -> (Connection, Registration) {
+    connect_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+}
+
+pub(super) fn connect_with_flags(path: &Path, access: OpenFlags) -> (Connection, Registration) {
     register_vfs();
     // Fixtures already exist. Canonicalization matches xFullPathname even if
     // the platform's temporary directory contains symlinks (e.g. /var on macOS).
@@ -135,9 +160,7 @@ pub(super) fn connect(path: &Path) -> (Connection, Registration) {
     let registration = Registration { path: key, control };
     let connection = Connection::open_with_flags_and_vfs(
         path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX
-            | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
+        access | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
         c"crabnet-test-commit-io",
     )
     .unwrap();
@@ -239,12 +262,30 @@ unsafe fn io(
             return forward(wrapper.native);
         };
         let mut state = lock(state);
-        if !state.recording {
+        if !state.recording || (operation == Operation::Read && !state.reads) {
             return forward(wrapper.native);
         }
-        let fail = state.fail_at == Some(state.events.len());
+        let read_fail = if operation == Operation::Read && kind == FileKind::Database {
+            state
+                .read_target
+                .as_mut()
+                .is_some_and(|(target_offset, target_amount, remaining)| {
+                    if (*target_offset, *target_amount) != (offset, amount) {
+                        false
+                    } else if *remaining == 0 {
+                        true
+                    } else {
+                        *remaining -= 1;
+                        false
+                    }
+                })
+        } else {
+            false
+        };
+        let fail = read_fail || state.fail_at == Some(state.events.len());
         let result = if fail {
             state.fail_at = None;
+            state.read_target = None;
             operation.error_code()
         } else {
             forward(wrapper.native)
@@ -273,6 +314,19 @@ unsafe extern "C" fn write_file(
     }
 }
 
+unsafe extern "C" fn read_file(
+    file: *mut ffi::sqlite3_file,
+    buffer: *mut c_void,
+    amount: c_int,
+    offset: i64,
+) -> c_int {
+    unsafe {
+        io(file, Operation::Read, offset, amount, |native| {
+            (*(*native).pMethods).xRead.unwrap()(native, buffer, amount, offset)
+        })
+    }
+}
+
 unsafe extern "C" fn sync_file(file: *mut ffi::sqlite3_file, flags: c_int) -> c_int {
     unsafe {
         io(file, Operation::Sync, 0, flags, |native| {
@@ -293,7 +347,6 @@ macro_rules! file_forward {
     };
 }
 
-file_forward!(read_file, xRead, (buffer: *mut c_void, amount: c_int, offset: i64));
 file_forward!(truncate_file, xTruncate, (size: i64));
 file_forward!(file_size, xFileSize, (size: *mut i64));
 file_forward!(lock_file, xLock, (level: c_int));

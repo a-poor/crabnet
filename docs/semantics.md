@@ -1836,9 +1836,9 @@ replacement graph. Source invariance is checked after failure, retry, and
 subsequent destination writes.
 
 This coverage is limited to destination `xWrite`/`xSync` failures in the stated
-configuration. It does not inject source-read, database/journal truncation,
-journal deletion, persistent/partial I/O, or allocation failures; nor does it
-qualify differing page sizes, WAL, or power loss. Backup copy/publication faults
+configuration. Source-read coverage is described below. It does not inject
+database/journal truncation, journal deletion, persistent/partial I/O, or
+allocation failures; nor does it qualify differing page sizes, WAL, or power loss. Backup copy/publication faults
 have separate coverage below. Resolve storage faults outside this model and
 verify the destination before retrying a restore.
 
@@ -1889,12 +1889,68 @@ that survives reopening. Restoring and mutating that destination must leave the
 published backup unchanged.
 
 This covers one-shot staging `xWrite`/`xSync` errors, pre-call final sync/link
-failures, and the stated publication race. It does not inject source-read,
-staging creation/open/close, or cleanup failures; filesystem ENOSPC,
-persistent/partial I/O, deletion/truncation, WAL, and power-loss guarantees
-remain unqualified. In particular, the parent directory is not synced, and
+failures, and the stated publication race. Source-read coverage is described
+below. It does not inject staging creation/open/close or cleanup failures;
+filesystem ENOSPC, persistent/partial I/O, deletion/truncation, WAL, and power-loss
+guarantees remain unqualified. In particular, the parent directory is not synced, and
 process death may leave unpublished staging files as described in the
 [backup contract](#backups-and-process-recovery).
+
+## Backup and restore source-read failures
+
+For the one-shot source-read model here, a failed backup leaves its destination
+absent or preserves an existing file, removes staging files and sidecars, and
+releases the source snapshot. A failed restore preserves the original
+destination bytes, graph, identities, constraints, and derived indexes before
+returning. Both operations preserve source bytes and allow a successful public
+retry on the original caller-owned handle after the fault clears.
+
+Errors returned directly by SQLite retain `Error::Sqlite`,
+`ErrorCode::SystemIoFailure`, and `SQLITE_IOERR_READ`. SQLite's b-tree integrity
+checker can instead report a failed read in a result row, for example an
+unreadable page with error code 266. Crabnet preserves that diagnostic in
+`Error::Data("backup integrity check failed: ...")`; it does not infer SQLite
+codes by parsing diagnostic text. Thus a validation diagnostic does not by
+itself distinguish persistent corruption from a transient read problem. Either
+form of validation failure prevents copying or publishing a snapshot.
+
+Five tests in `src/database/storage_failures/source_read_io.rs` use the private
+per-call adapter shared with the public backup/restore implementation and the
+test-only forwarding VFS. Four sweeps cover writable and read-only backup
+sources, each with absent and existing destinations, and restores that grow or
+shrink an existing file. Source opening and initialization complete before
+arming. Each healthy operation supplies validation and copy read targets;
+tests fail each target's byte range and occurrence within its phase, then
+verify exactly one matching `xRead` returned `SQLITE_IOERR_READ` before native
+I/O. SQLite's validation scan order can vary between connections, so the read
+sweeps do not assume a fixed global event order. All other source and
+destination I/O remains healthy. A fifth test proves path isolation and a
+successful reread of the failed byte range without resetting the controller.
+
+Tests use DELETE journaling, FULL destination synchronization, disabled
+destination cache spill, and equal page sizes. The source cache holds the
+fixture, and unpinned pages are discarded before validation and at the copy
+boundary without ending the read snapshot. This forces actual disk reads in
+both phases. Copy-boundary markers prove phase coverage, and destination VFS
+observations ensure later read faults occur after copy writes have begun.
+
+Before connection reuse or reopening, tests compare file bytes and check
+autocommit state. An exclusive-lock probe proves source snapshot release;
+another destination writer can commit immediately with zero busy timeout
+while the failed restore handle remains open. Typed graph bags, exact stored
+index/key rows, constraints, and integrity are checked before retry. Backup
+retries use the same source handle, preserve any existing destination, and
+produce a file that can be restored over another graph. Restore retries use
+the same destination handle and verify observer visibility, replacement file
+size, primed statements and mutation TEMP state. Subsequent mutations and
+constraints are verified after closing and reopening the restored graph.
+
+This model covers source reads during snapshot validation and copying, not
+opening/initialization, source journal recovery, or persistent/partial reads.
+It does not add coverage for staging creation/open/close/cleanup failures,
+filesystem ENOSPC, deletion/truncation, differing page sizes, WAL, or power loss.
+In-memory sources have no main-file `xRead` and are outside these read sweeps;
+their destination-copy failures remain covered separately above.
 
 ## Read cursors
 

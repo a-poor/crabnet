@@ -10,6 +10,10 @@ use crate::{Database, Error, OpenMode, OpenOptions, Result};
 // Private I/O boundary shared by the public path and fault tests. Each call
 // receives its own adapter; no global hooks or consumer-visible controls are needed.
 pub(super) trait BackupIo {
+    fn open_source(&mut self, path: &Path, options: &OpenOptions) -> Result<Database> {
+        Database::open_with_options(path, options)
+    }
+
     fn open_destination(&mut self, path: &Path) -> Result<Connection> {
         Ok(Connection::open_with_flags(
             path,
@@ -21,6 +25,10 @@ pub(super) trait BackupIo {
 
     fn sync(&mut self, file: &fs::File) -> io::Result<()> {
         file.sync_all()
+    }
+
+    fn copy_snapshot(&mut self, source: &Connection, destination: &mut Connection) -> Result<()> {
+        copy_snapshot(source, destination)
     }
 
     fn publish(&mut self, source: &Path, destination: &Path) -> io::Result<()> {
@@ -74,7 +82,7 @@ impl Database {
         let file = tempfile::NamedTempFile::new_in(directory.path())?;
         let mut destination = io.open_destination(file.path())?;
         destination.busy_timeout(timeout)?;
-        copy_snapshot(&snapshot, &mut destination)?;
+        io.copy_snapshot(&snapshot, &mut destination)?;
         destination.close().map_err(|(_, error)| error)?;
         io.sync(file.as_file())?;
         // Unlike rename(), hard_link() cannot replace an existing entry, even
@@ -105,8 +113,16 @@ impl Database {
     /// # Ok::<(), crabnet::Error>(())
     /// ```
     pub fn restore_from(&mut self, path: impl AsRef<Path>) -> Result<()> {
+        self.restore_from_with_io(path.as_ref(), &mut NativeBackupIo)
+    }
+
+    pub(super) fn restore_from_with_io(
+        &mut self,
+        path: &Path,
+        io: &mut impl BackupIo,
+    ) -> Result<()> {
         self.ensure_writable()?;
-        let mut source = Self::open_with_options(
+        let mut source = io.open_source(
             path,
             &OpenOptions {
                 mode: OpenMode::ReadOnly,
@@ -118,7 +134,7 @@ impl Database {
         self.connection.flush_prepared_statement_cache();
         // Do not run any fallible operation after successful replacement: an
         // error from later cleanup would misreport an already committed restore.
-        copy_snapshot(&snapshot, &mut self.connection)
+        io.copy_snapshot(&snapshot, &mut self.connection)
     }
 }
 

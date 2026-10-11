@@ -78,6 +78,10 @@ of file locking, process recovery, and backup behavior on the new configuration.
   staging write/sync and final file-sync/publication errors, plus a real hard-link
   publication race, with preserved sources/destinations, staging cleanup, and
   successful public retries from writable, read-only, and in-memory sources.
+  [Source-read tests](semantics.md#backup-and-restore-source-read-failures) cover
+  one-shot read failures during backup/restore validation and copying, including
+  SQLite integrity-check diagnostics, preserved files/graphs, released locks,
+  staging cleanup, and public retries on the original handles.
   These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 

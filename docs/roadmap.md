@@ -927,7 +927,12 @@ enforcement and the remaining qualification gates are pending.
   file-sync/publication errors and a real competing-publisher hard-link race.
   They verify absent/existing destination handling, staging cleanup, unchanged
   source bytes/graphs, lock release, public retries, and restoration/reopening.
-  Add source-read and staging lifecycle faults, filesystem ENOSPC, and models
+  [Source-read tests](semantics.md#backup-and-restore-source-read-failures)
+  cover one-shot validation/copy reads for writable/read-only backups and
+  growing/shrinking restores. They check direct errors and integrity-check
+  diagnostics, exact failed read targets, unchanged files/graphs, cleanup,
+  lock release, and public retries. Opening/initialization reads remain outside
+  this model. Add staging lifecycle faults, filesystem ENOSPC, and models
   for persistent/partial I/O and journal deletion/truncation failures.
   Exercise corruption detection and failed-open/restore behavior.
   Use a documented fault model to test power-loss/torn-write recovery before
@@ -956,10 +961,12 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to source reads and backup staging
+1. Extend milestone 11's fault coverage to backup staging
    creation/open/close/cleanup. Page-count-cap and one-shot commit, migration,
    restore, and backup copy write/sync tests are in place, along with final
-   backup sync/publication errors and a competing-publisher race. Filesystem
+   backup sync/publication errors, a competing-publisher race, and source-read
+   errors during backup/restore validation and copying. Opening/initialization
+   reads and source journal recovery remain follow-ups. Filesystem
    ENOSPC, persistent/partial errors, and journal deletion/truncation remain
    unqualified. The compatibility policy and historical fixtures are in place;
    named release pairs still need candidate-specific evidence. Keep durability
