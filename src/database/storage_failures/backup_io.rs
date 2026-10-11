@@ -18,7 +18,7 @@ use std::{
 };
 
 #[derive(Clone, Copy, Debug)]
-enum SourceKind {
+pub(super) enum SourceKind {
     Writable,
     ReadOnly,
     Memory,
@@ -44,17 +44,17 @@ enum Boundary {
     Publish,
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     _directory: tempfile::TempDir,
-    source: PathBuf,
-    expected: Snapshot,
-    winner: PathBuf,
-    winner_bytes: Vec<u8>,
-    winner_graph: Snapshot,
+    pub(super) source: PathBuf,
+    pub(super) expected: Snapshot,
+    pub(super) winner: PathBuf,
+    pub(super) winner_bytes: Vec<u8>,
+    pub(super) winner_graph: Snapshot,
 }
 
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("source.sqlite");
         let mut database = seed(&source);
@@ -88,7 +88,7 @@ impl Fixture {
     }
 }
 
-fn read_only(path: &Path) -> Database {
+pub(super) fn read_only(path: &Path) -> Database {
     Database::open_with_options(
         path,
         &OpenOptions {
@@ -222,7 +222,7 @@ fn assert_output_directory(directory: &Path, expected: &[&str]) {
     assert_eq!(names, expected, "no leaked staging directories or sidecars");
 }
 
-fn verify_published(path: &Path, expected: &Snapshot, restore_path: &Path) {
+pub(super) fn verify_published(path: &Path, expected: &Snapshot, restore_path: &Path) {
     let bytes = fs::read(path).unwrap();
     let mut backup = read_only(path);
     assert_eq!(snapshot(&mut backup), *expected);

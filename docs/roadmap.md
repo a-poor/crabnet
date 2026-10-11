@@ -932,8 +932,13 @@ enforcement and the remaining qualification gates are pending.
   growing/shrinking restores. They check direct errors and integrity-check
   diagnostics, exact failed read targets, unchanged files/graphs, cleanup,
   lock release, and public retries. Opening/initialization reads remain outside
-  this model. Add staging lifecycle faults, filesystem ENOSPC, and models
-  for persistent/partial I/O and journal deletion/truncation failures.
+  this model. [Staging lifecycle tests](semantics.md#backup-staging-lifecycle-failures)
+  cover pre-call creation/open/close failures, failed file/directory removal,
+  primary-error precedence, publication success despite cleanup failure,
+  exact leftovers, public retries, and panic cleanup. Native descriptor-close
+  errors and partially completed creation/removal remain unqualified. Add
+  filesystem ENOSPC and models for persistent/partial I/O and journal
+  deletion/truncation failures.
   Exercise corruption detection and failed-open/restore behavior.
   Use a documented fault model to test power-loss/torn-write recovery before
   claiming it; current process-termination tests cover a narrower failure model.
@@ -961,14 +966,17 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to backup staging
-   creation/open/close/cleanup. Page-count-cap and one-shot commit, migration,
+1. Extend milestone 11's fault coverage to source opening/initialization reads;
+   source journal recovery remains a further follow-up. Page-count-cap and
+   one-shot commit, migration,
    restore, and backup copy write/sync tests are in place, along with final
    backup sync/publication errors, a competing-publisher race, and source-read
-   errors during backup/restore validation and copying. Opening/initialization
-   reads and source journal recovery remain follow-ups. Filesystem
-   ENOSPC, persistent/partial errors, and journal deletion/truncation remain
-   unqualified. The compatibility policy and historical fixtures are in place;
+   errors during backup/restore validation and copying. Staging creation/open/close
+   and cleanup now have API-boundary coverage, including error precedence,
+   retained artifacts, and success after publication. Native close failures,
+   partial creation/removal, filesystem ENOSPC, persistent/partial SQLite errors,
+   and journal deletion/truncation remain unqualified. The compatibility policy
+   and historical fixtures are in place;
    named release pairs still need candidate-specific evidence. Keep durability
    claims within the tested model.
 2. Configure and verify required checks when the repository's plan permits

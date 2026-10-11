@@ -5,6 +5,7 @@
 //! These models do not simulate filesystem ENOSPC or power loss.
 
 mod backup_io;
+mod backup_lifecycle;
 mod commit_io;
 mod io_vfs;
 mod migration_io;

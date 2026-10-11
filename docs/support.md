@@ -82,6 +82,10 @@ of file locking, process recovery, and backup behavior on the new configuration.
   one-shot read failures during backup/restore validation and copying, including
   SQLite integrity-check diagnostics, preserved files/graphs, released locks,
   staging cleanup, and public retries on the original handles.
+  [Staging lifecycle tests](semantics.md#backup-staging-lifecycle-failures)
+  cover modeled creation/open/close and cleanup failures, primary-error
+  precedence, successful publication despite cleanup failure, retained staging
+  artifacts, public retries, and cleanup during panic unwinding.
   These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 

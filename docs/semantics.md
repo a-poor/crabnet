@@ -1607,11 +1607,15 @@ after the complete copy exists. Hard-link publication requires filesystem
 support and never replaces an existing entry, including an empty file,
 hard-link alias, or symlink. An existing destination returns
 `Error::Io` containing `std::io::ErrorKind::AlreadyExists`. Other staging or
-publication failures also preserve the underlying filesystem error. Ordinary
-failure cleans up staging files; process death can leave an unpublished
-`.crabnet-backup-*` directory. Such directories are not completed backups and
-may be removed once no backup operation is using them. A process killed after
-publication can leave a valid final backup even if its caller never received
+publication failures also preserve the underlying filesystem error. Cleanup
+attempts file removal and then recursive directory removal on success or
+failure. Cleanup errors are best effort: they do not replace an earlier error
+or turn a successfully published backup into a reported failure. Cleanup
+failure or process death can leave a `.crabnet-backup-*` directory, containing
+partial files or an additional hard link to a published backup. Once no backup
+operation is using it, remove the staging directory; do not modify or truncate
+its files, which may share storage with the published backup. A process killed
+after publication can leave a valid final backup even if its caller never received
 success. The file is synced, but its parent directory is not: this is not a
 power-loss guarantee for the new directory entry. Source file permissions and
 ACLs are not copied; the published file retains the temporary file's permissions
@@ -1890,9 +1894,9 @@ published backup unchanged.
 
 This covers one-shot staging `xWrite`/`xSync` errors, pre-call final sync/link
 failures, and the stated publication race. Source-read coverage is described
-below. It does not inject staging creation/open/close or cleanup failures;
-filesystem ENOSPC, persistent/partial I/O, deletion/truncation, WAL, and power-loss
-guarantees remain unqualified. In particular, the parent directory is not synced, and
+below. Staging lifecycle failures have their own model below. Filesystem ENOSPC,
+persistent/partial I/O, deletion/truncation, WAL, and power-loss guarantees
+remain unqualified. In particular, the parent directory is not synced, and
 process death may leave unpublished staging files as described in the
 [backup contract](#backups-and-process-recovery).
 
@@ -1931,7 +1935,10 @@ Tests use DELETE journaling, FULL destination synchronization, disabled
 destination cache spill, and equal page sizes. The source cache holds the
 fixture, and unpinned pages are discarded before validation and at the copy
 boundary without ending the read snapshot. This forces actual disk reads in
-both phases. Copy-boundary markers prove phase coverage, and destination VFS
+both phases. The read sweeps serialize these deliberate cache resets because
+bundled SQLite's memory-management configuration shares an eviction group
+across connections; other storage tests continue to run in parallel.
+Copy-boundary markers prove phase coverage, and destination VFS
 observations ensure later read faults occur after copy writes have begun.
 
 Before connection reuse or reopening, tests compare file bytes and check
@@ -1947,10 +1954,60 @@ constraints are verified after closing and reopening the restored graph.
 
 This model covers source reads during snapshot validation and copying, not
 opening/initialization, source journal recovery, or persistent/partial reads.
-It does not add coverage for staging creation/open/close/cleanup failures,
-filesystem ENOSPC, deletion/truncation, differing page sizes, WAL, or power loss.
+Staging lifecycle failures have separate coverage below. Filesystem ENOSPC,
+deletion/truncation, differing page sizes, WAL, and power loss remain unqualified.
 In-memory sources have no main-file `xRead` and are outside these read sweeps;
 their destination-copy failures remain covered separately above.
+
+## Backup staging lifecycle failures
+
+Staging directory/file creation, SQLite open, and explicit SQLite close failures
+prevent publication. The source and any existing destination remain unchanged;
+the source snapshot is released before return. Filesystem errors retain
+`Error::Io` and their raw OS code, and SQLite errors retain their structured
+code and diagnostic. A later cleanup error does not replace that primary error,
+including a native `AlreadyExists` publication error.
+
+Cleanup attempts file removal followed by recursive directory removal, even
+when file removal fails. If directory removal succeeds, it also removes any
+remaining staging file and sidecars. If directory removal fails, an empty or
+partially cleaned directory can remain. After publication, cleanup errors leave
+the return value successful and the final backup intact. Neither a retry nor
+opening a database scans for or removes staging directories from earlier calls.
+Remove an inactive leftover directory after resolving its removal problem;
+do not modify its files, since the staging main file may still be a hard link
+to the published backup.
+
+Five tests in `src/database/storage_failures/backup_lifecycle.rs` extend the
+private per-call I/O adapter used by the public method. The matrix covers
+writable, read-only, and in-memory sources, with absent and existing
+destinations. It injects errors before directory/file creation, SQLite open,
+and explicit SQLite close. Separate file/directory cleanup failures are tested
+individually and together after setup, copy, close, sync, and publication errors,
+and after successful publication. The copy error is a one-shot VFS write fault;
+the existing-destination error comes from a real native hard link. Healthy
+controls cover ordinary success and no-overwrite errors.
+
+Step traces prove operation and cleanup order, including skipped operations
+after a failure. Tests compare source and protected destination bytes before
+source reuse, verify autocommit and immediate exclusive-lock acquisition on
+file sources, and check exact typed graph/index/constraint snapshots. Cleanup
+uses an inert sidecar marker to check recursive removal and exact remaining
+files. Public retries use the same source handle, preserve earlier remnants,
+and produce backups that restore over an existing graph with constraints and
+subsequent writes surviving reopen. Published success is checked even when
+both cleanup operations fail; later native removal of the leftover directory
+must preserve the final backup. Four panic points before publication verify
+that native RAII cleanup and source lock release still work during unwinding.
+
+This is an API-boundary model: creation/open/close errors precede the selected
+native operation, and the close-error path still drops its connection through
+a healthy native close. Cleanup errors skip the selected removal, disable the
+temporary object's automatic removal, and release its file handle normally.
+It does not inject OS descriptor-close failures, partially completed creation
+or recursive removal, hostile path replacement, persistent SQLite I/O failure,
+filesystem ENOSPC, or power loss. Such failures require separate qualification;
+the source-read and destination write/sync models above retain their own limits.
 
 ## Read cursors
 

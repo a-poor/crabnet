@@ -14,8 +14,21 @@ use serde_json::json;
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{Mutex, MutexGuard},
     time::Duration,
 };
+
+fn source_cache_guard() -> MutexGuard<'static, ()> {
+    // Bundled SQLite enables MEMORY_MANAGEMENT, which shares the page-cache
+    // eviction group across connections even with PRIVATE_CACHE. One test's
+    // shrink_memory can therefore add reads to another test's healthy trace.
+    // Serialize these deliberate cache resets and the operations they measure;
+    // ordinary database/VFS tests continue to run in parallel.
+    static CACHE_RESETS: Mutex<()> = Mutex::new(());
+    CACHE_RESETS
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
 
 struct Fixture {
     _directory: tempfile::TempDir,
@@ -547,6 +560,7 @@ fn restore_case(fixture: &Fixture, fault: Option<&ReadFault>) -> Trace {
 }
 
 fn backup_sweep(mode: OpenMode) {
+    let _cache_guard = source_cache_guard();
     let fixture = Fixture::new(false);
     let healthy = backup_case(&fixture, mode, false, None);
     let mut after_writes = 0;
@@ -571,6 +585,7 @@ fn backup_sweep(mode: OpenMode) {
 }
 
 fn restore_sweep(shrink: bool) {
+    let _cache_guard = source_cache_guard();
     let fixture = Fixture::new(shrink);
     let healthy = restore_case(&fixture, None);
     let mut after_writes = 0;
@@ -614,6 +629,7 @@ fn shrinking_restore_source_read_failures_preserve_destination_and_allow_retry()
 
 #[test]
 fn source_read_faults_are_path_scoped_and_consumed_once() {
+    let _cache_guard = source_cache_guard();
     let fixture = Fixture::new(false);
     let directory = tempfile::tempdir().unwrap();
     let first_path = directory.path().join("first.sqlite");

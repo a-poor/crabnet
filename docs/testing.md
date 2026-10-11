@@ -139,14 +139,16 @@ end-to-end result test for user-visible semantics.
   sidecar cleanup, source lock release before reuse, and public retries on the
   same source handle. Retried backups are restored over existing graphs; exact
   identities/indexes/constraints and subsequent writes must survive reopen.
-  Staging creation/open/close, cleanup failures, and power loss are outside
-  this backup model.
+  Staging lifecycle failures have their own coverage below; power loss remains
+  outside this backup model.
   The `source_read_io` child adds four sweeps over validation and copy reads:
   writable/read-only backup sources with absent/existing destinations, and
   growing/shrinking restores. Cold caches and a copy-boundary marker ensure
   both phases perform real reads. Each healthy read supplies a byte range and
   occurrence within its phase; matching those targets avoids depending on
-  SQLite's validation scan order. Tests verify direct `SQLITE_IOERR_READ` errors
+  SQLite's validation scan order. A test-only guard serializes these deliberate
+  cache resets: bundled SQLite shares their eviction group across connections.
+  Tests verify direct `SQLITE_IOERR_READ` errors
   or preserved integrity-check diagnostics, one exact failed read, healthy
   subsequent I/O, unchanged source/protected destination bytes, staging cleanup,
   exact graph/index/constraint preservation, locks released before handle reuse,
@@ -154,8 +156,21 @@ end-to-end result test for user-visible semantics.
   prove that some copy read faults follow earlier writes. A fifth test verifies
   path isolation and one-shot consumption without resetting the controller.
   Source opening/initialization, persistent/partial reads, and source journal
-  recovery remain outside this model. Run
-  `cargo test --locked --lib database::storage_failures` for all six slices.
+  recovery remain outside this model.
+  The `backup_lifecycle` child adds five tests for staging directory/file
+  creation, SQLite open/close, and file/directory cleanup. Four matrices cover
+  all three source kinds with absent/existing destinations, primary-error
+  precedence when cleanup also fails, successful publication despite cleanup
+  failure, and healthy controls. They check exact operation order, preserved
+  files/typed graphs, source lock release before reuse, recursive cleanup and
+  exact leftovers, public retries that leave earlier remnants alone, and
+  restorable backups with writes surviving reopen. Removing a retained staging
+  hard link must preserve the published backup. Four panic points in a fifth
+  test retain native RAII cleanup. Creation/open/close failures are synthetic
+  pre-call errors; the copy fault uses the VFS, and no-overwrite errors use
+  native hard links. Cleanup faults skip removal while still releasing file
+  handles. OS close errors and partial creation/removal remain unqualified. Run
+  `cargo test --locked --lib database::storage_failures` for all seven slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

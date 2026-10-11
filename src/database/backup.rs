@@ -10,6 +10,16 @@ use crate::{Database, Error, OpenMode, OpenOptions, Result};
 // Private I/O boundary shared by the public path and fault tests. Each call
 // receives its own adapter; no global hooks or consumer-visible controls are needed.
 pub(super) trait BackupIo {
+    fn create_directory(&mut self, parent: &Path) -> io::Result<tempfile::TempDir> {
+        tempfile::Builder::new()
+            .prefix(".crabnet-backup-")
+            .tempdir_in(parent)
+    }
+
+    fn create_file(&mut self, directory: &Path) -> io::Result<tempfile::NamedTempFile> {
+        tempfile::NamedTempFile::new_in(directory)
+    }
+
     fn open_source(&mut self, path: &Path, options: &OpenOptions) -> Result<Database> {
         Database::open_with_options(path, options)
     }
@@ -25,6 +35,18 @@ pub(super) trait BackupIo {
 
     fn sync(&mut self, file: &fs::File) -> io::Result<()> {
         file.sync_all()
+    }
+
+    fn close_destination(&mut self, connection: Connection) -> Result<()> {
+        connection.close().map_err(|(_, error)| error.into())
+    }
+
+    fn cleanup_file(&mut self, file: tempfile::NamedTempFile) -> io::Result<()> {
+        file.close()
+    }
+
+    fn cleanup_directory(&mut self, directory: tempfile::TempDir) -> io::Result<()> {
+        directory.close()
     }
 
     fn copy_snapshot(&mut self, source: &Connection, destination: &mut Connection) -> Result<()> {
@@ -51,9 +73,13 @@ impl Database {
     /// hard link after SQLite completes and the file is synced. An existing
     /// destination (including an empty file or symlink) returns [`Error::Io`]
     /// with `AlreadyExists`. Returned errors leave that destination untouched.
-    /// The filesystem must support hard links. Process death can leave an
-    /// unpublished `.crabnet-backup-*` directory; power-loss durability of the
-    /// directory entry is not guaranteed.
+    /// Staging cleanup is best effort: its errors neither replace an earlier
+    /// failure nor turn a published backup into a reported failure. Cleanup
+    /// failure or process death can leave a `.crabnet-backup-*` directory.
+    /// Once no backup is using it, remove that directory rather than modifying
+    /// its files: a retained staging file may hard-link to the published backup.
+    /// The filesystem must support hard links; power-loss durability of the
+    /// published directory entry is not guaranteed.
     ///
     /// ```no_run
     /// use crabnet::Database;
@@ -74,21 +100,30 @@ impl Database {
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        // Isolate SQLite sidecars as well as the main staging file. RAII removes
-        // the whole directory on ordinary failure, after all handles close.
-        let directory = tempfile::Builder::new()
-            .prefix(".crabnet-backup-")
-            .tempdir_in(parent)?;
-        let file = tempfile::NamedTempFile::new_in(directory.path())?;
-        let mut destination = io.open_destination(file.path())?;
-        destination.busy_timeout(timeout)?;
-        io.copy_snapshot(&snapshot, &mut destination)?;
-        destination.close().map_err(|(_, error)| error)?;
-        io.sync(file.as_file())?;
-        // Unlike rename(), hard_link() cannot replace an existing entry, even
-        // if a competing publisher created it after the copy started.
-        io.publish(file.path(), path)?;
-        Ok(())
+        // Isolate SQLite sidecars as well as the main staging file. Explicit
+        // cleanup makes error precedence clear; RAII still handles unwinding.
+        let directory = io.create_directory(parent)?;
+        let result = (|| {
+            let file = io.create_file(directory.path())?;
+            let result: Result<()> = (|| {
+                let mut destination = io.open_destination(file.path())?;
+                destination.busy_timeout(timeout)?;
+                io.copy_snapshot(&snapshot, &mut destination)?;
+                io.close_destination(destination)?;
+                io.sync(file.as_file())?;
+                // Unlike rename(), hard_link() cannot replace an existing
+                // entry, even if a competing publisher created it meanwhile.
+                io.publish(file.path(), path)?;
+                Ok(())
+            })();
+            // Best effort, like tempfile's Drop: retain the operation's error
+            // or its published success. Never turn a completed backup into a
+            // reported failure. Directory cleanup also retries file removal.
+            let _ = io.cleanup_file(file);
+            result
+        })();
+        let _ = io.cleanup_directory(directory);
+        result
     }
 
     /// Atomically replaces this graph with a validated, current-version backup.
