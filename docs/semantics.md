@@ -1677,8 +1677,9 @@ foreign keys and recompute property/label index contents.
 These are process-termination tests, not simulated power failure or faulty
 storage. Torn writes, corruption repair, network filesystems, and
 journal/durability tuning remain outside this tested contract. Allocation
-failures and modeled commit/migration/restore I/O errors have separate coverage
-below. Existing atomic migration and failed-migration tests remain in place.
+failures and modeled commit/migration/restore/backup I/O errors have separate
+coverage below. Existing atomic migration and failed-migration tests remain in
+place.
 
 ## Storage allocation failures
 
@@ -1709,9 +1710,9 @@ This fault model caps database growth without exhausting the host filesystem.
 It tests handling of `SQLITE_FULL` during statement execution, with the filesystem
 still able to perform journal and rollback I/O. It does not inject OS-level
 ENOSPC or allocation failures in migration, backup, or restore. Commit,
-migration, and restore write/sync failures have separate coverage below. Applications
-should resolve the storage problem and verify recovery before retrying the
-whole failed query or transaction;
+migration, restore, and backup write/sync failures have separate coverage below.
+Applications should resolve the storage problem and verify recovery before
+retrying the whole failed query or transaction;
 earlier provisional results do not represent committed work.
 
 ## Commit I/O failures
@@ -1752,7 +1753,7 @@ raw-connection or fault-control API is added.
 This is a model of one failed SQLite I/O call with healthy rollback I/O. It does
 not exhaust the host disk, inject OS-level ENOSPC, partially perform a failed
 write, or model persistent errors during rollback. It also excludes journal
-deletion/truncation faults, backup faults, WAL, torn writes, and
+deletion/truncation faults, WAL, torn writes, and
 power loss. In particular, these tests do not establish that every possible
 commit error implies rollback: resolve the storage problem and verify recovery
 before retrying after faults outside this model.
@@ -1794,7 +1795,7 @@ maintenance and must survive another reopen.
 These tests use DELETE journaling, FULL synchronization, disabled cache spill,
 and one failed call before native I/O with healthy rollback afterward. They
 do not model persistent/partial I/O errors, allocation failure during migration,
-journal deletion/truncation, WAL, power loss, or backup faults. Retained
+journal deletion/truncation, WAL, or power loss. Retained
 inputs are pinned historical commits; published release-pair qualification is
 still a separate gate under the [compatibility policy](compatibility.md).
 
@@ -1837,9 +1838,63 @@ subsequent destination writes.
 This coverage is limited to destination `xWrite`/`xSync` failures in the stated
 configuration. It does not inject source-read, database/journal truncation,
 journal deletion, persistent/partial I/O, or allocation failures; nor does it
-qualify differing page sizes, WAL, power loss, or backup copy/publication
-faults. Resolve storage faults outside this model and verify the destination
-before retrying a restore.
+qualify differing page sizes, WAL, or power loss. Backup copy/publication faults
+have separate coverage below. Resolve storage faults outside this model and
+verify the destination before retrying a restore.
+
+## Backup copy and publication failures
+
+For the modeled failures here, `Database::backup_to` leaves no partially
+published backup, preserves an existing destination, removes its staging
+directory and sidecars, and releases its source snapshot before returning.
+SQLite copy failures retain `Error::Sqlite`, `ErrorCode::SystemIoFailure`, and
+the extended `SQLITE_IOERR_WRITE` or `SQLITE_IOERR_FSYNC` code. Final file-sync
+and publication failures retain `Error::Io` and the original raw OS error code.
+A competing publisher that creates the destination before our hard link wins:
+our call returns the native `AlreadyExists` error and leaves that file intact.
+
+Five tests in `src/database/storage_failures/backup_io.rs` exercise writable
+file, read-only file, and in-memory sources. A private per-call I/O adapter
+selects the staging connection and final sync/publication operations; the
+public method uses native operations through the same implementation. Fault
+controls are not exposed to consumers, and no global hook or default VFS is
+changed. Retries use the public `backup_to` method with normal I/O on the same
+source handle, retaining an existing destination and choosing a new name when
+necessary.
+
+Three sweeps record healthy copies, then fail every staging journal/database
+write and sync against both absent and existing destinations. Assertions match
+the exact successful prefix and failed event, including faults after earlier
+staging pages were written. The forwarding VFS returns one error before native
+I/O and leaves subsequent cleanup I/O healthy. The copy uses DELETE journaling,
+FULL synchronization, and disabled cache spill. Copy failures must never reach
+the final sync or publication boundary.
+
+A final-operation matrix injects a raw OS error before `File::sync_all` and
+`fs::hard_link`, also with absent and existing destinations. These checks prove
+the staged graph is complete and internally consistent before the final sync,
+and that publication is reached only after a successful sync. A separate race
+test actually publishes a different valid backup at that boundary, then lets
+the native hard link fail. It verifies that the winner's bytes and graph survive
+both the failed attempt and the later retry at a fresh name.
+
+Before reusing the source handle, tests verify staging cleanup and autocommit
+state. For file sources, they also verify unchanged bytes and another source
+writer's immediate commit with zero lock timeout. Typed snapshots preserve graph
+identities, parallel edges, nested values, constraints, and exact stored
+index/key rows; read-only sources stay read-only. A successful retry is reopened
+read-only, restored over an
+existing graph, checked for constraints and integrity, and used for a mutation
+that survives reopening. Restoring and mutating that destination must leave the
+published backup unchanged.
+
+This covers one-shot staging `xWrite`/`xSync` errors, pre-call final sync/link
+failures, and the stated publication race. It does not inject source-read,
+staging creation/open/close, or cleanup failures; filesystem ENOSPC,
+persistent/partial I/O, deletion/truncation, WAL, and power-loss guarantees
+remain unqualified. In particular, the parent directory is not synced, and
+process death may leave unpublished staging files as described in the
+[backup contract](#backups-and-process-recovery).
 
 ## Read cursors
 

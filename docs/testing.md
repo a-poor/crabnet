@@ -105,9 +105,9 @@ end-to-end result test for user-visible semantics.
   and successful retry are checked for every point. The VFS is never made the
   default; registrations and fault state are scoped to temporary database paths.
   This model uses DELETE journaling, FULL synchronization, no cache spill, and
-  healthy rollback I/O. Persistent/partial I/O errors, OS ENOSPC, journal deletion,
-  and backup faults remain follow-ups. Migration and restore use the same
-  model in the sweeps below.
+  healthy rollback I/O. Persistent/partial I/O errors, OS ENOSPC, and journal
+  deletion remain follow-ups. Migration, restore, and backup copying use the
+  same model in the sweeps below.
   The `migration_io` child adds two sweeps over retained schema 1–4 files,
   arming the same VFS before initialization. It covers both a retained failed
   connection and the owning constructor's cleanup. A commit-hook marker proves
@@ -128,8 +128,20 @@ end-to-end result test for user-visible semantics.
   retry. Replacement page count/file length, observer visibility, primed caches,
   mutation TEMP state, and subsequent writes surviving reopen are verified.
   Source reads, differing page sizes, and truncation/deletion faults are outside
-  this restore model. Run
-  `cargo test --locked --lib database::storage_failures` for all four slices.
+  this restore model.
+  The `backup_io` child adds five tests using the public backup implementation's
+  private per-call I/O adapter. Three copy sweeps cover writable, read-only, and
+  in-memory sources, with every staging write/sync failed against absent and
+  existing destinations. A final-sync/publication error matrix and a real
+  competing-publisher hard-link interleaving exercise the filesystem boundaries.
+  Tests verify stage ordering and complete contents, original errors, no partial
+  publication, preserved destination/source bytes and typed graphs, staging and
+  sidecar cleanup, source lock release before reuse, and public retries on the
+  same source handle. Retried backups are restored over existing graphs; exact
+  identities/indexes/constraints and subsequent writes must survive reopen.
+  Source reads, staging creation/open/close, cleanup failures, and power loss
+  are outside this backup model. Run
+  `cargo test --locked --lib database::storage_failures` for all five slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

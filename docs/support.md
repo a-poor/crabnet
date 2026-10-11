@@ -74,6 +74,10 @@ of file locking, process recovery, and backup behavior on the new configuration.
   [Restore I/O tests](semantics.md#restore-io-failures) apply it to destination
   writes/syncs for larger and smaller backups, checking exact rollback, unchanged
   sources, lock release, and successful retry on the original connection.
+  [Backup I/O tests](semantics.md#backup-copy-and-publication-failures) cover
+  staging write/sync and final file-sync/publication errors, plus a real hard-link
+  publication race, with preserved sources/destinations, staging cleanup, and
+  successful public retries from writable, read-only, and in-memory sources.
   These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 

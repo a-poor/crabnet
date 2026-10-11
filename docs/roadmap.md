@@ -921,9 +921,14 @@ enforcement and the remaining qualification gates are pending.
   write/sync while restoring larger and smaller backups. They verify original
   file bytes before connection reuse, typed graph/index/constraint rollback,
   unchanged sources, source/destination lock release, original-connection retry,
-  file growth/shrinkage, and writes surviving reopen. Add backup fault tests,
-  filesystem ENOSPC, and models for persistent/partial I/O and journal
-  deletion/truncation failures.
+  file growth/shrinkage, and writes surviving reopen.
+  [Backup I/O tests](semantics.md#backup-copy-and-publication-failures) cover each
+  staging write/sync with writable, read-only, and in-memory sources, plus final
+  file-sync/publication errors and a real competing-publisher hard-link race.
+  They verify absent/existing destination handling, staging cleanup, unchanged
+  source bytes/graphs, lock release, public retries, and restoration/reopening.
+  Add source-read and staging lifecycle faults, filesystem ENOSPC, and models
+  for persistent/partial I/O and journal deletion/truncation failures.
   Exercise corruption detection and failed-open/restore behavior.
   Use a documented fault model to test power-loss/torn-write recovery before
   claiming it; current process-termination tests cover a narrower failure model.
@@ -951,11 +956,11 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to backup copy and publication, using
-   the test-only forwarding VFS where applicable. Backup's filesystem
-   sync/publication steps need their own injection boundary.
-   Page-count-cap and one-shot commit/migration/restore write/sync tests are in place;
-   filesystem ENOSPC, persistent/partial errors, and journal deletion/truncation remain
+1. Extend milestone 11's fault coverage to source reads and backup staging
+   creation/open/close/cleanup. Page-count-cap and one-shot commit, migration,
+   restore, and backup copy write/sync tests are in place, along with final
+   backup sync/publication errors and a competing-publisher race. Filesystem
+   ENOSPC, persistent/partial errors, and journal deletion/truncation remain
    unqualified. The compatibility policy and historical fixtures are in place;
    named release pairs still need candidate-specific evidence. Keep durability
    claims within the tested model.

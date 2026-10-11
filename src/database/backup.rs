@@ -1,4 +1,4 @@
-use std::{fs, path::Path, time::Duration};
+use std::{fs, io, path::Path, time::Duration};
 
 use rusqlite::{
     Connection, OpenFlags,
@@ -6,6 +6,30 @@ use rusqlite::{
 };
 
 use crate::{Database, Error, OpenMode, OpenOptions, Result};
+
+// Private I/O boundary shared by the public path and fault tests. Each call
+// receives its own adapter; no global hooks or consumer-visible controls are needed.
+pub(super) trait BackupIo {
+    fn open_destination(&mut self, path: &Path) -> Result<Connection> {
+        Ok(Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+                | OpenFlags::SQLITE_OPEN_NO_MUTEX
+                | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
+        )?)
+    }
+
+    fn sync(&mut self, file: &fs::File) -> io::Result<()> {
+        file.sync_all()
+    }
+
+    fn publish(&mut self, source: &Path, destination: &Path) -> io::Result<()> {
+        fs::hard_link(source, destination)
+    }
+}
+
+pub(super) struct NativeBackupIo;
+impl BackupIo for NativeBackupIo {}
 
 impl Database {
     /// Saves one committed snapshot to a new file without overwriting any path.
@@ -30,7 +54,10 @@ impl Database {
     /// # Ok::<(), crabnet::Error>(())
     /// ```
     pub fn backup_to(&mut self, path: impl AsRef<Path>) -> Result<()> {
-        let path = path.as_ref();
+        self.backup_to_with_io(path.as_ref(), &mut NativeBackupIo)
+    }
+
+    pub(super) fn backup_to_with_io(&mut self, path: &Path, io: &mut impl BackupIo) -> Result<()> {
         super::open::validate_path(path)?;
         let timeout = busy_timeout(&self.connection)?;
         let snapshot = self.connection.transaction()?;
@@ -45,19 +72,14 @@ impl Database {
             .prefix(".crabnet-backup-")
             .tempdir_in(parent)?;
         let file = tempfile::NamedTempFile::new_in(directory.path())?;
-        let mut destination = Connection::open_with_flags(
-            file.path(),
-            OpenFlags::SQLITE_OPEN_READ_WRITE
-                | OpenFlags::SQLITE_OPEN_NO_MUTEX
-                | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
-        )?;
+        let mut destination = io.open_destination(file.path())?;
         destination.busy_timeout(timeout)?;
         copy_snapshot(&snapshot, &mut destination)?;
         destination.close().map_err(|(_, error)| error)?;
-        file.as_file().sync_all()?;
+        io.sync(file.as_file())?;
         // Unlike rename(), hard_link() cannot replace an existing entry, even
         // if a competing publisher created it after the copy started.
-        fs::hard_link(file.path(), path)?;
+        io.publish(file.path(), path)?;
         Ok(())
     }
 
