@@ -1675,9 +1675,44 @@ and constraint changes must survive. The tests check SQLite integrity and
 foreign keys and recompute property/label index contents.
 
 These are process-termination tests, not simulated power failure or faulty
-storage. Torn writes, disk-full/I/O fault injection, corruption repair,
+storage. Torn writes, filesystem I/O fault injection, corruption repair,
 network filesystems, and journal/durability tuning remain outside this tested
-contract. Existing atomic migration and failed-migration tests remain in place.
+contract. Allocation failures have the separate coverage below. Existing atomic
+migration and failed-migration tests remain in place.
+
+## Storage allocation failures
+
+SQLite's `SQLITE_FULL` error is exposed as `Error::Sqlite` with the underlying
+`rusqlite::Error::SqliteFailure`, `ErrorCode::DiskFull`, and SQLite result code
+preserved. It is distinct from `Error::ResourceLimit`, which represents Crabnet's
+query budgets. A failed standalone write rolls back its earlier mutations. In
+an application transaction, a query failure aborts earlier successful queries
+as well: subsequent execution or commit returns `Error::TransactionAborted`,
+explicit rollback is a successful no-op, and dropping the handle is safe.
+The original error is retained unless rollback itself fails, as in the existing
+transaction error contract.
+
+Two unit tests in `src/database/storage_failures.rs` exercise file-backed graphs
+through the public query/transaction API. They use private test access to
+[SQLite's `max_page_count` pragma](https://www.sqlite.org/pragma.html#pragma_max_page_count)
+to force a real pager allocation failure. Four cases fail while inserting or
+updating a node or relationship after earlier graph mutations have run. A
+transaction matrix includes prior deletion and constraint changes, then tests
+commit, rollback, and drop after failure. Update-hook observations prove earlier
+row changes occurred; exact typed graph bags and stored index/key snapshots
+prove rollback. Another connection with zero lock timeout can commit while the
+aborted handle remains alive. Reopened handles see the original graph; lifting
+the cap allows writes on the original connection, and those commits survive
+reopening. Integrity and foreign-key checks also pass.
+
+This fault model caps database growth without exhausting the host filesystem.
+It tests handling of `SQLITE_FULL` during statement execution, with the filesystem
+still able to perform journal and rollback I/O. It does not inject OS-level
+ENOSPC, journal/write/sync failures, errors first raised at commit, or failures
+in migration, backup, or restore. Those need additional fault tests; power-loss
+and torn-write claims require a separate model. Applications should resolve the
+storage problem and verify recovery before retrying the whole failed query or
+transaction; earlier provisional results do not represent committed work.
 
 ## Read cursors
 

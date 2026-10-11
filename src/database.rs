@@ -27,6 +27,8 @@ mod comparison;
 pub(crate) mod cursor;
 mod nested;
 mod resources;
+#[cfg(test)]
+mod storage_failures;
 use resources::ExecutionContext;
 pub(crate) mod constraints;
 pub(crate) mod open;

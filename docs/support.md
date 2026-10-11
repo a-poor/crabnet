@@ -65,8 +65,10 @@ of file locking, process recovery, and backup behavior on the new configuration.
   schema 1–4 upgrades to version 5, and rollback using a pre-upgrade backup.
   Retained historical commit fixtures run in the regular matrix; named
   release-to-release qualification remains a milestone 11 gate. Crabnet remains
-  experimental. Process-death recovery coverage does not establish power-loss
-  or disk/I/O fault guarantees.
+  experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
+  cover `SQLITE_FULL` during writes using a page-count cap. This and process-death
+  recovery do not establish filesystem ENOSPC, write/sync I/O, or power-loss
+  guarantees.
 
 Dependency, feature, compiler-baseline, and configuration changes require a full
 matrix run and refreshed workload evidence. Library consumers resolve their own

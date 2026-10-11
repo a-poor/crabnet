@@ -83,6 +83,18 @@ end-to-end result test for user-visible semantics.
   constraints, derived indexes, integrity, connection reuse, and backup/restore.
   A timeout and child guard prevent leaked processes on failed assertions.
   This exercises process death without Rust cleanup, not machine power loss.
+- `src/database/storage_failures.rs` is a test-only child module so it can cap
+  the private SQLite connection with `max_page_count`; no raw connection or
+  fault-control API is exposed to consumers. Two tests cover four standalone
+  node/relationship insert/update cases and three transaction cleanup paths.
+  The payload exceeds the entire capped file size, while headroom allows prior
+  mutations. Update-hook observations prevent vacuous rollback assertions.
+  Tests compare typed graph bags and exact label/property/uniqueness-index rows,
+  preserve the `SQLITE_FULL` code, verify constraint restoration, immediate lock
+  release with a live aborted handle, integrity/reopen checks, and successful
+  writes after lifting the limit. This is a real allocation failure, with
+  working rollback I/O; it does not exhaust the disk or inject commit/sync faults.
+  Run `cargo test --locked --lib database::storage_failures` for this slice.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
