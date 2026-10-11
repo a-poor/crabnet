@@ -1,7 +1,8 @@
 //! Allocation-failure tests using the real SQLite pager, through the public API.
 //! Private connection access is limited to fault setup, observation, and checks.
 //! Child modules inject commit, migration, restore, and backup I/O failures,
-//! including source reads during snapshot validation and copying.
+//! including source reads during opening, snapshot validation, and copying,
+//! and replay of hot journals left by terminated writers.
 //! These models do not simulate filesystem ENOSPC or power loss.
 
 mod backup_io;
@@ -9,7 +10,9 @@ mod backup_lifecycle;
 mod commit_io;
 mod io_vfs;
 mod migration_io;
+mod recovery_io;
 mod restore_io;
+mod source_open_io;
 mod source_read_io;
 
 use std::{

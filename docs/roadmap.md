@@ -931,8 +931,22 @@ enforcement and the remaining qualification gates are pending.
   cover one-shot validation/copy reads for writable/read-only backups and
   growing/shrinking restores. They check direct errors and integrity-check
   diagnostics, exact failed read targets, unchanged files/graphs, cleanup,
-  lock release, and public retries. Opening/initialization reads remain outside
-  this model. [Staging lifecycle tests](semantics.md#backup-staging-lifecycle-failures)
+  lock release, and public retries.
+  [Source-opening read tests](semantics.md#source-opening-and-initialization-read-failures)
+  cover every connection/initialization read in healthy current-version source
+  traces across all access modes and growing/shrinking restores. They preserve
+  original errors and file contents, release source handles/locks, fail before
+  destination writes, and allow public retries. Hot-journal recovery, migration
+  reads, and empty-file initialization remain outside that model.
+  [Hot-journal recovery tests](semantics.md#hot-journal-recovery-io-failures)
+  use a real spilled main/journal pair from a terminated writer. They sweep
+  journal reads/syncs and database replay writes/syncs in both writable open
+  modes, preserve original errors and recovery information, check exact partial
+  replay and released handles/locks, and require public retries to restore
+  original files/graphs. Read-only and restore sources refuse recovery until an
+  explicit writable open completes; path isolation and one-shot consumption
+  are covered separately.
+  [Staging lifecycle tests](semantics.md#backup-staging-lifecycle-failures)
   cover pre-call creation/open/close failures, failed file/directory removal,
   primary-error precedence, publication success despite cleanup failure,
   exact leftovers, public retries, and panic cleanup. Native descriptor-close
@@ -966,8 +980,12 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to source opening/initialization reads;
-   source journal recovery remains a further follow-up. Page-count-cap and
+1. Extend milestone 11's fault coverage to old-format migration reads;
+   empty-file initialization remains a further follow-up. Source
+   connection/initialization reads now have coverage for existing current-version
+   graphs in all access modes and during restore source opening. Hot-journal
+   replay now has one-shot journal read/sync and database write/sync coverage,
+   with recoverable partial progress and read-only/restore refusal. Page-count-cap and
    one-shot commit, migration,
    restore, and backup copy write/sync tests are in place, along with final
    backup sync/publication errors, a competing-publisher race, and source-read

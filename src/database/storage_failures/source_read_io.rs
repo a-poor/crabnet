@@ -18,28 +18,29 @@ use std::{
     time::Duration,
 };
 
-fn source_cache_guard() -> MutexGuard<'static, ()> {
+pub(super) fn source_cache_guard() -> MutexGuard<'static, ()> {
     // Bundled SQLite enables MEMORY_MANAGEMENT, which shares the page-cache
     // eviction group across connections even with PRIVATE_CACHE. One test's
     // shrink_memory can therefore add reads to another test's healthy trace.
     // Serialize these deliberate cache resets and the operations they measure;
-    // ordinary database/VFS tests continue to run in parallel.
+    // opening read sweeps also join this guard to keep their traces stable.
+    // Ordinary database/VFS tests continue to run in parallel.
     static CACHE_RESETS: Mutex<()> = Mutex::new(());
     CACHE_RESETS
         .lock()
         .unwrap_or_else(|error| error.into_inner())
 }
 
-struct Fixture {
+pub(super) struct Fixture {
     _directory: tempfile::TempDir,
-    source: PathBuf,
-    destination: PathBuf,
-    replacement: Snapshot,
-    original: Snapshot,
+    pub(super) source: PathBuf,
+    pub(super) destination: PathBuf,
+    pub(super) replacement: Snapshot,
+    pub(super) original: Snapshot,
 }
 
 impl Fixture {
-    fn new(shrink: bool) -> Self {
+    pub(super) fn new(shrink: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let source = directory.path().join("source.sqlite");
         let mut replacement = seed(&source);
@@ -79,7 +80,7 @@ fn add_payload(database: &mut Database, pages: i64) {
         .unwrap();
 }
 
-fn read_only(path: &Path) -> Database {
+pub(super) fn read_only(path: &Path) -> Database {
     Database::open_with_options(
         path,
         &OpenOptions {
@@ -119,7 +120,7 @@ fn cold_source(database: &Database) {
     connection.execute_batch("PRAGMA shrink_memory").unwrap();
 }
 
-fn configure_destination(connection: &Connection) {
+pub(super) fn configure_destination(connection: &Connection) {
     connection.busy_timeout(Duration::ZERO).unwrap();
     connection
         .pragma_update(None, "synchronous", "FULL")
@@ -334,7 +335,7 @@ fn assert_trace(result: crate::Result<()>, trace: &Trace, fault: Option<&ReadFau
     }
 }
 
-fn assert_source(path: &Path, bytes: &[u8], expected: &Snapshot) {
+pub(super) fn assert_source(path: &Path, bytes: &[u8], expected: &Snapshot) {
     assert_eq!(fs::read(path).unwrap(), bytes);
     // Check lock release before reusing the failed caller or opening a reader.
     let probe = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).unwrap();
@@ -347,7 +348,7 @@ fn assert_source(path: &Path, bytes: &[u8], expected: &Snapshot) {
     assert_eq!(fs::read(path).unwrap(), bytes);
 }
 
-fn assert_files(directory: &Path, expected: &[&str]) {
+pub(super) fn assert_files(directory: &Path, expected: &[&str]) {
     let mut actual: Vec<_> = fs::read_dir(directory)
         .unwrap()
         .map(|e| e.unwrap().file_name())
@@ -358,7 +359,7 @@ fn assert_files(directory: &Path, expected: &[&str]) {
     assert_eq!(actual, expected, "no staging files or sidecars left behind");
 }
 
-fn verify_replacement(database: &mut Database, expected: &Snapshot) -> Snapshot {
+pub(super) fn verify_replacement(database: &mut Database, expected: &Snapshot) -> Snapshot {
     assert_eq!(snapshot(database), *expected);
     assert_integrity(database);
     assert_saved_constraint(database);
@@ -368,7 +369,7 @@ fn verify_replacement(database: &mut Database, expected: &Snapshot) -> Snapshot 
     snapshot(database)
 }
 
-fn assert_reopened(path: &Path, expected: &Snapshot) {
+pub(super) fn assert_reopened(path: &Path, expected: &Snapshot) {
     let mut reopened = read_only(path);
     assert_eq!(snapshot(&mut reopened), *expected);
     assert_integrity(&reopened);

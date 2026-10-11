@@ -57,7 +57,19 @@ impl Database {
     /// # Ok::<(), crabnet::Error>(())
     /// ```
     pub fn open_with_options(path: impl AsRef<Path>, options: &OpenOptions) -> Result<Self> {
-        let path = path.as_ref();
+        Self::open_with_connector(path.as_ref(), options, |path, flags| {
+            Connection::open_with_flags(path, flags)
+        })
+    }
+
+    // Keep validation, access flags, timeout, initialization, and registration
+    // on the public path while allowing tests to select a per-path VFS before
+    // SQLite performs its first header read. No global/default VFS is changed.
+    pub(super) fn open_with_connector(
+        path: &Path,
+        options: &OpenOptions,
+        connect: impl FnOnce(&Path, OpenFlags) -> rusqlite::Result<Connection>,
+    ) -> Result<Self> {
         validate_path(path)?;
         if options.busy_timeout > Duration::from_millis(i32::MAX as u64) {
             return Err(Error::Argument(
@@ -71,7 +83,7 @@ impl Database {
             OpenMode::ReadWrite => OpenFlags::SQLITE_OPEN_READ_WRITE,
             OpenMode::ReadOnly => OpenFlags::SQLITE_OPEN_READ_ONLY,
         };
-        let connection = Connection::open_with_flags(
+        let connection = connect(
             path,
             access | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
         )?;

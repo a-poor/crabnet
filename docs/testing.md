@@ -155,8 +155,8 @@ end-to-end result test for user-visible semantics.
   and public retries followed by writes surviving reopen. Destination traces
   prove that some copy read faults follow earlier writes. A fifth test verifies
   path isolation and one-shot consumption without resetting the controller.
-  Source opening/initialization, persistent/partial reads, and source journal
-  recovery remain outside this model.
+  Persistent/partial reads remain outside this model; opening/initialization
+  and hot-journal recovery have their own coverage below.
   The `backup_lifecycle` child adds five tests for staging directory/file
   creation, SQLite open/close, and file/directory cleanup. Four matrices cover
   all three source kinds with absent/existing destinations, primary-error
@@ -169,8 +169,36 @@ end-to-end result test for user-visible semantics.
   test retain native RAII cleanup. Creation/open/close failures are synthetic
   pre-call errors; the copy fault uses the VFS, and no-overwrite errors use
   native hard links. Cleanup faults skip removal while still releasing file
-  handles. OS close errors and partial creation/removal remain unqualified. Run
-  `cargo test --locked --lib database::storage_failures` for all seven slices.
+  handles. OS close errors and partial creation/removal remain unqualified.
+  The `source_open_io` child adds six tests that register faults before SQLite
+  connects. Five sweeps cover existing current-version sources in all three
+  open modes and growing/shrinking restores. They fail each healthy main-file
+  read target within the connection or initialization phase, preserve the
+  original `SQLITE_IOERR_READ`, and stop tracing before validation/copy. A live
+  file counter and exclusive-lock probes verify failed-open cleanup. Exact
+  bytes and graph/index/constraint snapshots stay intact; restore failures
+  precede any destination write. Public retries check access mode, backup/restore,
+  observer visibility, file size, and writes surviving reopen. The sixth test
+  verifies path/native-VFS isolation and one-shot header failure consumption
+  without resetting the controller. These sweeps join the cache-reset guard.
+  Native open/close errors, old-format migration reads, empty-file initialization,
+  and persistent/partial reads are excluded; hot journals are covered separately.
+  The `recovery_io` child adds three tests using a real main/journal pair from a
+  terminated writer. The parent proves existing-page spill, file growth, and a
+  hot journal before killing/reaping the child, then copies the frozen pair per
+  case. Writable sweeps fail each journal read/sync and database replay write/sync
+  in healthy traces for both writable open modes, checking exact prefixes and
+  extended errors. Before public retry, tests compare the retained journal and
+  exact partial main-file image, count live handles, and probe exclusive file
+  locks without triggering recovery. Retry must restore original bytes, typed
+  bags, indexes, and constraints, remove the journal, and permit backup/restore
+  and writes surviving reopen. A refusal matrix covers read-only/restore sources,
+  unchanged destination contents, and public retry after explicit writable source
+  recovery. An isolation test retries through the same VFS without resetting
+  its controller. Recovery tests join the source cache guard and preserve healthy
+  I/O after the one injected failure. Deletion/truncation faults, persistent or
+  partial failures, damaged journals, and power loss remain outside this model.
+  Run `cargo test --locked --lib database::storage_failures` for all nine slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

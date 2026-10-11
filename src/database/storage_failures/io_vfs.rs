@@ -3,6 +3,8 @@
 //! One process-lifetime registration (never the default VFS) delegates to the
 //! original native VFS. Per-path registrations are removed on drop; open files
 //! retain their own Arc so even a connection outliving its controller is safe.
+//! Registration can precede connection construction to cover header reads;
+//! per-path live-file counts check failed-open cleanup without changing I/O.
 //! Only xRead/xWrite/xSync are intercepted, before the native operation. A fault is
 //! consumed once, leaving rollback I/O healthy. Version-1 file methods exclude
 //! WAL and mmap; neither is part of this harness's contract.
@@ -60,11 +62,20 @@ pub(super) struct Event {
 
 #[derive(Default)]
 struct State {
+    open_files: usize,
     recording: bool,
     reads: bool,
     fail_at: Option<usize>,
-    read_target: Option<(i64, c_int, usize)>,
+    target: Option<Target>,
     events: Vec<Event>,
+}
+
+struct Target {
+    file: FileKind,
+    operation: Operation,
+    offset: i64,
+    amount: c_int,
+    remaining: usize,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -84,11 +95,13 @@ pub(super) struct Control(Arc<Mutex<State>>);
 
 impl Control {
     pub(super) fn start(&self, fail_at: Option<usize>) {
-        *lock(&self.0) = State {
+        let mut state = lock(&self.0);
+        *state = State {
+            open_files: state.open_files,
             recording: true,
             reads: false,
             fail_at,
-            read_target: None,
+            target: None,
             events: Vec::new(),
         };
     }
@@ -102,27 +115,54 @@ impl Control {
     /// Target the nth read of these bytes. Integrity-check scan order can vary
     /// between connections, so a global read ordinal is not a stable target.
     pub(super) fn fail_read(&self, expected: &Event, occurrence: usize) {
-        assert_eq!(expected.file, FileKind::Database);
         assert_eq!(expected.operation, Operation::Read);
-        lock(&self.0).read_target = Some((expected.offset, expected.amount, occurrence));
+        self.fail_io(expected, occurrence);
+    }
+
+    /// Select an operation on the database or its journal without confusing
+    /// equal byte ranges across files or reads with recovery writes/syncs.
+    pub(super) fn fail_io(&self, expected: &Event, occurrence: usize) {
+        lock(&self.0).target = Some(Target {
+            file: expected.file,
+            operation: expected.operation,
+            offset: expected.offset,
+            amount: expected.amount,
+            remaining: occurrence,
+        });
     }
 
     pub(super) fn stop(&self) -> Vec<Event> {
         let mut state = lock(&self.0);
         state.recording = false;
         state.fail_at = None;
-        state.read_target = None;
+        state.target = None;
         std::mem::take(&mut state.events)
     }
 
     pub(super) fn event_count(&self) -> usize {
         lock(&self.0).events.len()
     }
+
+    pub(super) fn open_file_count(&self) -> usize {
+        lock(&self.0).open_files
+    }
 }
 
 pub(super) struct Registration {
     path: Vec<u8>,
     pub control: Control,
+}
+
+impl Registration {
+    /// Connect only after the caller has armed opening faults, returning the
+    /// original SQLite error if even connection construction fails.
+    pub(super) fn connect(&self, flags: OpenFlags) -> rusqlite::Result<Connection> {
+        Connection::open_with_flags_and_vfs(
+            std::str::from_utf8(&self.path).unwrap(),
+            flags,
+            c"crabnet-test-commit-io",
+        )
+    }
 }
 
 impl Drop for Registration {
@@ -143,6 +183,16 @@ pub(super) fn connect(path: &Path) -> (Connection, Registration) {
 }
 
 pub(super) fn connect_with_flags(path: &Path, access: OpenFlags) -> (Connection, Registration) {
+    let registration = register(path);
+    let connection = registration
+        .connect(access | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE)
+        .unwrap();
+    (connection, registration)
+}
+
+/// Register an existing fixture independently of connection construction so
+/// faults can cover SQLite's opening header reads as well as initialization.
+pub(super) fn register(path: &Path) -> Registration {
     register_vfs();
     // Fixtures already exist. Canonicalization matches xFullPathname even if
     // the platform's temporary directory contains symlinks (e.g. /var on macOS).
@@ -157,14 +207,7 @@ pub(super) fn connect_with_flags(path: &Path, access: OpenFlags) -> (Connection,
         );
         entries.insert(key.clone(), control.0.clone());
     }
-    let registration = Registration { path: key, control };
-    let connection = Connection::open_with_flags_and_vfs(
-        path,
-        access | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
-        c"crabnet-test-commit-io",
-    )
-    .unwrap();
-    (connection, registration)
+    Registration { path: key, control }
 }
 
 #[repr(C)]
@@ -225,6 +268,9 @@ unsafe extern "C" fn open_file(
             };
             key.and_then(|key| lock(registry()).get(key).cloned())
         };
+        if let Some(state) = &state {
+            lock(state).open_files += 1;
+        }
         file.cast::<File>().write(File {
             header: ffi::sqlite3_file { pMethods: &METHODS },
             native,
@@ -242,6 +288,10 @@ unsafe extern "C" fn close_file(file: *mut ffi::sqlite3_file) -> c_int {
         let native = (*wrapper).native;
         let result = (*(*native).pMethods).xClose.unwrap()(native);
         ffi::sqlite3_free(native.cast());
+        if let Some(state) = &(*wrapper).state {
+            let mut state = lock(state);
+            state.open_files = state.open_files.saturating_sub(1);
+        }
         ptr::drop_in_place(wrapper);
         (*file).pMethods = ptr::null();
         result
@@ -265,27 +315,22 @@ unsafe fn io(
         if !state.recording || (operation == Operation::Read && !state.reads) {
             return forward(wrapper.native);
         }
-        let read_fail = if operation == Operation::Read && kind == FileKind::Database {
-            state
-                .read_target
-                .as_mut()
-                .is_some_and(|(target_offset, target_amount, remaining)| {
-                    if (*target_offset, *target_amount) != (offset, amount) {
-                        false
-                    } else if *remaining == 0 {
-                        true
-                    } else {
-                        *remaining -= 1;
-                        false
-                    }
-                })
-        } else {
-            false
-        };
-        let fail = read_fail || state.fail_at == Some(state.events.len());
+        let target_fail = state.target.as_mut().is_some_and(|target| {
+            if (target.file, target.operation, target.offset, target.amount)
+                != (kind, operation, offset, amount)
+            {
+                false
+            } else if target.remaining == 0 {
+                true
+            } else {
+                target.remaining -= 1;
+                false
+            }
+        });
+        let fail = target_fail || state.fail_at == Some(state.events.len());
         let result = if fail {
             state.fail_at = None;
-            state.read_target = None;
+            state.target = None;
             operation.error_code()
         } else {
             forward(wrapper.native)

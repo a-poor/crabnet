@@ -1682,8 +1682,8 @@ These are process-termination tests, not simulated power failure or faulty
 storage. Torn writes, corruption repair, network filesystems, and
 journal/durability tuning remain outside this tested contract. Allocation
 failures and modeled commit/migration/restore/backup I/O errors have separate
-coverage below. Existing atomic migration and failed-migration tests remain in
-place.
+coverage below, including [hot-journal replay failures](#hot-journal-recovery-io-failures).
+Existing atomic migration and failed-migration tests remain in place.
 
 ## Storage allocation failures
 
@@ -1952,12 +1952,124 @@ the same destination handle and verify observer visibility, replacement file
 size, primed statements and mutation TEMP state. Subsequent mutations and
 constraints are verified after closing and reopening the restored graph.
 
-This model covers source reads during snapshot validation and copying, not
-opening/initialization, source journal recovery, or persistent/partial reads.
-Staging lifecycle failures have separate coverage below. Filesystem ENOSPC,
+This model covers source reads during snapshot validation and copying.
+Opening/initialization reads and hot-journal recovery have separate coverage
+below; persistent/partial reads remain unqualified.
+Staging lifecycle failures also have separate coverage below. Filesystem ENOSPC,
 deletion/truncation, differing page sizes, WAL, and power loss remain unqualified.
 In-memory sources have no main-file `xRead` and are outside these read sweeps;
 their destination-copy failures remain covered separately above.
+
+## Source opening and initialization read failures
+
+For an existing current-version graph with no hot journal, a source read error
+during SQLite connection construction or Crabnet initialization returns
+`Error::Sqlite` with the original `SQLITE_IOERR_READ`. The failed opener releases
+its file handles and locks and leaves source bytes unchanged. This applies to
+`OpenOrCreate`, `ReadWrite`, and `ReadOnly` access to that existing graph; it
+does not qualify creation of an empty/new graph or migration of an old one.
+When `restore_from` encounters the error while opening its read-only source,
+it fails before copying or writing the destination. The destination remains
+usable on its original handle, with its graph, indexes, and constraints intact.
+
+Six tests in `src/database/storage_failures/source_open_io.rs` use the same
+forwarding VFS as the other storage tests, registered before SQLite opens the
+file. A private connector selects that VFS while retaining the public opener's
+path/option validation, access flags, timeout, initialization, and function
+registration. The native/default VFS and public API are unchanged.
+
+Five sweeps cover all three access modes and restore sources whose contents
+grow or shrink the destination. Each healthy opening trace supplies every
+main-file `xRead` target by byte range and occurrence, separately for connection
+construction and initialization. One selected call returns `SQLITE_IOERR_READ`
+before native I/O; later I/O stays healthy. A connection-return marker proves
+phase coverage, and tracing stops when opening returns, so a later validation
+or copy read cannot accidentally satisfy an opening fault. The source traces
+contain no writes or syncs, and failed restores have no destination write/sync
+events or copy call. These sweeps share the source-read cache-reset guard to
+avoid cross-test cache eviction changing the measured reads.
+
+Before public retry, tests count live wrapped file handles, acquire an immediate
+exclusive source lock, compare exact file bytes and typed graph/index/constraint
+snapshots, check integrity, and reject unexpected staging files or sidecars.
+Standalone retries use the original access mode, produce restorable backups,
+preserve read-only enforcement, and verify writable mutations after reopening.
+Restore retries retain the original destination handle and check observer
+visibility, replacement page count/file size, constraints, and writes surviving
+reopen. The sixth test checks path and native-VFS isolation and retries through
+the same VFS without resetting its controller, proving one-shot consumption of
+the opening header fault.
+
+This model uses existing current-version local files with DELETE journaling,
+no hot journal, and mmap disabled by the test VFS. It covers actual `xRead`
+failures, not synthetic open API errors. It does not inject native `xOpen`,
+lock, or descriptor-close failures. Hot-journal recovery has its own model below;
+old-format migration reads, empty-file initialization, persistent/partial reads,
+WAL, filesystem ENOSPC, and power loss remain outside this qualification.
+
+## Hot-journal recovery I/O failures
+
+Opening an existing graph with `ReadWrite` or `OpenOrCreate` lets SQLite replay
+a hot DELETE journal before Crabnet inspects schema metadata. Under the one-shot
+fault model below, failed journal reads, recovery writes, and syncs preserve the
+original `SQLITE_IOERR_READ`, `SQLITE_IOERR_WRITE`, or `SQLITE_IOERR_FSYNC` in
+`Error::Sqlite`. The failed opener closes its files and releases its locks.
+The journal stays intact for retry, but the main file may already contain
+restored pages or have been truncated to its original size. A failed recovery
+does not promise that the main file stays byte-for-byte unchanged.
+
+Keep the main file and its journal together. Once I/O works again, retry a
+writable open so SQLite can finish recovery; do not remove the journal to force
+the graph open. Even when all replay writes finished before a sync failure,
+the retained hot journal still prevents read-only access. With healthy journal
+detection, `ReadOnly` returns `SQLITE_READONLY_ROLLBACK`; an injected detection
+read error retains `SQLITE_IOERR_READ` instead. Restore opens its source
+read-only and never silently recovers it using write access. A refused restore
+leaves both source files and its destination unchanged. Explicitly recover the
+source with a writable open, then retry restore on the same destination handle.
+
+Three tests in `src/database/storage_failures/recovery_io.rs` build a real hot
+journal by killing and reaping a synchronized child writer without destructors.
+The writer changes typed nodes, parallel relationships, labels, properties,
+deletions, and constraints in one uncommitted transaction. A small page cache,
+enabled spill, and larger inserted payloads force writes to existing pages and
+file growth. The parent checks the changed original-page bytes, increased file
+size, and a valid journal header containing records before termination. It
+retains the resulting main/journal pair and makes a fresh identical copy for
+each recovery attempt.
+
+The writable sweep records a healthy open in each access mode, then fails every
+journal read/sync and main-file recovery write/sync in those traces before the
+native call. Targets include file kind, operation, byte range or sync flags,
+and occurrence. Each failure must match the exact healthy prefix and selected
+extended error; later cleanup I/O remains healthy. Coverage includes journal
+reads after earlier replay writes. Main-file reads during ordinary opening have
+the separate model above. The recovery sweeps share the source-read cache guard.
+
+Before retry, tests check live wrapped-file counts, the entire retained journal,
+and the exact partially replayed main-file image reconstructed from successful
+page writes and permitted native truncation. An exclusive-lock probe uses native
+file locks directly and verifies that neither file changes; running `BEGIN`
+instead would trigger recovery and could conceal the failed state. Public retry
+must restore the exact pre-transaction bytes, file size, typed graph bags, and
+label/property/unique-key indexes and constraints, and remove the journal.
+Integrity, backup/restore, subsequent mutations, and read-only reopen are checked.
+
+A second test covers read-only opening and restore source refusal, both with
+healthy detection and a journal read fault. Destination tracing proves that
+restore never starts copying or writing. It checks retained source files,
+destination bytes/graph/constraints, released locks, separate writable source
+recovery, and public restore retry with observer visibility and writes surviving
+reopen. The third test proves path isolation and one-shot journal fault
+consumption by retrying through the same VFS without resetting its controller.
+
+This model uses current-version, single-database local files, DELETE journals,
+FULL synchronization, and a VFS without mmap or WAL. All injected failures occur
+before one native read/write/sync; remaining I/O is healthy. Native journal
+deletion and file truncation occur but are not faulted. Native open/close/lock
+errors, persistent or partial I/O, damaged journals, attached-database recovery,
+a second process interruption during recovery, filesystem ENOSPC, and power loss
+remain unqualified. These tests do not establish corruption repair.
 
 ## Backup staging lifecycle failures
 

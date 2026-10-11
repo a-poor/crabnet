@@ -86,6 +86,16 @@ of file locking, process recovery, and backup behavior on the new configuration.
   cover modeled creation/open/close and cleanup failures, primary-error
   precedence, successful publication despite cleanup failure, retained staging
   artifacts, public retries, and cleanup during panic unwinding.
+  [Source-opening read tests](semantics.md#source-opening-and-initialization-read-failures)
+  cover connection header and initialization reads for existing current-version
+  graphs in all access modes and during restore source opening. They check
+  original errors, file/lock cleanup, unchanged source and destination contents,
+  no destination writes after failed source opening, and public retries.
+  [Hot-journal recovery tests](semantics.md#hot-journal-recovery-io-failures)
+  inject one-shot journal read/sync and database replay write/sync errors after
+  terminating a writer. They check retained recovery information, partial replay,
+  handle/lock release, successful writable retry, and read-only/restore refusal
+  until explicit writable source recovery.
   These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 
