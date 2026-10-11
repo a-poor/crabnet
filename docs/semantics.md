@@ -1675,10 +1675,10 @@ and constraint changes must survive. The tests check SQLite integrity and
 foreign keys and recompute property/label index contents.
 
 These are process-termination tests, not simulated power failure or faulty
-storage. Torn writes, filesystem I/O fault injection, corruption repair,
-network filesystems, and journal/durability tuning remain outside this tested
-contract. Allocation failures have the separate coverage below. Existing atomic
-migration and failed-migration tests remain in place.
+storage. Torn writes, corruption repair, network filesystems, and
+journal/durability tuning remain outside this tested contract. Allocation
+failures and modeled commit I/O errors have the separate coverage below.
+Existing atomic migration and failed-migration tests remain in place.
 
 ## Storage allocation failures
 
@@ -1708,11 +1708,53 @@ reopening. Integrity and foreign-key checks also pass.
 This fault model caps database growth without exhausting the host filesystem.
 It tests handling of `SQLITE_FULL` during statement execution, with the filesystem
 still able to perform journal and rollback I/O. It does not inject OS-level
-ENOSPC, journal/write/sync failures, errors first raised at commit, or failures
-in migration, backup, or restore. Those need additional fault tests; power-loss
-and torn-write claims require a separate model. Applications should resolve the
-storage problem and verify recovery before retrying the whole failed query or
-transaction; earlier provisional results do not represent committed work.
+ENOSPC or failures in migration, backup, or restore. Commit write/sync failures
+have the separate model below. Applications should resolve the storage problem
+and verify recovery before retrying the whole failed query or transaction;
+earlier provisional results do not represent committed work.
+
+## Commit I/O failures
+
+Statements in an application transaction can succeed before `commit()` returns
+an I/O error. Their earlier results remain provisional. For the one-shot
+failures covered here, both explicit commit and a standalone write's implicit
+commit preserve `Error::Sqlite(rusqlite::Error::SqliteFailure(...))`, with
+`ErrorCode::SystemIoFailure` and the extended `SQLITE_IOERR_WRITE` or
+`SQLITE_IOERR_FSYNC` code. Rollback restores the graph, derived indexes, and
+uniqueness declarations, and releases locks before the failing API returns.
+The original connection supports retrying the entire operation.
+
+`src/database/storage_failures/commit_io.rs` exercises these paths through the
+public query/transaction API. Its test-only forwarding
+[SQLite VFS](https://www.sqlite.org/c3ref/vfs.html) intercepts
+[`xWrite` and `xSync`](https://www.sqlite.org/c3ref/io_methods.html) on the main
+database and rollback journal. Tests use DELETE journaling, `synchronous=FULL`,
+and disabled cache spill to isolate commit. Each test records a healthy commit
+trace, then repeats the workload with a fresh graph for every write/sync in
+that trace. Explicit transactions are armed after successful queries and
+constraint changes; standalone writes are armed by SQLite's commit hook.
+Assertions match the successful I/O prefix and the exact failed event, including
+file kind, operation, offset, and byte count or sync flags. Later main-file
+failures therefore occur after earlier page writes have completed.
+
+Each injected call returns its error **before** invoking the native operation,
+then disarms itself. All other calls delegate to the native VFS. Tests verify
+successful rollback page writes after main-file faults, exact typed graph bags
+and stored index/key rows, restored constraints, autocommit state, another
+writer committing while the original connection remains open, integrity and
+foreign keys, reopening before retry, and a successful retry surviving reopen.
+A separate test verifies that an armed fault cannot affect another database
+using the same VFS and that it is consumed without an explicit reset. The VFS
+is never the default, its fault state is scoped to a fixture path, and no public
+raw-connection or fault-control API is added.
+
+This is a model of one failed SQLite I/O call with healthy rollback I/O. It does
+not exhaust the host disk, inject OS-level ENOSPC, partially perform a failed
+write, or model persistent errors during rollback. It also excludes journal
+deletion/truncation faults, migration, backup/restore, WAL, torn writes, and
+power loss. In particular, these tests do not establish that every possible
+commit error implies rollback: resolve the storage problem and verify recovery
+before retrying after faults outside this model.
 
 ## Read cursors
 

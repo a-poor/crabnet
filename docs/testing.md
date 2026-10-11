@@ -93,8 +93,21 @@ end-to-end result test for user-visible semantics.
   preserve the `SQLITE_FULL` code, verify constraint restoration, immediate lock
   release with a live aborted handle, integrity/reopen checks, and successful
   writes after lifting the limit. This is a real allocation failure, with
-  working rollback I/O; it does not exhaust the disk or inject commit/sync faults.
-  Run `cargo test --locked --lib database::storage_failures` for this slice.
+  working rollback I/O; it does not exhaust the disk.
+  Its `commit_io` child module adds two commit fault sweeps and a database
+  isolation/one-shot check. `io_vfs` forwards native I/O and injects exactly one
+  `SQLITE_IOERR_WRITE` or `SQLITE_IOERR_FSYNC` before a chosen call. Each sweep
+  derives fault points from a healthy commit trace, verifies the exact successful
+  prefix and failed event, and covers journal/database writes and syncs, including
+  failure after earlier database page writes. Faults are armed only after
+  successful transaction queries or from a standalone write's commit hook.
+  Exact rollback, lock release before connection reuse, integrity, reopening,
+  and successful retry are checked for every point. The VFS is never made the
+  default; registrations and fault state are scoped to temporary database paths.
+  This model uses DELETE journaling, FULL synchronization, no cache spill, and
+  healthy rollback I/O. Persistent/partial I/O errors, OS ENOSPC, journal deletion,
+  and migration/backup/restore faults remain follow-ups. Run
+  `cargo test --locked --lib database::storage_failures` for both fault models.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

@@ -66,9 +66,11 @@ of file locking, process recovery, and backup behavior on the new configuration.
   Retained historical commit fixtures run in the regular matrix; named
   release-to-release qualification remains a milestone 11 gate. Crabnet remains
   experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
-  cover `SQLITE_FULL` during writes using a page-count cap. This and process-death
-  recovery do not establish filesystem ENOSPC, write/sync I/O, or power-loss
-  guarantees.
+  cover `SQLITE_FULL` during writes using a page-count cap.
+  [Commit I/O tests](semantics.md#commit-io-failures) cover modeled one-shot
+  journal/database write and sync errors with healthy rollback I/O. These and
+  process-death recovery do not establish filesystem ENOSPC, persistent/partial
+  I/O failure, or power-loss guarantees.
 
 Dependency, feature, compiler-baseline, and configuration changes require a full
 matrix run and refreshed workload evidence. Library consumers resolve their own

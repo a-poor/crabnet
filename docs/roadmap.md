@@ -906,8 +906,14 @@ enforcement and the remaining qualification gates are pending.
   [allocation-failure slice](semantics.md#storage-allocation-failures) covers real
   `SQLITE_FULL` errors under a page-count cap: node/relationship insert/update,
   earlier transaction work and constraints, exact rollback, lock release,
-  reopening, and successful writes after lifting the cap. Add filesystem
-  ENOSPC and I/O fault tests for writes, commit, migration, backup, and restore.
+  reopening, and successful writes after lifting the cap. The
+  [commit I/O slice](semantics.md#commit-io-failures) adds one-shot failures at
+  every journal/database write and sync in healthy standalone/transaction commit
+  traces, including after earlier page writes, with exact rollback, original
+  error codes, lock release, reopening, and successful retry. Its forwarding VFS
+  fails before the selected native call and permits healthy rollback I/O. Add
+  migration/backup/restore fault tests, filesystem ENOSPC, and models for
+  persistent/partial I/O and journal deletion/truncation failures.
   Exercise corruption detection and failed-open/restore behavior.
   Use a documented fault model to test power-loss/torn-write recovery before
   claiming it; current process-termination tests cover a narrower failure model.
@@ -935,12 +941,14 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's allocation-failure coverage with deterministic
-   filesystem write/sync faults, including commit, then migration, backup, and
-   restore. Page-count-cap tests now cover write failure and recovery; they do
-   not establish OS-level disk-full or I/O guarantees. The compatibility policy
-   and historical fixtures are in place; named release pairs still need
-   candidate-specific evidence. Keep durability claims within the tested model.
+1. Extend milestone 11's fault coverage to migration, backup, and restore, using
+   the commit slice's test-only forwarding VFS where applicable. Backup's
+   filesystem sync/publication steps also need their own injection boundary.
+   Page-count-cap and one-shot commit write/sync tests are in place; filesystem
+   ENOSPC, persistent/partial errors, and journal deletion/truncation remain
+   unqualified. The compatibility policy and historical fixtures are in place;
+   named release pairs still need candidate-specific evidence. Keep durability
+   claims within the tested model.
 2. Configure and verify required checks when the repository's plan permits
    protection. This account-level limitation does not prevent qualification
    work; review all four matrix results manually in the meantime. Keep the

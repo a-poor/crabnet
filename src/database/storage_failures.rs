@@ -1,6 +1,10 @@
 //! Allocation-failure tests using the real SQLite pager, through the public API.
 //! Private connection access is limited to fault setup, observation, and checks.
-//! This does not simulate filesystem ENOSPC, failed sync, or power loss.
+//! The child module also injects one-shot write/sync failures at commit.
+//! Neither model simulates filesystem ENOSPC or power loss.
+
+mod commit_io;
+mod io_vfs;
 
 use std::{
     path::Path,
