@@ -1677,8 +1677,8 @@ foreign keys and recompute property/label index contents.
 These are process-termination tests, not simulated power failure or faulty
 storage. Torn writes, corruption repair, network filesystems, and
 journal/durability tuning remain outside this tested contract. Allocation
-failures and modeled commit/migration I/O errors have the separate coverage below.
-Existing atomic migration and failed-migration tests remain in place.
+failures and modeled commit/migration/restore I/O errors have separate coverage
+below. Existing atomic migration and failed-migration tests remain in place.
 
 ## Storage allocation failures
 
@@ -1708,8 +1708,8 @@ reopening. Integrity and foreign-key checks also pass.
 This fault model caps database growth without exhausting the host filesystem.
 It tests handling of `SQLITE_FULL` during statement execution, with the filesystem
 still able to perform journal and rollback I/O. It does not inject OS-level
-ENOSPC or allocation failures in migration, backup, or restore. Commit and
-migration write/sync failures have the separate coverage below. Applications
+ENOSPC or allocation failures in migration, backup, or restore. Commit,
+migration, and restore write/sync failures have separate coverage below. Applications
 should resolve the storage problem and verify recovery before retrying the
 whole failed query or transaction;
 earlier provisional results do not represent committed work.
@@ -1752,7 +1752,7 @@ raw-connection or fault-control API is added.
 This is a model of one failed SQLite I/O call with healthy rollback I/O. It does
 not exhaust the host disk, inject OS-level ENOSPC, partially perform a failed
 write, or model persistent errors during rollback. It also excludes journal
-deletion/truncation faults, backup/restore, WAL, torn writes, and
+deletion/truncation faults, backup faults, WAL, torn writes, and
 power loss. In particular, these tests do not establish that every possible
 commit error implies rollback: resolve the storage problem and verify recovery
 before retrying after faults outside this model.
@@ -1794,9 +1794,52 @@ maintenance and must survive another reopen.
 These tests use DELETE journaling, FULL synchronization, disabled cache spill,
 and one failed call before native I/O with healthy rollback afterward. They
 do not model persistent/partial I/O errors, allocation failure during migration,
-journal deletion/truncation, WAL, power loss, or backup/restore faults. Retained
+journal deletion/truncation, WAL, power loss, or backup faults. Retained
 inputs are pinned historical commits; published release-pair qualification is
 still a separate gate under the [compatibility policy](compatibility.md).
+
+## Restore I/O failures
+
+For the one-shot destination write/sync fault model above, a failed
+`Database::restore_from` rolls back the replacement before returning. The
+original graph, identities, constraints, and derived indexes remain usable;
+the error retains `Error::Sqlite`, `ErrorCode::SystemIoFailure`, and the extended
+`SQLITE_IOERR_WRITE` or `SQLITE_IOERR_FSYNC` code. The backup source remains
+unchanged. After the fault clears, the same destination connection can retry.
+
+Two tests in `src/database/storage_failures/restore_io.rs` restore public-API
+backups that are strictly larger and smaller than their existing destinations,
+with equal page sizes. Each records a healthy restore's destination journal and
+database write/sync trace, then fails every event in a fresh copy of the same
+fixture. The successful prefix and exact target must match, including later
+database writes after earlier replacement pages reached disk. Main-file faults
+must be followed by successful rollback page writes. Tests use DELETE
+journaling, FULL synchronization, disabled cache spill, and a single error
+before the selected native call; subsequent rollback I/O stays healthy.
+
+Before any connection reuse or reopening can hide a partial replacement, the
+destination file must match its original bytes. An existing observer then
+verifies the original typed graph and exact stored label/property/uniqueness
+index rows, and commits a write with zero lock timeout while the failed
+destination remains open. The original connection and a fresh opener also
+check the graph, constraints, page count, integrity, and foreign keys before
+retry. A separate exclusive-lock probe verifies that the source's read snapshot
+was released; source bytes and its read-only typed snapshot remain unchanged.
+
+Successful retry replaces the graph and constraints on the original connection
+and its existing observer. Tests verify the replacement page count and file
+length, covering both growth and shrinkage. Primed prepared statements and
+mutation TEMP state remain usable, duplicate keys fail under the replacement
+constraint, and a subsequent mutation survives reopening along with the exact
+replacement graph. Source invariance is checked after failure, retry, and
+subsequent destination writes.
+
+This coverage is limited to destination `xWrite`/`xSync` failures in the stated
+configuration. It does not inject source-read, database/journal truncation,
+journal deletion, persistent/partial I/O, or allocation failures; nor does it
+qualify differing page sizes, WAL, power loss, or backup copy/publication
+faults. Resolve storage faults outside this model and verify the destination
+before retrying a restore.
 
 ## Read cursors
 

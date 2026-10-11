@@ -916,7 +916,12 @@ enforcement and the remaining qualification gates are pending.
   historical schema 1–4 files, both during statements and at commit, through
   retained-connection and failed-open cleanup paths. They check the old format
   with raw SQLite before public retry, then verify typed historical oracles,
-  index/constraint writes, and reopening. Add backup/restore fault tests,
+  index/constraint writes, and reopening.
+  [Restore I/O sweeps](semantics.md#restore-io-failures) fail every destination
+  write/sync while restoring larger and smaller backups. They verify original
+  file bytes before connection reuse, typed graph/index/constraint rollback,
+  unchanged sources, source/destination lock release, original-connection retry,
+  file growth/shrinkage, and writes surviving reopen. Add backup fault tests,
   filesystem ENOSPC, and models for persistent/partial I/O and journal
   deletion/truncation failures.
   Exercise corruption detection and failed-open/restore behavior.
@@ -946,10 +951,10 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to backup and restore, using the
-   test-only forwarding VFS where applicable. Backup's filesystem sync/publication
-   steps also need their own injection boundary.
-   Page-count-cap and one-shot commit/migration write/sync tests are in place;
+1. Extend milestone 11's fault coverage to backup copy and publication, using
+   the test-only forwarding VFS where applicable. Backup's filesystem
+   sync/publication steps need their own injection boundary.
+   Page-count-cap and one-shot commit/migration/restore write/sync tests are in place;
    filesystem ENOSPC, persistent/partial errors, and journal deletion/truncation remain
    unqualified. The compatibility policy and historical fixtures are in place;
    named release pairs still need candidate-specific evidence. Keep durability

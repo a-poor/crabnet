@@ -1,11 +1,12 @@
 //! Allocation-failure tests using the real SQLite pager, through the public API.
 //! Private connection access is limited to fault setup, observation, and checks.
-//! Child modules also inject one-shot write/sync failures at commit and migration.
+//! Child modules inject one-shot write/sync failures at commit, migration, and restore.
 //! Neither model simulates filesystem ENOSPC or power loss.
 
 mod commit_io;
 mod io_vfs;
 mod migration_io;
+mod restore_io;
 
 use std::{
     path::Path,

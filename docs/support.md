@@ -71,6 +71,9 @@ of file locking, process recovery, and backup behavior on the new configuration.
   journal/database write and sync errors with healthy rollback I/O.
   [Migration I/O tests](semantics.md#migration-io-failures) apply that model to
   retained schema 1–4 upgrades, verifying the old format before public retry.
+  [Restore I/O tests](semantics.md#restore-io-failures) apply it to destination
+  writes/syncs for larger and smaller backups, checking exact rollback, unchanged
+  sources, lock release, and successful retry on the original connection.
   These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 

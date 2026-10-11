@@ -106,7 +106,8 @@ end-to-end result test for user-visible semantics.
   default; registrations and fault state are scoped to temporary database paths.
   This model uses DELETE journaling, FULL synchronization, no cache spill, and
   healthy rollback I/O. Persistent/partial I/O errors, OS ENOSPC, journal deletion,
-  and backup/restore faults remain follow-ups.
+  and backup faults remain follow-ups. Migration and restore use the same
+  model in the sweeps below.
   The `migration_io` child adds two sweeps over retained schema 1–4 files,
   arming the same VFS before initialization. It covers both a retained failed
   connection and the owning constructor's cleanup. A commit-hook marker proves
@@ -115,8 +116,20 @@ end-to-end result test for user-visible semantics.
   table's typed row bag, plus integrity, foreign keys, and writer lock release.
   Public retry and read-only reopen must match the independent historical JSON
   graph oracle; subsequent index/constraint writes must persist. Fixture files
-  are copied, never modified. Run
-  `cargo test --locked --lib database::storage_failures` for all three slices.
+  are copied, never modified.
+  The `restore_io` child adds two public `restore_from` sweeps, with backups
+  larger and smaller than their destinations. Each destination write/sync is
+  failed in a fresh identical fixture, checking the exact I/O prefix/target and
+  healthy rollback writes. Before connection reuse or reopening, the destination
+  bytes must match the original. Checks also cover typed graph/index/constraint
+  rollback, original extended errors, immediate destination writer and source
+  exclusive-lock acquisition, unchanged source bytes and read-only graph,
+  integrity, reopening before retry, original-connection reuse, and successful
+  retry. Replacement page count/file length, observer visibility, primed caches,
+  mutation TEMP state, and subsequent writes surviving reopen are verified.
+  Source reads, differing page sizes, and truncation/deletion faults are outside
+  this restore model. Run
+  `cargo test --locked --lib database::storage_failures` for all four slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.
