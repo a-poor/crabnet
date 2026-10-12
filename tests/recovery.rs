@@ -61,7 +61,9 @@ fn child_writes(path: &Path, stage: &str) -> ! {
         // Keep the live handle in scope while blocked on stdin.
         Some(transaction)
     };
-    println!("CRABNET_READY");
+    // A single-threaded libtest prints `test name ... ` without a newline.
+    // Frame the marker as its own line before the parent matches it exactly.
+    println!("\nCRABNET_READY");
     std::io::stdout().flush().unwrap();
     std::io::stdin().read_exact(&mut [0]).unwrap();
     panic!("parent should terminate this process without running destructors");
@@ -70,7 +72,8 @@ fn child_writes(path: &Path, stage: &str) -> ! {
 fn ready_child(path: &Path, stage: &str) -> ChildGuard {
     let mut child = ChildGuard(
         Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", TEST_NAME, "--nocapture"])
+            // Exercise the output-prefix case regardless of the parent runner.
+            .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
             .env(STAGE, stage)
             .env(DATABASE_PATH, path)
             .stdin(Stdio::piped())

@@ -1,6 +1,8 @@
 use std::{collections::VecDeque, iter::FusedIterator};
 
 mod distinct;
+#[cfg(test)]
+mod tests;
 use distinct::SeenRows;
 
 use rusqlite::{

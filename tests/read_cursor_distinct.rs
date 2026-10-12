@@ -5,7 +5,7 @@ use crabnet::{
 use serde_json::json;
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 #[test]
@@ -352,20 +352,8 @@ fn work_limits_and_cancellation_apply_while_searching_for_a_new_row() {
     assert!(cursor.next().is_none());
     drop(cursor);
     assert!(matches!(read.cursor(), Err(Error::Cancelled)));
-    drop(read);
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let options = QueryOptions {
-        deadline: Some(deadline),
-        ..QueryOptions::default()
-    };
-    let mut read = db
-        .prepare_read_with_options(&query, &Parameters::new(), &options)
-        .unwrap();
-    let mut cursor = read.cursor().unwrap();
-    cursor.next().unwrap().unwrap();
-    std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
-    assert!(matches!(cursor.next(), Some(Err(Error::DeadlineExceeded))));
-    assert!(cursor.next().is_none());
+    // The equivalent deadline transition uses a controlled clock in the
+    // cursor unit tests, so preparing 100 branches does not race the timer.
 }
 
 fn file_options(mode: OpenMode) -> OpenOptions {

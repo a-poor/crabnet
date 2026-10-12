@@ -69,7 +69,9 @@ fn child_writes(path: &Path) -> ! {
             &Parameters::from([("payload".into(), json!("x".repeat(64 * 1024)))]),
         )
         .unwrap();
-    println!("CRABNET_RECOVERY_IO_READY");
+    // A single-threaded libtest prints `test name ... ` without a newline.
+    // Frame the marker as its own line before the parent matches it exactly.
+    println!("\nCRABNET_RECOVERY_IO_READY");
     std::io::stdout().flush().unwrap();
     // Keep the uncommitted transaction live. The parent kills and reaps this
     // process; no SQLite rollback or Rust destructor runs in the child.
@@ -80,7 +82,8 @@ fn child_writes(path: &Path) -> ! {
 fn ready_child(path: &Path) -> ChildGuard {
     let mut child = ChildGuard(
         Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", TEST_NAME, "--nocapture"])
+            // Exercise the output-prefix case regardless of the parent runner.
+            .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
             .env(CHILD_PATH, path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

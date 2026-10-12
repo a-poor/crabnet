@@ -52,7 +52,7 @@ impl QueryControl {
         } else if self
             .options
             .deadline
-            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+            .is_some_and(|deadline| now() >= deadline)
         {
             2
         } else {
@@ -323,6 +323,51 @@ impl Drop for ProgressGuard<'_> {
     fn drop(&mut self) {
         // This connection is owned by Database and was accepted on installation.
         let _ = self.0.progress_handler(0, None::<fn() -> bool>);
+    }
+}
+
+fn now() -> std::time::Instant {
+    #[cfg(test)]
+    if let Some(now) = TEST_NOW.with(std::cell::Cell::get) {
+        return now;
+    }
+    std::time::Instant::now()
+}
+
+// The override is local to one test thread, so parallel tests and SQLite
+// progress callbacks on other connections keep using their own clocks.
+#[cfg(test)]
+thread_local! {
+    static TEST_NOW: std::cell::Cell<Option<std::time::Instant>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
+pub(super) struct TestClock {
+    previous: Option<std::time::Instant>,
+    // A thread-local override must be restored on the thread that set it.
+    _thread: std::marker::PhantomData<Rc<()>>,
+}
+
+#[cfg(test)]
+impl TestClock {
+    pub(super) fn at(now: std::time::Instant) -> Self {
+        Self {
+            previous: TEST_NOW.with(|clock| clock.replace(Some(now))),
+            _thread: std::marker::PhantomData,
+        }
+    }
+
+    pub(super) fn advance(&self, duration: std::time::Duration) {
+        TEST_NOW.with(|clock| clock.set(Some(clock.get().unwrap() + duration)));
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestClock {
+    fn drop(&mut self) {
+        TEST_NOW.with(|clock| clock.set(self.previous));
     }
 }
 

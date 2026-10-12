@@ -82,6 +82,9 @@ end-to-end result test for user-visible semantics.
   killing and reaping the child, then checks recovery, retained commits,
   constraints, derived indexes, integrity, connection reuse, and backup/restore.
   A timeout and child guard prevent leaked processes on failed assertions.
+  Both this helper and the `recovery_io` helper run the child harness with one
+  test thread and frame readiness markers on their own lines, so exact marker
+  matching also works after libtest's unterminated `test name ... ` prefix.
   This exercises process death without Rust cleanup, not machine power loss.
 - `src/database/storage_failures.rs` is a test-only child module so it can cap
   the private SQLite connection with `max_page_count`; no raw connection or
@@ -288,7 +291,12 @@ end-to-end result test for user-visible semantics.
   accounting, zero-page preflight, unread suffixes and partial errors, shared
   work/control budgets, snapshot pinning, cleanup/reuse, and read-only/busy
   behavior. Cursor deduplication unit tests compare hash-bucket admission with
-  the existing equality oracle and force collisions. `examples/cursor_distinct.rs`
+  the existing equality oracle and force collisions. A cursor unit test uses a
+  thread-local, drop-restored clock to expire a deadline after the first row of
+  a 100-branch distinct union. Preparation does not race a wall-clock timeout;
+  the test checks exact-deadline expiry, terminal iteration, snapshot cleanup,
+  refusal to restart with expired options, and subsequent writes. Other cursor
+  integration tests retain real-clock deadline coverage. `examples/cursor_distinct.rs`
   validates and measures duplicate-heavy and mostly-unique workloads.
 - `tests/read_cursor_hydration.rs` covers incremental SQLite path and graph-list
   hydration: zero hops, cycles, parallel edges, direction and repeated members,
