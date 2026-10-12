@@ -1803,6 +1803,109 @@ journal deletion/truncation, WAL, or power loss. Retained
 inputs are pinned historical commits; published release-pair qualification is
 still a separate gate under the [compatibility policy](compatibility.md).
 
+## Migration read failures
+
+Opening and upgrading retained main schema 1–4 files also has one-shot `xRead`
+coverage. When SQLite reports the injected error to the opener, Crabnet retains
+`Error::Sqlite`, `ErrorCode::SystemIoFailure`, and `SQLITE_IOERR_READ`. The failed
+upgrade leaves the original file bytes, schema/version markers, and typed table
+contents intact, releases locks and owned file handles, and permits a later
+public writable open to retry. Read-only opening still refuses the old format
+until migration succeeds.
+
+A failed `xRead` does not necessarily make SQLite reject the migration.
+Schema 1's `ALTER TABLE ... ADD COLUMN` runs an internal `quick_check` whose SQL
+filters constraint/type diagnostics. With the bundled SQLite and these valid
+fixtures, a one-shot read error in that check can be absorbed and migration can
+complete after healthy subsequent I/O. Tests pin those outcomes separately:
+success must produce exactly the same persisted schema and typed rows as the
+healthy upgrade, checked **before** another public open could conceal an
+incomplete migration. The independently retained graph oracle, integrity,
+constraints, and later writes must also remain correct. This is not a claim
+about persistent faults or damaged inputs.
+
+Two tests in `src/database/storage_failures/migration_read_io.rs` sweep every
+database/journal read in healthy traces for each retained format. One retains
+the connection after initialization failure, with a cold one-page cache and
+spill disabled to force repeated reads during schema changes and backfills.
+It runs alone in a child test process because SQLite pools cache budgets across
+connections; unrelated live caches could otherwise prevent those evictions.
+The other registers the VFS before connection construction and uses the shared
+public opening path in both `ReadWrite` and `OpenOrCreate` modes with default
+cache settings. Connection and commit markers identify header, initialization,
+migration-statement, and final-commit reads. Each target is selected by file,
+byte range, and occurrence; the successful I/O prefix and exact failed event
+must match. SQLite's normal short read when probing beyond the journal's end
+is distinguished from the injected `SQLITE_IOERR_READ`, which fails commit.
+
+Before retrying a rejected upgrade, tests compare file bytes, all raw schema
+objects and typed table-row bags, integrity and foreign keys, and acquire and
+commit a competing write while the retained failed connection remains alive.
+They check autocommit, file counts, sidecar cleanup, read-only refusal, and raw
+reopening. Public retries and successful upgrades must match the historical
+JSON oracle, survive read-only reopen, enforce uniqueness, and maintain migrated
+indexes through writes and another reopen. These sweeps join the source-cache
+guard so another test's deliberate cache eviction cannot change their traces.
+
+The model uses existing valid local DELETE-journal files, FULL synchronization,
+and one failure before native I/O, followed by healthy I/O. Healthy traces must
+show no main-file writes before commit. Empty/new-file initialization, allocation
+failures, persistent/partial I/O, hot journals on historical files, native
+open/close/lock errors, journal
+truncation/deletion faults, WAL, and power loss remain outside this model.
+
+## Empty and new-file initialization I/O failures
+
+Under the one-shot read/write/sync model below, failed initialization leaves no
+partial Crabnet schema, application marker, or version marker. An existing
+zero-byte file remains zero bytes; an empty SQLite database with a valid header
+retains its original bytes. Opening a missing path can create the file before
+the failing I/O: in these tests, it remains as a zero-byte file after the error.
+A failed create does **not** promise to remove the newly created path.
+
+Errors retain `Error::Sqlite`, `ErrorCode::SystemIoFailure`, and the selected
+`SQLITE_IOERR_READ`, `SQLITE_IOERR_WRITE`, or `SQLITE_IOERR_FSYNC`. Owned openers
+close their file handles, and failed initialization releases locks even when
+the connection remains alive. `ReadOnly` and `ReadWrite` still refuse the
+uninitialized file. A later public `OpenOrCreate` can retry on that same path
+without deleting or replacing it.
+
+Three tests in `src/database/storage_failures/initialization_io.rs` exercise the
+shared public opener and initialization routine. The first sweeps missing
+paths, zero-byte files, and empty SQLite files through `OpenOrCreate`, registering
+the forwarding VFS before connection construction. Registering an absent leaf
+canonicalizes its existing parent without creating the file. The second keeps
+failed connections alive for both existing empty-file forms, with FULL sync and
+cache spill disabled. Each healthy trace supplies every database/journal read,
+write, and sync target, selected by operation, byte range or flags, and occurrence.
+Connection/commit markers and exact I/O prefixes verify coverage, including
+later page writes and final sync after earlier main-file writes. Expected native
+short reads from empty headers and journal-end probes are distinguished from
+injected errors.
+
+Before retrying, tests compare exact bytes and raw application/version markers,
+require an empty `sqlite_schema`, run integrity and foreign-key checks, and
+reject leftover sidecars. A zero-timeout competing writer obtains an exclusive
+lock, creates and populates a probe table, and rolls it back while the failed
+connection is still alive. Bytes and metadata must remain intact. Public retry
+must produce the same complete empty schema and typed table contents as a
+healthy initialization. Subsequent graph writes, nested properties, parallel
+relationships, uniqueness enforcement, index maintenance, backup/restore, and
+read-only reopening verify that the resulting graph is usable.
+
+The third test arms a final database-sync fault for a missing path, successfully
+initializes another path through the same VFS, fails the selected path after
+page writes, then retries it through the same controller without resetting or
+rearming. It verifies path isolation, one-shot consumption, rollback to zero
+bytes, released handles/locks, and exact successful retry I/O.
+
+These are valid local single-database DELETE/FULL files with no hot journal.
+Public opening uses default cache settings; healthy traces must contain no
+main-file writes before commit. Faults occur before one native call and all
+later I/O is healthy. This does not inject native creation/open/close/lock errors,
+allocation failures, persistent/partial I/O, journal deletion/truncation failures,
+WAL, filesystem ENOSPC, or power loss.
+
 ## Restore I/O failures
 
 For the one-shot destination write/sync fault model above, a failed
@@ -2003,9 +2106,11 @@ the opening header fault.
 This model uses existing current-version local files with DELETE journaling,
 no hot journal, and mmap disabled by the test VFS. It covers actual `xRead`
 failures, not synthetic open API errors. It does not inject native `xOpen`,
-lock, or descriptor-close failures. Hot-journal recovery has its own model below;
-old-format migration reads, empty-file initialization, persistent/partial reads,
-WAL, filesystem ENOSPC, and power loss remain outside this qualification.
+lock, or descriptor-close failures. Hot-journal recovery has its own model below,
+and [migration reads](#migration-read-failures) are qualified separately.
+[Empty/new-file initialization](#empty-and-new-file-initialization-io-failures)
+also has a separate model. Persistent/partial reads, WAL, filesystem ENOSPC,
+and power loss remain outside this qualification.
 
 ## Hot-journal recovery I/O failures
 

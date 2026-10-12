@@ -71,6 +71,16 @@ of file locking, process recovery, and backup behavior on the new configuration.
   journal/database write and sync errors with healthy rollback I/O.
   [Migration I/O tests](semantics.md#migration-io-failures) apply that model to
   retained schema 1–4 upgrades, verifying the old format before public retry.
+  [Migration read tests](semantics.md#migration-read-failures) cover header,
+  schema/backfill, and commit journal reads. Reported errors preserve the old
+  file and allow retry; transient reads absorbed by SQLite's internal check
+  must still produce exactly the healthy migrated storage and historical graph.
+  [Initialization I/O tests](semantics.md#empty-and-new-file-initialization-io-failures)
+  cover missing paths, zero-byte files, and empty SQLite databases. They verify
+  uninitialized contents after failure, exact rollback, released handles/locks,
+  and successful public retry without removing the leftover file. A failed
+  create can leave a zero-byte file. Path isolation and one-shot consumption
+  are checked with a final-sync fault and the same controller on retry.
   [Restore I/O tests](semantics.md#restore-io-failures) apply it to destination
   writes/syncs for larger and smaller backups, checking exact rollback, unchanged
   sources, lock release, and successful retry on the original connection.

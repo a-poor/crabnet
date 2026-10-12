@@ -917,6 +917,16 @@ enforcement and the remaining qualification gates are pending.
   retained-connection and failed-open cleanup paths. They check the old format
   with raw SQLite before public retry, then verify typed historical oracles,
   index/constraint writes, and reopening.
+  [Migration read sweeps](semantics.md#migration-read-failures) cover the same
+  retained formats through both writable open modes and cold-cache retained
+  initialization, including repeated reads and commit's journal probe. They
+  check exact old-file preservation and original errors for rejected upgrades,
+  and exact successful contents when SQLite absorbs internal check diagnostics.
+  [Initialization I/O sweeps](semantics.md#empty-and-new-file-initialization-io-failures)
+  cover missing paths, zero-byte files, and empty SQLite databases. They fail
+  every read/write/sync in healthy traces, verify exact uninitialized contents
+  and released handles/locks, and retry publicly on the leftover file. Path
+  isolation and one-shot consumption also cover final sync after page writes.
   [Restore I/O sweeps](semantics.md#restore-io-failures) fail every destination
   write/sync while restoring larger and smaller backups. They verify original
   file bytes before connection reuse, typed graph/index/constraint rollback,
@@ -936,8 +946,8 @@ enforcement and the remaining qualification gates are pending.
   cover every connection/initialization read in healthy current-version source
   traces across all access modes and growing/shrinking restores. They preserve
   original errors and file contents, release source handles/locks, fail before
-  destination writes, and allow public retries. Hot-journal recovery, migration
-  reads, and empty-file initialization remain outside that model.
+  destination writes, and allow public retries. Migration reads, empty/new-file
+  initialization, and hot-journal recovery have separate models.
   [Hot-journal recovery tests](semantics.md#hot-journal-recovery-io-failures)
   use a real spilled main/journal pair from a terminated writer. They sweep
   journal reads/syncs and database replay writes/syncs in both writable open
@@ -980,15 +990,18 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to old-format migration reads;
-   empty-file initialization remains a further follow-up. Source
-   connection/initialization reads now have coverage for existing current-version
+1. Extend milestone 11's fault coverage to journal deletion failures at commit.
+   Source connection/initialization reads now have coverage for existing current-version
    graphs in all access modes and during restore source opening. Hot-journal
    replay now has one-shot journal read/sync and database write/sync coverage,
-   with recoverable partial progress and read-only/restore refusal. Page-count-cap and
-   one-shot commit, migration,
-   restore, and backup copy write/sync tests are in place, along with final
-   backup sync/publication errors, a competing-publisher race, and source-read
+   with recoverable partial progress and read-only/restore refusal. Historical
+   migration reads now cover retained schemas 1–4, repeated cold-cache reads,
+   exact old-file rollback, and successful outcomes after absorbed internal-check
+   diagnostics. Empty/new-file initialization now has read/write/sync coverage,
+   with exact rollback, released handles/locks, and retry on the leftover path.
+   Page-count-cap and one-shot commit, migration, restore, and
+   backup copy write/sync tests are in place, along with final backup
+   sync/publication errors, a competing-publisher race, and source-read
    errors during backup/restore validation and copying. Staging creation/open/close
    and cleanup now have API-boundary coverage, including error precedence,
    retained artifacts, and success after publication. Native close failures,

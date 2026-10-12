@@ -19,7 +19,8 @@ use crate::{
 };
 use io_vfs::{Event, FileKind, Operation};
 
-const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/compatibility");
+pub(super) const FIXTURES: &str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/compatibility");
 
 // Exact SQLite storage classes, including real bits and canonical-key BLOBs.
 // Sorting rows preserves bags while ignoring physical row/page order.
@@ -61,7 +62,7 @@ fn rows(connection: &Connection, sql: &str) -> Vec<Vec<Cell>> {
 }
 
 #[derive(Debug, PartialEq)]
-struct Stored {
+pub(super) struct Stored {
     application_id: i64,
     version: i64,
     schema_cookie: i64,
@@ -69,7 +70,7 @@ struct Stored {
     tables: Vec<(String, Vec<Vec<Cell>>)>,
 }
 
-fn stored(connection: &Connection) -> Stored {
+pub(super) fn stored(connection: &Connection) -> Stored {
     let tables = connection
         .prepare("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name")
         .unwrap()
@@ -98,7 +99,7 @@ fn stored(connection: &Connection) -> Stored {
     }
 }
 
-fn raw_open(path: &Path, access: OpenFlags) -> Connection {
+pub(super) fn raw_open(path: &Path, access: OpenFlags) -> Connection {
     let connection = Connection::open_with_flags(
         path,
         access | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_PRIVATE_CACHE,
@@ -108,7 +109,7 @@ fn raw_open(path: &Path, access: OpenFlags) -> Connection {
     connection
 }
 
-fn assert_writer_can_commit(path: &Path, before: &Stored) {
+pub(super) fn assert_writer_can_commit(path: &Path, before: &Stored) {
     let mut writer = raw_open(path, OpenFlags::SQLITE_OPEN_READ_WRITE);
     // Use an existing edge: adding/removing a probe table would change the
     // schema cookie. Save and restore the exact property TEXT, avoiding JSON
@@ -149,7 +150,7 @@ fn properties(value: &Value) -> BTreeMap<String, CypherValue> {
     properties
 }
 
-fn assert_graph(database: &mut Database, oracle: &Value) {
+pub(super) fn assert_graph(database: &mut Database, oracle: &Value) {
     let nodes: Vec<_> = oracle["nodes"]
         .as_array()
         .unwrap()
@@ -212,7 +213,7 @@ fn assert_graph(database: &mut Database, oracle: &Value) {
     assert_connection_integrity(&database.connection);
 }
 
-fn assert_indexes_work(database: &mut Database) {
+pub(super) fn assert_indexes_work(database: &mut Database) {
     database.create_unique_constraint("Person", "key").unwrap();
     database
         .create_unique_constraint("Person", "number")

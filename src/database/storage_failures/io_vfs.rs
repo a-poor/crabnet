@@ -190,13 +190,22 @@ pub(super) fn connect_with_flags(path: &Path, access: OpenFlags) -> (Connection,
     (connection, registration)
 }
 
-/// Register an existing fixture independently of connection construction so
-/// faults can cover SQLite's opening header reads as well as initialization.
+/// Register a fixture independently of connection construction so faults can
+/// cover opening headers and initialization. An absent leaf is allowed when
+/// its parent exists; registration itself never creates the database file.
 pub(super) fn register(path: &Path) -> Registration {
     register_vfs();
-    // Fixtures already exist. Canonicalization matches xFullPathname even if
-    // the platform's temporary directory contains symlinks (e.g. /var on macOS).
-    let path = path.canonicalize().unwrap();
+    // Canonicalize existing files or an absent leaf's parent to match
+    // xFullPathname through temporary-directory symlinks (e.g. /var on macOS).
+    let path = if path.try_exists().unwrap() {
+        path.canonicalize().unwrap()
+    } else {
+        path.parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap()
+            .join(path.file_name().unwrap())
+    };
     let key = path.to_str().unwrap().as_bytes().to_vec();
     let control = Control(Arc::default());
     {

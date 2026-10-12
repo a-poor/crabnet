@@ -117,6 +117,34 @@ end-to-end result test for user-visible semantics.
   Public retry and read-only reopen must match the independent historical JSON
   graph oracle; subsequent index/constraint writes must persist. Fixture files
   are copied, never modified.
+  The `migration_read_io` child adds two read sweeps over the same historical
+  inputs: retained initialization with a cold one-page cache and spill disabled,
+  and both writable public open modes armed before connecting. Every healthy
+  database/journal read is faulted by byte range and occurrence, including
+  repeated backfill reads and commit's journal-end probe. Exact prefixes and
+  connection/commit markers verify the targets. Reported errors must preserve
+  `SQLITE_IOERR_READ`, original file bytes and raw schema/typed rows, autocommit,
+  handle/lock release, and public retry. SQLite absorbs some schema-1 internal
+  `quick_check` read diagnostics; those outcomes are pinned separately and must
+  match the healthy migrated storage before reopening. Independent graph
+  oracles, integrity, constraints, and subsequent writes verify both paths.
+  These sweeps share the source-cache guard and never modify retained fixtures.
+  The tiny-cache sweep runs alone in a child test process so other connections'
+  shared cache budgets cannot eliminate its repeated-read fault points.
+  The `initialization_io` child adds three tests. Public opening sweeps missing
+  paths, zero-byte files, and empty SQLite files; retained-connection sweeps
+  cover both existing empty forms. Every healthy database/journal read, write,
+  and sync is failed before the native call, with connection/commit markers
+  and exact prefix/target checks. Tests preserve extended errors, original bytes
+  and uninitialized metadata, verify no partial schema or sidecars, and acquire
+  an exclusive writer lock before closing retained failed connections. A failed
+  new-file open leaves an empty file in this model. Public retry on that path
+  must match healthy initialized storage and support graph/index/constraint
+  writes, backup/restore, and reopening. The third test checks path isolation
+  and retries a final-sync failure through the same controller without reset.
+  Missing-path VFS registration must not create a file. These sweeps share the
+  source-cache guard; native open/close errors and persistent/partial I/O remain
+  outside the model.
   The `restore_io` child adds two public `restore_from` sweeps, with backups
   larger and smaller than their destinations. Each destination write/sync is
   failed in a fresh identical fixture, checking the exact I/O prefix/target and
@@ -181,8 +209,8 @@ end-to-end result test for user-visible semantics.
   observer visibility, file size, and writes surviving reopen. The sixth test
   verifies path/native-VFS isolation and one-shot header failure consumption
   without resetting the controller. These sweeps join the cache-reset guard.
-  Native open/close errors, old-format migration reads, empty-file initialization,
-  and persistent/partial reads are excluded; hot journals are covered separately.
+  Native open/close errors and persistent/partial reads are excluded; migration
+  reads, empty/new-file initialization, and hot journals have separate coverage.
   The `recovery_io` child adds three tests using a real main/journal pair from a
   terminated writer. The parent proves existing-page spill, file growth, and a
   hot journal before killing/reaping the child, then copies the frozen pair per
@@ -198,7 +226,7 @@ end-to-end result test for user-visible semantics.
   its controller. Recovery tests join the source cache guard and preserve healthy
   I/O after the one injected failure. Deletion/truncation faults, persistent or
   partial failures, damaged journals, and power loss remain outside this model.
-  Run `cargo test --locked --lib database::storage_failures` for all nine slices.
+  Run `cargo test --locked --lib database::storage_failures` for all eleven slices.
 - `tests/read_semantics.rs` holds focused read behavior matrices: nulls and
   types, directions, multiplicity, repeated bindings, comparisons,
   pagination, and parameters.

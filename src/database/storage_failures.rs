@@ -8,8 +8,10 @@
 mod backup_io;
 mod backup_lifecycle;
 mod commit_io;
+mod initialization_io;
 mod io_vfs;
 mod migration_io;
+mod migration_read_io;
 mod recovery_io;
 mod restore_io;
 mod source_open_io;

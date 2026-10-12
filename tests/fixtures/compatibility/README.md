@@ -46,10 +46,15 @@ They check raw schema/data rollback before retrying through the public opener:
 
 ```sh
 cargo test --locked --lib database::storage_failures::migration_io
+cargo test --locked --lib database::storage_failures::migration_read_io
 ```
 
-See the [migration fault model](../../../docs/semantics.md#migration-io-failures)
-for injection boundaries and limits.
+The read sweeps include connection headers, schema/backfill reads, and commit's
+journal probe. They also verify complete migrated contents when SQLite absorbs
+a transient error in its internal schema-1 check. See the
+[write/sync model](../../../docs/semantics.md#migration-io-failures) and
+[read model](../../../docs/semantics.md#migration-read-failures) for boundaries
+and limits.
 
 To audit file hashes (Python 3.12+):
 
