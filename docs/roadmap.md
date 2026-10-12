@@ -985,8 +985,11 @@ the corresponding gates to pass.
   with `Error::Argument`, preserving nulls, lazy branches, cursor cleanup, and
   write rollback. NaN TCK comparisons remain excluded with explicit errors;
   this does not add NaN/infinity support. Review remaining error-semantics
-  deviations explicitly. Add deterministic differential tests against a pinned
-  reference for supported queries, preserving bags and minimizing failures into
+  deviations explicitly. List-input checks now reject wrong kinds in `size`,
+  list functions, comprehensions, and quantifiers, with static and runtime
+  diagnostics, nulls and lazy branches, cursor cleanup, and write rollback.
+  Add deterministic differential tests against a pinned reference for supported
+  queries, preserving bags and minimizing failures into
   local regressions.
   Broad temporal or procedure compatibility is not a prerequisite unless it
   belongs to the chosen surface.
@@ -1009,8 +1012,8 @@ configuration; unsupported features remain explicit.
 1. Address known incorrect results and credible data-integrity risks in the
    documented surface. The finite-number contract now explicitly rejects
    unsupported NaN/infinity calculations. Review remaining error-semantics
-   deviations and preserve focused regressions. Fix observed application
-   failures as they arise.
+   deviations beyond the strict list-input checks and preserve focused
+   regressions. Fix observed application failures as they arise.
 2. Choose the next concrete Git Graph feature or another consumer requirement,
    with queries, data sizes, and acceptance criteria. Use it to identify missing
    capability and measure performance before selecting engine changes. Retain
@@ -1069,8 +1072,8 @@ the pinned openCypher TCK run is in place, and its seven former NaN
 `result-mismatch` rows now reject division by zero with `Error::Argument`.
 One formerly passing cross-kind NaN ordering case is also explicitly excluded;
 four existing ordering exclusions now fail first on the same arithmetic.
-The checked-in manifests currently record 2,606 passing and 1,276 excluded
-scenarios, with no `result-mismatch` rows and 13
+The checked-in manifests currently record 2,613 passing and 1,269 excluded
+scenarios, with no `result-mismatch` rows and six
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.

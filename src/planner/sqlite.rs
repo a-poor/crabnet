@@ -3383,19 +3383,15 @@ impl Compiler {
                 &[operand],
                 |_, parts| {
                     let (value, value_type) = &parts[0];
-                    // Lists count elements and strings count characters;
-                    // null and every other kind read as null.
                     Ok(format!(
-                        "(CASE WHEN ({value_type}) = 'array' THEN json_array_length(({value})) \
-                          WHEN ({value_type}) = 'text' THEN length(({value})) END)"
+                        "(CASE WHEN {} THEN NULL \
+                          WHEN ({value_type}) = 'array' THEN json_array_length(({value})) \
+                          WHEN ({value_type}) = 'text' THEN length(({value})) ELSE {} END)",
+                        is_null_type(value_type),
+                        type_error("size() requires a list or string"),
                     ))
                 },
-                |types| {
-                    format!(
-                        "(CASE WHEN ({}) IN ('array', 'text') THEN 'integer' ELSE 'null' END)",
-                        types[0]
-                    )
-                },
+                |types| collection_result_type(&types[0], true, "'integer'", "size()"),
             ),
             Expr::ListComprehension {
                 variable,
@@ -3892,6 +3888,19 @@ impl Compiler {
                 })?;
                 Ok(Scalar::nullable(value, "text"))
             }
+            ScalarFunction::ListInput => self.composed(
+                &operands,
+                |_, parts| {
+                    let (value, value_type) = &parts[0];
+                    Ok(format!(
+                        "(CASE WHEN {} THEN NULL WHEN ({value_type}) = 'array' \
+                         THEN ({value}) ELSE {} END)",
+                        is_null_type(value_type),
+                        type_error("list function requires a list"),
+                    ))
+                },
+                |types| collection_result_type(&types[0], false, "'array'", "list function"),
+            ),
             ScalarFunction::Reverse => self.composed(
                 &operands,
                 |this, parts| {
@@ -3899,18 +3908,16 @@ impl Compiler {
                     let alias = format!("rv{}", this.scopes);
                     let element = element_json(&alias);
                     Ok(format!(
-                        "(CASE WHEN ({value_type}) = 'text' THEN crabnet_reverse(({value})) \
+                        "(CASE WHEN {} THEN NULL \
+                          WHEN ({value_type}) = 'text' THEN crabnet_reverse(({value})) \
                           WHEN ({value_type}) = 'array' THEN \
                               (SELECT json_group_array(json({element}) ORDER BY {alias}.key DESC) \
-                               FROM json_each(({value})) AS {alias}) END)"
+                               FROM json_each(({value})) AS {alias}) ELSE {} END)",
+                        is_null_type(value_type),
+                        type_error("reverse() requires a list or string"),
                     ))
                 },
-                |types| {
-                    format!(
-                        "(CASE WHEN ({}) IN ('text', 'array') THEN ({}) ELSE 'null' END)",
-                        types[0], types[0]
-                    )
-                },
+                |types| collection_result_type(&types[0], true, &types[0], "reverse()"),
             ),
             ScalarFunction::Substring => {
                 let value = self.scoped(&operands, |_, parts| {
@@ -4159,12 +4166,17 @@ impl Compiler {
             }
             let ((filter, element), sources) = compiled?;
             Ok(format!(
-                "(CASE WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL \
+                "(CASE WHEN {} THEN NULL \
+                 WHEN ({list_type}) <> 'array' THEN {} \
                  ELSE (SELECT json_group_array(json({element}) ORDER BY {alias}.key) \
-                       FROM json_each({list_value}) AS {alias}{sources}{filter}) END)"
+                       FROM json_each({list_value}) AS {alias}{sources}{filter}) END)",
+                is_null_type(list_type),
+                type_error("list comprehension requires a list"),
             ))
         };
-        self.composed(&[list], value, |types| array_when_list(&types[0]))
+        self.composed(&[list], value, |types| {
+            collection_result_type(&types[0], false, "'array'", "list comprehension")
+        })
     }
 
     fn aggregate_parts(
@@ -4528,35 +4540,43 @@ impl Compiler {
         predicate: &Expr,
     ) -> Result<String> {
         self.scoped(&[list], |this, parts| {
-        let (list_value, list_type) = &parts[0];
-        let alias = format!("q{}", variable.0);
-        let previous = this.list_elements.insert(
-            variable,
-            (format!("{alias}.value"), format!("{alias}.type")),
-        );
-        let outcome = this.capture_sources(|this| this.boolean_expression(predicate));
-        match previous {
-            Some(previous) => {
-                this.list_elements.insert(variable, previous);
+            let (list_value, list_type) = &parts[0];
+            let alias = format!("q{}", variable.0);
+            let previous = this.list_elements.insert(
+                variable,
+                (format!("{alias}.value"), format!("{alias}.type")),
+            );
+            let outcome = this.capture_sources(|this| this.boolean_expression(predicate));
+            match previous {
+                Some(previous) => {
+                    this.list_elements.insert(variable, previous);
+                }
+                None => {
+                    this.list_elements.remove(&variable);
+                }
             }
-            None => {
-                this.list_elements.remove(&variable);
-            }
-        }
-        let (outcome, sources) = outcome?;
-        let decision = match kind {
-            ListQuantifier::All => {
-                "WHEN total - trues - nulls > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1"
-            }
-            ListQuantifier::Any => "WHEN trues > 0 THEN 1 WHEN nulls > 0 THEN NULL ELSE 0",
-            ListQuantifier::None => "WHEN trues > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1",
-            ListQuantifier::Single => {
-                "WHEN trues > 1 THEN 0 WHEN nulls > 0 THEN NULL WHEN trues = 1 THEN 1 ELSE 0"
-            }
-        };
-        Ok(format!(
-            "(CASE              WHEN ({list_type}) IS NULL OR ({list_type}) <> 'array' THEN NULL              ELSE (SELECT CASE {decision} END FROM                    (SELECT count(*) AS total,                            count(*) FILTER (WHERE outcome) AS trues,                            count(*) FILTER (WHERE outcome IS NULL) AS nulls                     FROM (SELECT ({outcome}) AS outcome                           FROM json_each({list_value}) AS {alias}{sources}))) END)"
-        ))
+            let (outcome, sources) = outcome?;
+            let decision = match kind {
+                ListQuantifier::All => {
+                    "WHEN total - trues - nulls > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1"
+                }
+                ListQuantifier::Any => "WHEN trues > 0 THEN 1 WHEN nulls > 0 THEN NULL ELSE 0",
+                ListQuantifier::None => "WHEN trues > 0 THEN 0 WHEN nulls > 0 THEN NULL ELSE 1",
+                ListQuantifier::Single => {
+                    "WHEN trues > 1 THEN 0 WHEN nulls > 0 THEN NULL WHEN trues = 1 THEN 1 ELSE 0"
+                }
+            };
+            Ok(format!(
+                "(CASE WHEN {} THEN NULL WHEN ({list_type}) <> 'array' THEN {} \
+             ELSE (SELECT CASE {decision} END FROM \
+               (SELECT count(*) AS total, \
+                       count(*) FILTER (WHERE outcome) AS trues, \
+                       count(*) FILTER (WHERE outcome IS NULL) AS nulls \
+                FROM (SELECT ({outcome}) AS outcome \
+                      FROM json_each({list_value}) AS {alias}{sources}))) END)",
+                is_null_type(list_type),
+                type_error("quantifier requires a list"),
+            ))
         })
     }
 
@@ -4837,9 +4857,25 @@ fn numeric_result_type(left_type: &str, right_type: &str) -> String {
     )
 }
 
-// The type of a list-producing operator whose only operand must be a list.
-fn array_when_list(list_type: &str) -> String {
-    format!("(CASE WHEN ({list_type}) = 'array' THEN 'array' ELSE 'null' END)")
+// Type-only consumers must validate inputs too: IS NULL, collect, and nested
+// expressions can otherwise skip the value SQL and silently suppress an error.
+fn collection_result_type(
+    input_type: &str,
+    allow_string: bool,
+    result_type: &str,
+    context: &str,
+) -> String {
+    let (accepted, expected) = if allow_string {
+        ("'array', 'text'", "a list or string")
+    } else {
+        ("'array'", "a list")
+    };
+    format!(
+        "(CASE WHEN {} THEN 'null' WHEN ({input_type}) IN ({accepted}) \
+         THEN ({result_type}) ELSE {} END)",
+        is_null_type(input_type),
+        type_error(&format!("{context} requires {expected}")),
+    )
 }
 
 fn typed_sql_comparison(

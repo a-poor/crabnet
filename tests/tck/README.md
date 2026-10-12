@@ -47,6 +47,12 @@ the cross-kind NaN ordering example previously passed only because division
 returned null. The four mixed-type ordering cases were already excluded for a
 different error. These changes record deliberate rejection, not new conformance.
 
+Strict collection-input checks promote seven `List6` scenarios that require
+`size()` on a pattern predicate to fail at compile time. Pattern predicates
+remain boolean expressions; they cannot supply the list or string that `size`
+requires. The eighth case still uses unsupported variable-length pattern
+predicates and remains excluded. No existing passing scenario was demoted.
+
 ## Step semantics
 
 - `Given an empty graph` and `Given any graph` both start empty. Named graphs

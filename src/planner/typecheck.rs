@@ -134,6 +134,7 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
             ..
         } => {
             let list = check(list, kinds)?;
+            expect_list(list.as_ref(), false, "a quantifier")?;
             with_element(kinds, *variable, list, |kinds| {
                 let predicate = check(predicate, kinds)?;
                 expect_boolean(predicate.as_ref(), "a quantifier predicate")
@@ -147,6 +148,7 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
             projection,
         } => {
             let list = check(list, kinds)?;
+            expect_list(list.as_ref(), false, "a list comprehension")?;
             let element = with_element(kinds, *variable, list.clone(), |kinds| {
                 if let Some(predicate) = predicate {
                     let predicate = check(predicate, kinds)?;
@@ -200,6 +202,31 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
                 }
             }
             None
+        }
+        Expr::NestedCall {
+            op: super::nested::Op::ListInput,
+            arguments,
+        } => {
+            let kind = check(&arguments[0], kinds)?;
+            expect_list(kind.as_ref(), false, "list operation")?;
+            kind
+        }
+        Expr::Size(operand) => {
+            let kind = check(operand, kinds)?;
+            expect_list(kind.as_ref(), true, "size()")?;
+            None
+        }
+        Expr::Function {
+            function: function @ (ScalarFunction::ListInput | ScalarFunction::Reverse),
+            arguments,
+        } => {
+            let kind = check(&arguments[0], kinds)?;
+            expect_list(
+                kind.as_ref(),
+                *function == ScalarFunction::Reverse,
+                function.name(),
+            )?;
+            kind
         }
         Expr::List(items) => {
             let mut element = None;
@@ -295,6 +322,36 @@ fn expect_boolean(kind: Option<&Kind>, context: &str) -> Result<(), String> {
         }
         _ => Ok(()),
     }
+}
+
+fn expect_list(kind: Option<&Kind>, allow_string: bool, context: &str) -> Result<(), String> {
+    if let Some(kind) = kind {
+        let valid = match kind {
+            Kind::List(_) | Kind::EntityList(_) | Kind::Null => true,
+            Kind::String => allow_string,
+            Kind::Nested(shape) => matches!(
+                shape.as_ref(),
+                super::nested::Shape::List(_)
+                    | super::nested::Shape::Tuple(_)
+                    | super::nested::Shape::Null
+                    | super::nested::Shape::Json
+                    | super::nested::Shape::Mixed
+            ),
+            _ => false,
+        };
+        if !valid {
+            let expected = if allow_string {
+                "a list or string"
+            } else {
+                "a list"
+            };
+            return Err(format!(
+                "{context} requires {expected}, not {}",
+                kind.name()
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn expect_numeric(kind: Option<&Kind>, context: &str) -> Result<(), String> {

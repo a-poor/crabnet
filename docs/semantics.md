@@ -670,8 +670,8 @@ predicate only; the list expression is evaluated in the enclosing scope, so
 `all(x IN x WHERE ...)` iterates the outer `x`. Quantifiers nest, may mention
 outer scalars, properties, and parameters, and may appear anywhere a boolean
 expression may: `WHERE`, projections, `ORDER BY`, and aggregate arguments.
-Aggregates are rejected inside the predicate. A null or non-list operand
-produces null; Cypher raises a type error for a non-list. Predicates that
+Aggregates are rejected inside the predicate. A null operand produces null;
+a non-null non-list operand is a type error. Predicates that
 apply an operator to an element of the wrong kind follow the operator's type
 checks; non-boolean predicate results are type errors.
 
@@ -716,8 +716,9 @@ bindings inside the predicate and projection only; the list is evaluated in
 the enclosing scope. Comprehensions nest, may mention outer scalars,
 properties, and parameters. Scalar results compose with `size`, quantifiers,
 `IN`, `UNWIND`, and equality. Aggregates are rejected inside either part, but
-may supply the input list, as in `[n IN collect(n) | n.name]`. A null or
-non-list operand produces null; Cypher raises a type error for a non-list.
+may supply the input list, as in `[n IN collect(n) | n.name]`. A null operand
+produces null; a non-null non-list operand is a type error, even when the
+predicate would discard every element.
 
 Comprehensions also accept collected node/relationship lists, `nodes(path)`,
 `relationships(path)`, their aliases and slices, and legacy relationship-list
@@ -739,9 +740,18 @@ Path-derived inputs retain the existing restrictions on path-fed writes and
 may materialize the full source entity list internally.
 
 `size(list)` is the element count and `size(string)` the character count.
-`size(null)` is null, and so is `size` of any other kind of value, where Cypher
-raises a type error. `size` of a path or graph entity is a semantic error;
+`size(null)` is null; other non-null kinds are type errors.
+`size` of a statically known path or graph entity is a semantic error;
 paths use `length`.
+
+For `size`, `head`, `last`, `tail`, `reverse`, comprehensions, and quantifiers,
+known invalid input kinds fail before execution with `Error::Semantic`.
+Invalid parameters, properties, or dynamically selected mixed graph values
+raise `Error::Type` when evaluated. Unused runtime branches in `CASE` and
+`coalesce` remain lazy; static errors and missing parameters still fail preflight.
+Errors end a cursor and release its snapshot, and errors after writes roll back
+the statement or explicit transaction. Already yielded transaction rows remain
+provisional.
 
 `size(nodes(p))`, `size(relationships(p))`, and `size(rels)` for a legacy
 relationship-list binding work directly and through aliases across fixed,
@@ -922,8 +932,10 @@ collection in an earlier `WITH` also works.
 `keys()`, `properties()`, and the conversion functions reject an argument of a
 kind they cannot take with a type error: `toInteger()` and `toString()` a list
 or map, `toFloat()` a boolean, list, or map, and `toBoolean()` a float, list,
-or map. The other scalar functions still return null for an argument of the
-wrong kind, where Cypher raises a type error. Function names are
+or map. The collection functions `size`, `head`, `last`, `tail`, and `reverse`
+also reject non-null arguments outside their accepted kinds. The remaining
+scalar functions still return null for an argument of the wrong kind, where
+Cypher raises a type error. Function names are
 case-insensitive, and calling one with the wrong number of
 arguments is a semantic error.
 
@@ -935,8 +947,10 @@ arguments is a semantic error.
   entity never stores a null property (see "Values and properties"); map
   values may hold null, so the map forms keep such entries.
   Both functions read a null entity (from `OPTIONAL MATCH`) as null.
-- `head(list)`, `last(list)`, and `tail(list)` are `list[0]`, `list[-1]`, and
-  `list[1..]`, with the same null rules.
+- `head(list)`, `last(list)`, and `tail(list)` select `list[0]`, `list[-1]`, and
+  `list[1..]`, respectively. They require a list or null, including when the
+  input comes from a mixed graph collection. Their stricter input check is
+  independent of general indexing and slicing rules.
 - `reverse(x)` reverses a string or a list.
   These four list functions preserve entity and nested graph values; see
   [nested graph collections](#nested-graph-collections).

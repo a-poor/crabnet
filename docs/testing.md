@@ -333,6 +333,13 @@ end-to-end result test for user-visible semantics.
   nulls, lazy branches, eager/incremental/buffered reads, cursor reuse, and
   statement/transaction rollback with constraints, index lookups, immediate
   writer lock release, and reopening.
+- `tests/list_input_errors.rs` covers strict inputs for `size`, `head`, `last`,
+  `tail`, `reverse`, comprehensions, and quantifiers. It checks planning-time
+  rejection, parameters/properties and mixed graph selections, nulls, empty
+  lists, Unicode strings, duplicate members, lazy runtime branches, type-only
+  composition and aggregation, eager/incremental/buffered execution, terminal
+  cursor reuse, and statement/transaction rollback with indexes, constraints,
+  and reopening. General subscript and UNWIND contracts remain independent.
 - `tests/with_distinct.rs` covers typed row deduplication at intermediate
   boundaries: nulls and recursive numeric equality, complete rows and
   wildcards, entity/path/graph-list identity, filtering and ordering scope,

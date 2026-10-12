@@ -110,12 +110,19 @@ fn zero_hop_paths_have_one_node_and_no_relationships() {
         assert_eq!(
             rows(
                 &mut db,
-                &format!(
-                    "MATCH {pattern} RETURN size(nodes(p)),size(relationships(p)),size(length(p))"
-                )
+                &format!("MATCH {pattern} RETURN size(nodes(p)),size(relationships(p))")
             ),
-            [vec![json!(1), json!(0), json!(null)]]
+            [vec![json!(1), json!(0)]]
         );
+        let query = format!("MATCH {pattern} RETURN size(length(p))");
+        assert!(matches!(db.execute(&query), Err(Error::Type(_))), "{query}");
+        {
+            let mut read = db.prepare_read(&query).unwrap();
+            let result = read
+                .cursor()
+                .and_then(|cursor| cursor.collect::<crabnet::Result<Vec<_>>>());
+            assert!(matches!(result, Err(Error::Type(_))), "{query}: {result:?}");
+        }
         if pattern.contains("rels:") {
             assert_eq!(
                 rows(&mut db, &format!("MATCH {pattern} RETURN size(rels)")),

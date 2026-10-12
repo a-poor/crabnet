@@ -372,6 +372,8 @@ pub(crate) enum ScalarFunction {
     Trim,
     LTrim,
     RTrim,
+    // Internal guard for list functions lowered to indexing or slicing.
+    ListInput,
     Reverse,
     Substring,
     Left,
@@ -456,6 +458,7 @@ impl ScalarFunction {
             Self::Trim => "trim",
             Self::LTrim => "ltrim",
             Self::RTrim => "rtrim",
+            Self::ListInput => "list-input",
             Self::Reverse => "reverse",
             Self::Substring => "substring",
             Self::Left => "left",

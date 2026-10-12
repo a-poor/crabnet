@@ -2776,7 +2776,7 @@ impl<'source> Lowerer<'source> {
         if let Expr::Nested { shape, .. } = &list {
             let shape = shape.element();
             return (
-                nested::call(NestedOp::Elements, vec![list]),
+                nested::call(NestedOp::Elements, vec![list_function_input(list)]),
                 nested::restore(shape.clone(), member),
                 Some(shape),
             );
@@ -3567,7 +3567,10 @@ impl<'source> Lowerer<'source> {
                     "length" | "nodes" | "relationships" => {
                         matches!(shape, NestedShape::Path | NestedShape::Mixed)
                     }
-                    "size" => shape != NestedShape::Path,
+                    "size" => !matches!(
+                        shape,
+                        NestedShape::Path | NestedShape::Map(_) | NestedShape::Entity(_)
+                    ),
                     _ => unreachable!(),
                 };
                 if !valid {
@@ -3788,6 +3791,11 @@ impl<'source> Lowerer<'source> {
                 }
                 let literal =
                     |value: i64| Box::new(Expr::Value(ValueExpr::Literal(Value::from(value))));
+                let base = if name == "reverse" {
+                    base
+                } else {
+                    list_function_input(base)
+                };
                 Ok(match name.as_str() {
                     "head" => index_expression(base, *literal(0)),
                     "last" => index_expression(base, *literal(-1)),
@@ -4768,6 +4776,24 @@ fn slice_expression(base: Expr, lower: Option<Box<Expr>>, upper: Option<Box<Expr
             expression: Box::new(expression),
         },
         None => expression,
+    }
+}
+
+// Keep list-function validation separate from the more general subscript rules.
+// A mixed graph value may select a scalar, map, or entity at runtime.
+fn list_function_input(base: Expr) -> Expr {
+    if let Expr::Nested { shape, .. } = &base {
+        return nested::restore(
+            *shape.clone(),
+            nested::call(NestedOp::ListInput, vec![base]),
+        );
+    }
+    if entity_list_kind(&base).is_some() {
+        return base;
+    }
+    Expr::Function {
+        function: ScalarFunction::ListInput,
+        arguments: vec![base],
     }
 }
 

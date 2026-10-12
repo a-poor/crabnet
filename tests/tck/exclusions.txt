@@ -226,13 +226,6 @@ expressions/existentialSubqueries/ExistentialSubquery3.feature::[3] Nested full 
 expressions/graph/Graph3.feature::[7] `labels()` on null node	semantic-error: graph function requires a node or relationship
 expressions/graph/Graph4.feature::[3] `type()` on null relationship	semantic-error: graph function requires a node or relationship
 expressions/list/List6.feature::[10] Get node degree via size of pattern comprehension that specifies multiple relationship types	unsupported: pattern comprehension
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1	expected-error-not-raised
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2	expected-error-not-raised
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3	expected-error-not-raised
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 4	expected-error-not-raised
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 5	expected-error-not-raised
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 6	expected-error-not-raised
-expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 7	expected-error-not-raised
 expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 8	wrong-error-kind: unsupported: variable-length pattern predicates
 expressions/list/List6.feature::[7] Using size of pattern comprehension to test existence	unsupported: pattern comprehension
 expressions/list/List6.feature::[8] Get node degree via size of pattern comprehension	unsupported: pattern comprehension

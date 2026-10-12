@@ -48,11 +48,15 @@ fn quantifiers_follow_three_valued_semantics_over_true_false_and_null_outcomes()
 }
 
 #[test]
-fn quantifiers_over_null_or_non_list_values_are_null_and_predicates_see_element_types() {
+fn quantifiers_preserve_null_reject_non_lists_and_predicates_see_element_types() {
     let mut database = Database::in_memory().unwrap();
     assert_eq!(truth(&mut database, "any(x IN null WHERE true)"), NULL);
-    assert_eq!(truth(&mut database, "all(x IN 5 WHERE true)"), NULL);
-    assert_eq!(truth(&mut database, "none(x IN 'abc' WHERE true)"), NULL);
+    for expression in ["all(x IN 5 WHERE true)", "none(x IN 'abc' WHERE true)"] {
+        assert!(matches!(
+            database.execute(&format!("RETURN {expression}")),
+            Err(Error::Semantic(_))
+        ));
+    }
     // Boolean elements are the predicate itself; strings, floats, and nested
     // collections keep their kinds inside the predicate.
     assert_eq!(

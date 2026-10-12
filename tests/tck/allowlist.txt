@@ -1539,6 +1539,13 @@ expressions/list/List6.feature::[2] Setting and returning the size of a list pro
 expressions/list/List6.feature::[3] Concatenating and returning the size of literal lists
 expressions/list/List6.feature::[4] `size()` on null list
 expressions/list/List6.feature::[5] Fail for `size()` on paths
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 1
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 2
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 3
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 4
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 5
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 6
+expressions/list/List6.feature::[6] Fail for `size()` on pattern predicates::example 7
 expressions/list/List9.feature::[1] Returning nested expressions based on list property
 expressions/literals/Literals1.feature::[1] Return a boolean true lower case
 expressions/literals/Literals1.feature::[2] Return a boolean true upper case

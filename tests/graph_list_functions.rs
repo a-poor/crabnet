@@ -270,15 +270,19 @@ fn dynamically_selected_plain_lists_and_strings_keep_scalar_behavior() {
         json!(true),
         json!({"key":1}),
     ] {
+        let valid = plain.is_string();
         let params: Parameters = [("plain".into(), plain), ("i".into(), json!(1))].into();
-        let result = db
-            .execute_with(
-                "MATCH (n:Step {rank:1}) WITH [n,$plain] AS box \
+        let result = db.execute_with(
+            "MATCH (n:Step {rank:1}) WITH [n,$plain] AS box \
              RETURN reverse(box[$i]), reverse($plain)",
-                &params,
-            )
-            .unwrap();
-        assert_eq!(result.rows[0][0], result.rows[0][1]);
+            &params,
+        );
+        if valid {
+            let result = result.unwrap();
+            assert_eq!(result.rows[0][0], result.rows[0][1]);
+        } else {
+            assert!(matches!(result, Err(Error::Type(_))), "{result:?}");
+        }
     }
     assert_eq!(
         rows(

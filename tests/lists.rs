@@ -30,22 +30,12 @@ fn size_counts_list_elements_and_string_characters() {
     let row = single(
         &mut database,
         "RETURN size([1, 2, 3]) AS a, size([]) AS b, size('héllo') AS c, size('') AS d, \
-                size(null) AS e, size(1) AS f, size(true) AS g, size({a: 1}) AS h, \
+                size(null) AS e, \
                 size([[1, 2], [3]]) AS i",
     );
     assert_eq!(
         row,
-        [
-            int(3),
-            int(0),
-            int(5),
-            int(0),
-            CypherValue::Null,
-            CypherValue::Null,
-            CypherValue::Null,
-            CypherValue::Null,
-            int(2),
-        ]
+        [int(3), int(0), int(5), int(0), CypherValue::Null, int(2),]
     );
 
     let result = database
@@ -116,7 +106,6 @@ fn list_comprehensions_filter_and_project_in_list_order() {
                 [x IN [1, [2], {a: 3}, 's', null, true] | x] AS d, \
                 [x IN [] | x] AS e, \
                 [x IN null | x] AS f, \
-                [x IN 'abc' | x] AS g, \
                 [x IN [1, 2, null] WHERE x > 1 | x] AS h, \
                 [x IN [1, 2, 3] WHERE x <> 2 | null] AS i",
     );
@@ -135,7 +124,6 @@ fn list_comprehensions_filter_and_project_in_list_order() {
                 CypherValue::Boolean(true),
             ]),
             list([]),
-            CypherValue::Null,
             CypherValue::Null,
             list([int(2)]),
             list([CypherValue::Null, CypherValue::Null]),

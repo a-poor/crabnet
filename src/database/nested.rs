@@ -496,14 +496,17 @@ fn evaluate(op: &str, args: &[Value]) -> Result<Value> {
         "size" => match (tag, payload) {
             ("l" | "v", Value::Array(items)) => json!(items.len()),
             ("v", Value::String(s)) => json!(s.chars().count()),
-            _ => Value::Null,
+            _ => return Err(Error::Type("size() requires a list or string".into())),
+        },
+        "list_input" => match (tag, payload) {
+            ("l" | "v", Value::Array(_)) => value.clone(),
+            _ => return Err(Error::Type("list operation requires a list".into())),
         },
         "reverse" => match (tag, payload) {
             ("l" | "v", Value::Array(items)) => {
                 tagged(tag, Value::Array(items.iter().rev().cloned().collect()))
             }
             ("v", Value::String(s)) => tagged("v", Value::String(s.chars().rev().collect())),
-            ("v", _) => Value::Null,
             _ => return Err(Error::Type("reverse() requires a list or string".into())),
         },
         "element_id" if tag == "n" || tag == "r" => payload["id"].clone(),

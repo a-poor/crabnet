@@ -251,7 +251,7 @@ fn string_functions_return_text_or_null() {
             &mut database,
             "RETURN toLower('AbC') AS a, toUpper('AbC') AS b, trim('  x ') AS c, \
                     ltrim('  x ') AS d, rtrim('  x ') AS e, toLower(1) AS f, trim(null) AS g, \
-                    reverse('abc') AS h, reverse([1, 'b', [3]]) AS i, reverse(1) AS j, \
+                    reverse('abc') AS h, reverse([1, 'b', [3]]) AS i, reverse(null) AS j, \
                     substring('hello', 1) AS k, substring('hello', 1, 3) AS l, \
                     substring('hello', -1) AS m, left('hello', 2) AS n, right('hello', 2) AS o, \
                     right('hello', 0) AS p, right('hello', 9) AS q, \
@@ -304,7 +304,7 @@ fn list_and_map_functions() {
         single(
             &mut database,
             "RETURN head([1, 2]) AS a, last([1, 2]) AS b, tail([1, 2, 3]) AS c, head([]) AS d, \
-                    tail([]) AS e, head(null) AS f, tail('x') AS g, \
+                    tail([]) AS e, head(null) AS f, tail(null) AS g, \
                     keys({b: 1, a: 2}) AS h, keys({}) AS i, keys(null) AS j, \
                     properties({a: 1}) AS k, properties(null) AS l, \
                     coalesce(null, 1, 2) AS m, coalesce(null, null) AS n, \
