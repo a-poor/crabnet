@@ -315,8 +315,16 @@ end-to-end result test for user-visible semantics.
   identities/declarations, and atomic DDL failure restoring both maintenance
   triggers and the version marker.
 - `tests/arithmetic_and_distinct.rs` locks down numeric expression typing,
-  precedence, invalid-operand nulls, typed ordering, and post-decode semantic
-  `DISTINCT`, including pagination and ordering-scope boundaries.
+  precedence, null propagation and invalid-operand types, typed ordering, and
+  post-decode semantic `DISTINCT`, including pagination and ordering-scope
+  boundaries.
+- `tests/numeric_errors.rs` covers the finite numeric boundary: zero divisors,
+  floating overflow, invalid math domains, aggregate overflow, explicit rejection
+  of NaN-producing comparisons, and correct remainder at large finite ratios.
+  It exercises parameters, properties, nested collections, predicates, aliases,
+  nulls, lazy branches, eager/incremental/buffered reads, cursor reuse, and
+  statement/transaction rollback with constraints, index lookups, immediate
+  writer lock release, and reopening.
 - `tests/with_distinct.rs` covers typed row deduplication at intermediate
   boundaries: nulls and recursive numeric equality, complete rows and
   wildcards, entity/path/graph-list identity, filtering and ordering scope,

@@ -38,6 +38,15 @@ CRABNET_TCK_UPDATE=1 cargo test --test tck # regenerate both files, then review 
 CRABNET_TCK_TRACE=1 cargo test --test tck -- --nocapture  # print each scenario ID as it starts
 ```
 
+Crabnet's finite-number contract explicitly rejects division/remainder by zero
+and non-finite calculation results with `Error::Argument`. It does not implement
+Cypher NaN/infinity values. The eight NaN comparison scenarios and four mixed-type
+ordering scenarios containing `0.0 / 0.0` remain excluded as
+`argument-error: division by zero`. Seven were previously wrong-answer cases;
+the cross-kind NaN ordering example previously passed only because division
+returned null. The four mixed-type ordering cases were already excluded for a
+different error. These changes record deliberate rejection, not new conformance.
+
 ## Step semantics
 
 - `Given an empty graph` and `Given any graph` both start empty. Named graphs

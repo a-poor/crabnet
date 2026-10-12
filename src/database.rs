@@ -2594,8 +2594,36 @@ fn register_functions(connection: &Connection) -> Result<()> {
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |context| Ok(context.get::<Option<f64>>(0)?.map(json_real_text)),
     )?;
+    // Check arithmetic before SQLite's JSON transport or a later operator
+    // can turn an unsupported non-finite result into a different value. SQL
+    // calls this only after handling null operands / empty aggregate bags.
+    connection.create_scalar_function(
+        "crabnet_finite",
+        1,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| {
+            let value = context.get::<rusqlite::types::Value>(0)?;
+            match value {
+                rusqlite::types::Value::Integer(_) => Ok(value),
+                rusqlite::types::Value::Real(real) => {
+                    finite_number(real).map(rusqlite::types::Value::Real)
+                }
+                // SUM/AVG can return NULL for an indeterminate accumulation
+                // even when their input contains non-null finite numbers.
+                _ => Err(non_finite_error()),
+            }
+        },
+    )?;
+    // A quotient cast to i64 saturates for large ratios and cannot implement
+    // floating remainder. Rust's remainder handles finite operands directly.
+    connection.create_scalar_function(
+        "crabnet_remainder",
+        2,
+        FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+        |context| finite_number(context.get::<f64>(0)? % context.get::<f64>(1)?),
+    )?;
     // The bundled SQLite is built without its math library, so the numeric
-    // functions come from Rust. Non-finite results read as null.
+    // functions come from Rust. Null input stays null; non-finite output fails.
     type MathFunction = fn(f64) -> f64;
     let math: [(&str, MathFunction); 12] = [
         ("crabnet_ceil", f64::ceil),
@@ -2617,10 +2645,10 @@ fn register_functions(connection: &Connection) -> Result<()> {
             1,
             FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
             move |context| {
-                Ok(context
+                context
                     .get::<Option<f64>>(0)?
-                    .map(function)
-                    .filter(|value| value.is_finite()))
+                    .map(|value| finite_number(function(value)))
+                    .transpose()
             },
         )?;
     }
@@ -2697,6 +2725,24 @@ fn register_functions(connection: &Connection) -> Result<()> {
         },
     )?;
     Ok(())
+}
+
+fn non_finite_error() -> rusqlite::Error {
+    rusqlite::Error::UserFunctionError(
+        format!(
+            "{}numeric result is not finite",
+            crate::error::ARGUMENT_ERROR_TAG
+        )
+        .into(),
+    )
+}
+
+fn finite_number(value: f64) -> rusqlite::Result<f64> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(non_finite_error())
+    }
 }
 
 fn json_argument(context: &Context<'_>, index: usize) -> rusqlite::Result<serde_json::Value> {

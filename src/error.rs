@@ -36,7 +36,8 @@ pub enum Error {
     Sqlite(rusqlite::Error),
     /// Stored data or an internally generated result had an invalid shape.
     Data(String),
-    /// A function received an argument value it cannot accept at runtime.
+    /// An operator or function received a value it cannot accept at runtime,
+    /// including division/remainder by zero and non-finite numeric results.
     Argument(String),
     /// A write would leave the graph inconsistent, such as deleting a node
     /// that still has relationships without `DETACH`, or violating a node

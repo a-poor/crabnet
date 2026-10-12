@@ -446,7 +446,7 @@ Concurrent external-writer semantics remain a non-goal.
   The cost is on writes: creating one node went from 26 µs to 34 µs and a
   100-node batch got about 9% slower. Relationship properties, range
   predicates, and equalities inside `OR` are not indexed yet.
-- The wrong-answer TCK slice is green apart from NaN. Of the 43
+- The original wrong-answer TCK slice passed all cases apart from NaN. Of the 43
   `result-mismatch` and `side-effects-mismatch` rows, 36 now pass. List and
   map equality is decided in Rust (`crabnet_equals`) so nested nulls make it
   null and `[1] = [1.0]` holds; lists order lexicographically under `<`
@@ -457,8 +457,9 @@ Concurrent external-writer semantics remain a non-goal.
   falls back to every node with the key when the expected value is a list or
   map, whose JSON text can differ from an equal stored value. The TCK
   harness now counts `+labels` as label names new to the graph. The seven
-  remaining rows compare NaN, which SQLite turns into NULL, so they need a
-  NaN representation of their own. Main read, row-source, and traversal
+  remaining comparisons originally received SQLite NULL in place of NaN;
+  the later finite-number slice rejects their arithmetic explicitly rather
+  than claiming NaN support. Main read, row-source, and traversal
   statements now go through rusqlite's prepared-statement cache, which took a
   point lookup on 10,000 nodes from 35 µs to 14 µs. The temporary rows table
   that `MERGE` and matched writes read through is now emptied rather than
@@ -979,10 +980,14 @@ the corresponding gates to pass.
   claiming it; current process-termination tests cover a narrower failure model.
   Keep unqualified storage configurations outside the supported contract.
 - [ ] **Close correctness gaps in the declared surface.** Resolve known
-  wrong-answer cases, including NaN where supported, and document or reject
-  unsupported inputs. Review error-semantics deviations explicitly. Add
-  deterministic differential tests against a pinned reference for supported
-  queries, preserving bags and minimizing failures into local regressions.
+  wrong-answer cases and document or reject unsupported inputs. The finite-number
+  slice rejects zero divisors and non-finite arithmetic/math/aggregate results
+  with `Error::Argument`, preserving nulls, lazy branches, cursor cleanup, and
+  write rollback. NaN TCK comparisons remain excluded with explicit errors;
+  this does not add NaN/infinity support. Review remaining error-semantics
+  deviations explicitly. Add deterministic differential tests against a pinned
+  reference for supported queries, preserving bags and minimizing failures into
+  local regressions.
   Broad temporal or procedure compatibility is not a prerequisite unless it
   belongs to the chosen surface.
 - [ ] **Publish a reproducible qualification record.** Repeat sustained workload,
@@ -1002,9 +1007,10 @@ configuration; unsupported features remain explicit.
 ## Near-term working order
 
 1. Address known incorrect results and credible data-integrity risks in the
-   documented surface. Resolve or explicitly reject unsupported NaN behavior,
-   review error-semantics deviations, and preserve focused regressions. Fix
-   observed application failures as they arise.
+   documented surface. The finite-number contract now explicitly rejects
+   unsupported NaN/infinity calculations. Review remaining error-semantics
+   deviations and preserve focused regressions. Fix observed application
+   failures as they arise.
 2. Choose the next concrete Git Graph feature or another consumer requirement,
    with queries, data sizes, and acceptance criteria. Use it to identify missing
    capability and measure performance before selecting engine changes. Retain
@@ -1059,9 +1065,12 @@ when released; it no longer blocks local hardening.
 Public default state-budget exhaustion, exact query-wide serialized-payload
 accounting, selective traversal seeding, deterministic retained-memory
 accounting, and exact matching against a pre-bound relationship list are green,
-the pinned openCypher TCK run is in place, and its seven remaining
-`result-mismatch` rows need NaN support. The checked-in manifests currently
-record 2,607 passing and 1,275 excluded scenarios, including 13
+the pinned openCypher TCK run is in place, and its seven former NaN
+`result-mismatch` rows now reject division by zero with `Error::Argument`.
+One formerly passing cross-kind NaN ordering case is also explicitly excluded;
+four existing ordering exclusions now fail first on the same arithmetic.
+The checked-in manifests currently record 2,606 passing and 1,276 excluded
+scenarios, with no `result-mismatch` rows and 13
 `expected-error-not-raised` cases. Temporal features dominate the unsupported
 categories. Every unsupported expression kind and operator is now named in
 its rejection, so the exclusions file exposes those compatibility gaps.
@@ -1080,10 +1089,10 @@ ranking now reads qualified function calls (all temporal), the temporal
 functions themselves (which now also account for every remaining setup
 failure), expected errors that are not raised (mostly wrong-kind arguments
 that read as null where Cypher raises a type error, a deliberate choice that
-a future strict-types pass could revisit in one place), and result
-mismatches. `MERGE` is in. Writes in a clause pipeline followed: the
-lowering now accepts any order of reading and updating clauses and splits
-the statement into the input read, its mutations, and then segments, each a
+a future strict-types pass could revisit in one place), and explicit
+non-finite arithmetic rejections. `MERGE` is in. Writes in a clause pipeline
+followed: the lowering now accepts any order of reading and updating clauses
+and splits the statement into the input read, its mutations, and then segments, each a
 run of reading clauses compiled as a read over the `_crabnet_rows` table
 (which carries scalar columns as well as entities) followed by that run's
 mutations; the executor re-materializes the rows between segments. That

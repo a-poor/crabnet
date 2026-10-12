@@ -37,7 +37,7 @@ fn numeric_functions_follow_operand_types() {
             "RETURN abs(-3) AS a, abs(-1.5) AS b, abs('x') AS c, abs(null) AS d, \
                     sign(-7) AS e, sign(2.5) AS f, sign(0) AS g, \
                     ceil(1.2) AS h, floor(1.8) AS i, round(2.5) AS j, ceil(3) AS k, \
-                    sqrt(16) AS l, sqrt(-1) AS m, sqrt('x') AS n"
+                    sqrt(16) AS l, sqrt(null) AS m, sqrt('x') AS n"
         ),
         [
             int(3),

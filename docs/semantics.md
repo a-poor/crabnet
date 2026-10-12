@@ -155,11 +155,14 @@ null-extended entity.
 `sum` and `avg` ignore nulls and accept numeric inputs only. `sum` of an empty
 numeric bag is integer zero; `avg` of one is null. Mixed integer/float inputs
 use SQLite's numeric promotion. If any non-null input has another kind, the
-result is null instead of being coerced. `min` and `max` ignore nulls and
-choose by the same global orderability as `ORDER BY`, so `max` over numbers and
-strings is a number and `min` over a list and strings is the list. `collect` omits nulls, preserves
-duplicates, and returns an empty list for empty input. Ordering established by
-an immediately preceding `WITH ... ORDER BY` controls collection order.
+result is null instead of being coerced. A non-finite numeric `sum` or `avg`
+result raises `Error::Argument`, including an indeterminate accumulation that
+SQLite reports as null despite non-null numeric input. `min` and `max` ignore
+nulls and choose by the same global orderability as `ORDER BY`, so `max` over
+numbers and strings is a number and `min` over a list and strings is the list.
+`collect` omits nulls, preserves duplicates, and returns an empty list for empty
+input. Ordering established by an immediately preceding `WITH ... ORDER BY`
+controls collection order.
 
 `collect(n)` and `collect(r)` return lists of typed nodes or relationships.
 Entities with identical properties remain distinct when their element IDs
@@ -772,6 +775,27 @@ a float. A null or missing operand produces null. A boolean, string, list, or
 map operand of `-`, `*`, `/`, `%`, or a unary sign is a type error; Crabnet
 never coerces it to a number.
 
+Evaluated division or remainder by zero raises `Error::Argument`, for integer
+and float operands (including negative float zero). Finite float operands whose
+arithmetic result overflows to infinity also raise `Error::Argument`. Invalid
+math domains such as `sqrt(-1)`, `log(0)`, and `asin(2)` follow the same rule.
+NaN and infinity are outside the supported value domain: they cannot become
+comparison results, collection members, or stored properties. This deliberately
+differs from Cypher's NaN comparison behavior; the relevant TCK scenarios remain
+explicit exclusions. Earlier revisions returned null for division/remainder by
+zero and non-finite math-function results; callers relying on that behavior must
+guard the operation with `CASE`.
+
+Null operands still propagate (`null / 0` is null), and finite underflow to zero
+is accepted. Only evaluated expressions can raise these runtime errors:
+unselected `CASE` alternatives and unused `coalesce` alternatives do not run.
+Floating remainder corresponds to a quotient truncated toward zero and has the
+dividend's sign. It does not cast the quotient to an integer, so large finite
+ratios remain valid.
+These rules apply to eager reads, incremental and buffered cursors, and writes.
+A failure rolls back the statement, or aborts and rolls back the entire explicit
+transaction. Rows already yielded by a transaction cursor remain provisional.
+
 `+` is also concatenation: two strings join, two lists join, and a list beside
 a non-list value appends or prepends that value as one element. A null on
 either side, or any other pairing such as a string with a number, produces
@@ -930,8 +954,9 @@ arguments is a semantic error.
   Case conversion is ASCII-only.
 - `abs` keeps the argument's numeric type and `sign` returns an integer;
   `ceil`, `floor`, `round`, `sqrt`, `exp`, `log`, `log10`, `sin`, `cos`,
-  `tan`, `asin`, `acos`, and `atan` return floats, and a non-finite result
-  such as `sqrt(-1)` is null. `pi()` and `e()` are constants.
+  `tan`, `asin`, `acos`, and `atan` return floats. A non-finite result
+  such as `sqrt(-1)` or `exp(1000)` raises `Error::Argument`; null and
+  non-numeric arguments still produce null. `pi()` and `e()` are constants.
 - `rand()` draws a float in `[0, 1)` once per call site per row, so a value
   bound in `WITH` is stable across later references and a `CASE` whose
   condition uses `rand()` is decided once. Inside a list comprehension or

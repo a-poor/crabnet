@@ -1281,7 +1281,6 @@ expressions/comparison/Comparison2.feature::[4] Comparing lists::example 2
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 3
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 4
 expressions/comparison/Comparison2.feature::[4] Comparing lists::example 5
-expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 4
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 1
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 2
 expressions/comparison/Comparison2.feature::[6] Comparability between numbers and strings::example 3

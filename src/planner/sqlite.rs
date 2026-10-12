@@ -4277,7 +4277,8 @@ impl Compiler {
                 let sum = format!("SUM({modifier}{value}) FILTER (WHERE {numeric})");
                 let value = format!(
                     "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
-                     ELSE COALESCE({sum}, 0) END)"
+                     WHEN COUNT(*) FILTER (WHERE {numeric}) = 0 THEN 0 \
+                     ELSE crabnet_finite({sum}) END)"
                 );
                 // The sum is real as soon as one real was summed; deciding
                 // this from the argument types keeps the type from repeating
@@ -4293,7 +4294,8 @@ impl Compiler {
                 let average = format!("AVG({modifier}{value}) FILTER (WHERE {numeric})");
                 let value = format!(
                     "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
-                     ELSE {average} END)"
+                     WHEN COUNT(*) FILTER (WHERE {numeric}) = 0 THEN NULL \
+                     ELSE crabnet_finite({average}) END)"
                 );
                 Ok(Scalar::sql(value, "'real'"))
             }
@@ -4379,7 +4381,7 @@ impl Compiler {
                 "(CASE WHEN ({left_value}) IS NULL OR ({right_value}) IS NULL THEN NULL \
                   WHEN ({left_type}) IN ('integer', 'real') \
                        AND ({right_type}) IN ('integer', 'real') \
-                       THEN (({left_value}) + ({right_value})) \
+                       THEN crabnet_finite(({left_value}) + ({right_value})) \
                   WHEN ({left_type}) = 'text' AND ({right_type}) = 'text' \
                        THEN (({left_value}) || ({right_value})) \
                   WHEN ({left_type}) = 'array' OR ({right_type}) = 'array' THEN {concatenated} \
@@ -4404,8 +4406,7 @@ impl Compiler {
                 format!(
                     "CASE WHEN ({left_type}) = 'integer' AND ({right_type}) = 'integer' \
                  THEN (({left_value}) % ({right_value})) \
-                 ELSE (({left_value}) - \
-                       CAST(({left_value}) / ({right_value}) AS INTEGER) * ({right_value})) END"
+                 ELSE crabnet_remainder(({left_value}), ({right_value})) END"
                 )
             } else {
                 let symbol = match operator {
@@ -4415,6 +4416,19 @@ impl Compiler {
                     _ => unreachable!("only arithmetic operators reach numeric_binary"),
                 };
                 format!("(({left_value}) {symbol} ({right_value}))")
+            };
+            let operation = if matches!(operator, BinaryOp::Divide | BinaryOp::Remainder) {
+                let message = if operator == BinaryOp::Divide {
+                    "division by zero"
+                } else {
+                    "remainder by zero"
+                };
+                format!(
+                    "CASE WHEN ({right_value}) = 0 THEN crabnet_raise('{message}') \
+                     ELSE crabnet_finite({operation}) END"
+                )
+            } else {
+                format!("crabnet_finite({operation})")
             };
             let value = format!(
                 "(CASE \

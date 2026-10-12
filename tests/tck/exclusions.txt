@@ -95,8 +95,8 @@ clauses/merge/Merge5.feature::[21] Do not match on deleted relationships	unsuppo
 clauses/merge/Merge5.feature::[25] Fail when merging relationship with more than one type	wrong-error-kind: unsupported: multiple or boolean relationship types
 clauses/merge/Merge5.feature::[27] Fail when using parameter as relationship predicate in MERGE	wrong-error-kind: unsupported: parameter-map pattern matching
 clauses/merge/Merge5.feature::[28] Fail when using variable length relationship in MERGE	wrong-error-kind: unsupported: variable-length relationships in MERGE
-clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	type-error: graph values cannot be used as property values
-clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	type-error: graph values cannot be used as property values
+clauses/return-orderby/ReturnOrderBy1.feature::[11] ORDER BY should order distinct types in the expected order	argument-error: division by zero
+clauses/return-orderby/ReturnOrderBy1.feature::[12] ORDER BY DESC should order distinct types in the expected order	argument-error: division by zero
 clauses/return-orderby/ReturnOrderBy2.feature::[10] Returned columns do not change from using ORDER BY	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[4] Support sort and distinct	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
 clauses/return-orderby/ReturnOrderBy2.feature::[5] Support ordering by a property after being distinct-ified	semantic-error: ORDER BY expressions must be projected when RETURN DISTINCT is used
@@ -119,8 +119,8 @@ clauses/with-orderBy/WithOrderBy1.feature::[17] Sort local date times in ascendi
 clauses/with-orderBy/WithOrderBy1.feature::[18] Sort local date times in descending order	unsupported: function `localdatetime`
 clauses/with-orderBy/WithOrderBy1.feature::[19] Sort date times in ascending order	unsupported: function `datetime`
 clauses/with-orderBy/WithOrderBy1.feature::[20] Sort date times in descending order	unsupported: function `datetime`
-clauses/with-orderBy/WithOrderBy1.feature::[21] Sort distinct types in ascending order	type-error: graph values cannot be used as property values
-clauses/with-orderBy/WithOrderBy1.feature::[22] Sort distinct types in descending order	type-error: graph values cannot be used as property values
+clauses/with-orderBy/WithOrderBy1.feature::[21] Sort distinct types in ascending order	argument-error: division by zero
+clauses/with-orderBy/WithOrderBy1.feature::[22] Sort distinct types in descending order	argument-error: division by zero
 clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 1	setup-failed: unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 2	setup-failed: unsupported: function `date`
 clauses/with-orderBy/WithOrderBy1.feature::[33] Sort by a date variable projected from a node property in ascending order::example 3	setup-failed: unsupported: function `date`
@@ -201,17 +201,18 @@ expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on 
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 2	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[4] `percentileDisc()` failing on bad arguments::example 3	wrong-error-kind: unsupported: function `percentiledisc`
 expressions/aggregation/Aggregation6.feature::[5] `percentileDisc()` failing in more involved query	wrong-error-kind: unsupported: pattern comprehension
-expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 1	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 3	result-mismatch: row values differ
-expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 4	result-mismatch: row values differ
+expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 1	argument-error: division by zero
+expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 2	argument-error: division by zero
+expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 3	argument-error: division by zero
+expressions/comparison/Comparison1.feature::[8] Equality and inequality of NaN::example 4	argument-error: division by zero
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 1	type-error: graph values cannot be used as property values
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 2	type-error: graph values cannot be used as property values
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 3	type-error: graph values cannot be used as property values
 expressions/comparison/Comparison2.feature::[3] Comparing across types yields null, except numbers::example 4	type-error: graph values cannot be used as property values
-expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 1	result-mismatch: row values differ
-expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 2	result-mismatch: row values differ
-expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 3	result-mismatch: row values differ
+expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 1	argument-error: division by zero
+expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 2	argument-error: division by zero
+expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 3	argument-error: division by zero
+expressions/comparison/Comparison2.feature::[5] Comparing NaN::example 4	argument-error: division by zero
 expressions/existentialSubqueries/ExistentialSubquery1.feature::[1] Simple subquery without WHERE clause	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery1.feature::[2] Simple subquery with WHERE clause	unsupported: subquery expression
 expressions/existentialSubqueries/ExistentialSubquery1.feature::[3] Simple subquery without WHERE clause, not existing pattern	unsupported: subquery expression

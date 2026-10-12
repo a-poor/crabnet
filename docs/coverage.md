@@ -63,7 +63,7 @@ historical format coverage is distinct from qualification of named release pairs
 | Node and relationship identity comparison | Covered | `a = b`, `a <> b`, and `r IS NULL` compare element ids across clauses, aliases, and `OPTIONAL MATCH` nulls in `pattern_predicates.rs` |
 | `IS NULL`, `IS NOT NULL` | Covered | Missing and explicit JSON null both project as null; `= null` does not match |
 | Float transport precision | Covered | `floats_round_trip_through_sql_without_losing_significant_digits` pins literals, parameters, stored properties, arithmetic, and aggregates bit-for-bit past fifteen significant digits; the TCK long-float literal scenarios are allowlisted |
-| Numeric `+`, `-`, `*`, `/`, `%`, and unary `+`/`-` | Covered | Computed read predicates/projections preserve integer/float results and precedence; null, missing, and non-numeric dynamic operands produce null without coercion in `arithmetic_and_distinct.rs` |
+| Numeric `+`, `-`, `*`, `/`, `%`, and unary `+`/`-` | Covered for finite results | `arithmetic_and_distinct.rs` covers integer/float results, precedence, null/missing propagation, and type errors without numeric coercion; `+` also has the concatenation rules below. `numeric_errors.rs` covers explicit `Error::Argument` for zero divisors, non-finite arithmetic/math/aggregate results, and NaN-producing comparisons; parameters/properties, nested composition, lazy branches, eager and both cursor modes, statement/transaction rollback, constraints, and reopen. Floating remainder handles large finite ratios without saturating an integer quotient. NaN/infinity values remain unsupported |
 | Exponentiation (`^`) and concatenation (`\|\|`) | Rejected | Both parser operators fail with a structured planning error rather than being approximated |
 | `IN` | Covered | Typed scalar and structured membership, list parameters, empty lists, null members, and non-list RHS behavior are covered in `membership_and_string_predicates.rs` |
 | List quantifiers `all`, `any`, `none`, `single` | Covered | `quantifiers.rs` pins scalar three-valued truth tables, null/non-list operands, element kinds, nesting, shadowing, filters, parameters, ordering, aggregation, and rejections. `entity_list_quantifiers.rs` covers collected/path/legacy entity lists across every traversal transport, nullable members, duplicate-sensitive `single`, typed access, scoped patterns, aliases/slices/comprehensions, aggregate inputs and results, stored booleans, mutations/rollback, and eager/cursor parity with partial errors; all 604 TCK quantifier scenarios are allowlisted |
@@ -185,8 +185,9 @@ below collect candidate work; select the next case using the priorities above
 and promote extensions into release gates when the declared contract requires
 them:
 
-- Query correctness and conformance: resolve known NaN wrong-answer cases or
-   explicitly reject unsupported inputs, review error-semantics deviations,
+- Query correctness and conformance: non-finite calculations now fail explicitly
+   under the [finite numeric contract](semantics.md#numeric-arithmetic-and-computed-projections).
+   Review remaining error-semantics deviations,
    follow the upstream parser label-context fix, and add deterministic
    differential tests for supported queries. Keep the pinned TCK outcomes as
    regressions; broader temporal compatibility follows application requirements.
