@@ -248,13 +248,13 @@ fn string_functions_return_text_or_null() {
         single(
             &mut database,
             "RETURN toLower('AbC') AS a, toUpper('AbC') AS b, trim('  x ') AS c, \
-                    ltrim('  x ') AS d, rtrim('  x ') AS e, toLower(1) AS f, trim(null) AS g, \
+                    ltrim('  x ') AS d, rtrim('  x ') AS e, trim(null) AS g, \
                     reverse('abc') AS h, reverse([1, 'b', [3]]) AS i, reverse(null) AS j, \
                     substring('hello', 1) AS k, substring('hello', 1, 3) AS l, \
                     substring('hello', -1) AS m, left('hello', 2) AS n, right('hello', 2) AS o, \
                     right('hello', 0) AS p, right('hello', 9) AS q, \
-                    replace('banana', 'an', 'AN') AS r, replace('x', 1, 'y') AS s, \
-                    split('a,b,,c', ',') AS t, split('abc', '') AS u, split(1, ',') AS v"
+                    replace('banana', 'an', 'AN') AS r, \
+                    split('a,b,,c', ',') AS t, split('abc', '') AS u"
         ),
         [
             text("abc"),
@@ -262,7 +262,6 @@ fn string_functions_return_text_or_null() {
             text("x"),
             text("x "),
             text("  x"),
-            NULL,
             NULL,
             text("cba"),
             CypherValue::List(vec![CypherValue::List(vec![int(3)]), text("b"), int(1)]),
@@ -275,10 +274,8 @@ fn string_functions_return_text_or_null() {
             text(""),
             text("hello"),
             text("bANANa"),
-            NULL,
             texts(["a", "b", "", "c"]),
             texts(["a", "b", "c"]),
-            NULL,
         ]
     );
     // Text results feed string predicates and size().

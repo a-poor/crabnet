@@ -934,10 +934,8 @@ kind they cannot take with a type error: `toInteger()` and `toString()` a list
 or map, `toFloat()` a boolean, list, or map, and `toBoolean()` a float, list,
 or map. The collection functions `size`, `head`, `last`, `tail`, and `reverse`
 also reject non-null arguments outside their accepted kinds, as do the numeric
-functions listed below. String functions still return null for an argument of
-the wrong kind, where Cypher raises a type error. Function names are
-case-insensitive, and calling one with the wrong number of arguments is a
-semantic error.
+and string functions listed below. Function names are case-insensitive, and
+calling one with the wrong number of arguments is a semantic error.
 
 - `coalesce(a, b, ...)` returns the first non-null argument, including graph
   values, and skips the remaining arguments (see [conditional graph values](#conditional-graph-values)).
@@ -962,10 +960,25 @@ semantic error.
   integers (zero is false). Anything else, including text that does not
   parse, is null.
 - `toLower`, `toUpper`, `trim`, `ltrim`, `rtrim`, `substring(s, start[,
-  length])` (zero-based; a negative position is null), `left(s, n)`,
+  length])` (zero-based), `left(s, n)`,
   `right(s, n)`, `replace(s, search, replacement)`, and `split(s, delimiter)`
   operate on strings; `split` with an empty delimiter splits into characters.
-  Case conversion is ASCII-only.
+  All text arguments require strings; positions and lengths require integers,
+  without coercing floats, booleans, or numeric strings. Known invalid kinds
+  raise `Error::Semantic` during planning, including unused branches and empty
+  matches. Dynamic invalid kinds raise `Error::Type` when evaluated, including
+  values selected from mixed graph collections. Composed expressions and
+  aggregates preserve these errors; lazy `CASE` and `coalesce` still skip
+  unselected calls.
+  Null or missing arguments produce null. For ordinary dynamic argument values,
+  null propagation takes priority over wrong-kind checks in another position;
+  it does not suppress planning errors or errors while evaluating an argument.
+  This input-type check retains the existing boundary behavior: negative
+  `substring` positions or lengths produce null; `left`/`right` do not yet
+  reject negative lengths (for example, a length of `-1` produces an empty
+  string). Negative-bound error compatibility remains follow-up work.
+  Character indexing and empty-delimiter splitting preserve
+  Unicode characters; case conversion is ASCII-only.
 - `abs` keeps the argument's numeric type and `sign` returns an integer;
   `ceil`, `floor`, `round`, `sqrt`, `exp`, `log`, `log10`, `sin`, `cos`,
   `tan`, `asin`, `acos`, and `atan` return floats. A non-finite result

@@ -10,8 +10,8 @@ use super::logical::{
     AggregateKind, BinaryOp, CaseAlternative, Direction, EntityAccess, EntityKind, Expr, Input,
     ListQuantifier, ListVariableId, MatchOperator, MatchPlan, PathCollectionKind, PathFunctionKind,
     PathId, PathSegment, Projection, ROW_INDEX_SLOT, ReadPipeline, ReadStage, RelationshipUse,
-    ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp, UnwindBinding,
-    UnwindStage, ValueExpr, WithBinding, WithStage,
+    ScalarArgumentKind, ScalarFunction, ScalarSlotId, SlotId, SortDirection, TraversalId, UnaryOp,
+    UnwindBinding, UnwindStage, ValueExpr, WithBinding, WithStage,
 };
 use super::physical::{
     FragmentArgument, NodeDomainSpec, OutputShape, PhysicalOperator, RuntimeSlot, ShortestMode,
@@ -3884,20 +3884,12 @@ impl Compiler {
             | ScalarFunction::ToUpper
             | ScalarFunction::Trim
             | ScalarFunction::LTrim
-            | ScalarFunction::RTrim => {
-                let sql_function = match function {
-                    ScalarFunction::ToLower => "lower",
-                    ScalarFunction::ToUpper => "upper",
-                    other => other.name(),
-                };
-                let value = self.scoped(&operands, |_, parts| {
-                    let (value, value_type) = &parts[0];
-                    Ok(format!(
-                        "(CASE WHEN ({value_type}) = 'text' THEN {sql_function}(({value})) END)"
-                    ))
-                })?;
-                Ok(Scalar::nullable(value, "text"))
-            }
+            | ScalarFunction::RTrim
+            | ScalarFunction::Substring
+            | ScalarFunction::Left
+            | ScalarFunction::Right
+            | ScalarFunction::Replace
+            | ScalarFunction::Split => self.string_function(function, &operands),
             ScalarFunction::ListInput => self.composed(
                 &operands,
                 |_, parts| {
@@ -3929,68 +3921,6 @@ impl Compiler {
                 },
                 |types| collection_result_type(&types[0], true, &types[0], "reverse()"),
             ),
-            ScalarFunction::Substring => {
-                let value = self.scoped(&operands, |_, parts| {
-                    let (text, text_type) = &parts[0];
-                    let (start, start_type) = &parts[1];
-                    let (length_condition, length) = match parts.get(2) {
-                        Some((length, length_type)) => (
-                            format!(" AND ({length_type}) = 'integer' AND ({length}) >= 0"),
-                            format!(", ({length})"),
-                        ),
-                        None => (String::new(), String::new()),
-                    };
-                    // Cypher rejects negative positions; they read as null.
-                    Ok(format!(
-                        "(CASE WHEN ({text_type}) = 'text' AND ({start_type}) = 'integer' \
-                          AND ({start}) >= 0{length_condition} \
-                          THEN substr(({text}), ({start}) + 1{length}) END)"
-                    ))
-                })?;
-                Ok(Scalar::nullable(value, "text"))
-            }
-            ScalarFunction::Left | ScalarFunction::Right => {
-                let value = self.scoped(&operands, |_, parts| {
-                    let (text, text_type) = &parts[0];
-                    let (count, count_type) = &parts[1];
-                    let taken = if function == ScalarFunction::Left {
-                        format!("substr(({text}), 1, ({count}))")
-                    } else {
-                        format!(
-                            "(CASE WHEN ({count}) <= 0 THEN '' ELSE substr(({text}), -({count})) END)"
-                        )
-                    };
-                    Ok(format!(
-                        "(CASE WHEN ({text_type}) = 'text' AND ({count_type}) = 'integer' \
-                          THEN {taken} END)"
-                    ))
-                })?;
-                Ok(Scalar::nullable(value, "text"))
-            }
-            ScalarFunction::Replace => {
-                let value = self.scoped(&operands, |_, parts| {
-                    let (text, text_type) = &parts[0];
-                    let (search, search_type) = &parts[1];
-                    let (replacement, replacement_type) = &parts[2];
-                    Ok(format!(
-                        "(CASE WHEN ({text_type}) = 'text' AND ({search_type}) = 'text' \
-                          AND ({replacement_type}) = 'text' \
-                          THEN replace(({text}), ({search}), ({replacement})) END)"
-                    ))
-                })?;
-                Ok(Scalar::nullable(value, "text"))
-            }
-            ScalarFunction::Split => {
-                let value = self.scoped(&operands, |_, parts| {
-                    let (text, text_type) = &parts[0];
-                    let (delimiter, delimiter_type) = &parts[1];
-                    Ok(format!(
-                        "(CASE WHEN ({text_type}) = 'text' AND ({delimiter_type}) = 'text' \
-                          THEN crabnet_split(({text}), ({delimiter})) END)"
-                    ))
-                })?;
-                Ok(Scalar::nullable(value, "array"))
-            }
             ScalarFunction::Coalesce => {
                 // SQLite's COALESCE is lazy. Pick encoded JSON so its type
                 // travels with its value, and evaluate each argument only
@@ -4034,6 +3964,95 @@ impl Compiler {
                 Ok(Scalar::nullable(value, "object"))
             }
         }
+    }
+
+    // Keep string-specific construction out of the general recursive function
+    // frame, preserving stack headroom for deep graph collections.
+    fn string_function(&mut self, function: ScalarFunction, operands: &[&Expr]) -> Result<Scalar> {
+        let value = self.scoped(operands, |_, parts| {
+            let any_null = parts
+                .iter()
+                .map(|(_, kind)| is_null_type(kind))
+                .collect::<Vec<_>>()
+                .join(" OR ");
+            let mut checks = String::new();
+            for (index, (_, kind)) in parts.iter().enumerate() {
+                let expected = function
+                    .argument_kind(index)
+                    .expect("string function argument");
+                let sql_type = match expected {
+                    ScalarArgumentKind::String => "text",
+                    ScalarArgumentKind::Integer => "integer",
+                    ScalarArgumentKind::Number => {
+                        unreachable!("string functions take strings or integers")
+                    }
+                };
+                let message = format!(
+                    "{}() argument {} needs {}",
+                    function.name(),
+                    index + 1,
+                    expected.name()
+                );
+                checks.push_str(&format!(
+                    " WHEN ({kind}) <> '{sql_type}' THEN {}",
+                    type_error(&message)
+                ));
+            }
+            let text = &parts[0].0;
+            let operation = match function {
+                ScalarFunction::ToLower
+                | ScalarFunction::ToUpper
+                | ScalarFunction::Trim
+                | ScalarFunction::LTrim
+                | ScalarFunction::RTrim => {
+                    let sql_function = match function {
+                        ScalarFunction::ToLower => "lower",
+                        ScalarFunction::ToUpper => "upper",
+                        other => other.name(),
+                    };
+                    format!("{sql_function}(({text}))")
+                }
+                ScalarFunction::Substring => {
+                    let start = &parts[1].0;
+                    let (length_condition, length) = match parts.get(2) {
+                        Some((length, _)) => {
+                            (format!(" AND ({length}) >= 0"), format!(", ({length})"))
+                        }
+                        None => (String::new(), String::new()),
+                    };
+                    // Retain the existing null result for negative positions/lengths.
+                    format!(
+                        "(CASE WHEN ({start}) >= 0{length_condition} \
+                         THEN substr(({text}), ({start}) + 1{length}) END)"
+                    )
+                }
+                ScalarFunction::Left => format!("substr(({text}), 1, ({}))", parts[1].0),
+                ScalarFunction::Right => {
+                    let count = &parts[1].0;
+                    format!(
+                        "(CASE WHEN ({count}) <= 0 THEN '' \
+                         ELSE substr(({text}), -({count})) END)"
+                    )
+                }
+                ScalarFunction::Replace => {
+                    format!("replace(({text}), ({}), ({}))", parts[1].0, parts[2].0)
+                }
+                ScalarFunction::Split => format!("crabnet_split(({text}), ({}))", parts[1].0),
+                _ => unreachable!("only string functions reach string_function"),
+            };
+            // Preserve null propagation before checking dynamic argument kinds.
+            Ok(format!(
+                "(CASE WHEN {any_null} THEN NULL{checks} ELSE {operation} END)"
+            ))
+        })?;
+        Ok(Scalar::nullable(
+            value,
+            if function == ScalarFunction::Split {
+                "array"
+            } else {
+                "text"
+            },
+        ))
     }
 
     /// Keep random sources inside the conditional branch that uses them.

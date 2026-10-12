@@ -385,26 +385,59 @@ pub(crate) enum ScalarFunction {
     Properties,
 }
 
+/// Non-null input kinds checked for numeric and string scalar functions.
+#[derive(Clone, Copy)]
+pub(crate) enum ScalarArgumentKind {
+    Number,
+    String,
+    Integer,
+}
+
+impl ScalarArgumentKind {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Number => "a number",
+            Self::String => "a string",
+            Self::Integer => "an integer",
+        }
+    }
+}
+
 impl ScalarFunction {
-    pub(crate) fn requires_numeric_input(self) -> bool {
-        matches!(
-            self,
+    /// Expected kind at an argument position after arity has been checked.
+    pub(crate) fn argument_kind(self, index: usize) -> Option<ScalarArgumentKind> {
+        Some(match self {
             Self::Abs
-                | Self::Sign
-                | Self::Ceil
-                | Self::Floor
-                | Self::Round
-                | Self::Sqrt
-                | Self::Exp
-                | Self::Log
-                | Self::Log10
-                | Self::Sin
-                | Self::Cos
-                | Self::Tan
-                | Self::Asin
-                | Self::Acos
-                | Self::Atan
-        )
+            | Self::Sign
+            | Self::Ceil
+            | Self::Floor
+            | Self::Round
+            | Self::Sqrt
+            | Self::Exp
+            | Self::Log
+            | Self::Log10
+            | Self::Sin
+            | Self::Cos
+            | Self::Tan
+            | Self::Asin
+            | Self::Acos
+            | Self::Atan => ScalarArgumentKind::Number,
+            Self::ToLower
+            | Self::ToUpper
+            | Self::Trim
+            | Self::LTrim
+            | Self::RTrim
+            | Self::Replace
+            | Self::Split => ScalarArgumentKind::String,
+            Self::Substring | Self::Left | Self::Right => {
+                if index == 0 {
+                    ScalarArgumentKind::String
+                } else {
+                    ScalarArgumentKind::Integer
+                }
+            }
+            _ => return None,
+        })
     }
 
     /// Looks a function up by its lower-cased Cypher name.

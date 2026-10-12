@@ -9,7 +9,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::logical::{
-    BinaryOp, EntityKind, Expr, ListVariableId, ScalarFunction, ScalarSlotId, UnaryOp, ValueExpr,
+    BinaryOp, EntityKind, Expr, ListVariableId, ScalarArgumentKind, ScalarFunction, ScalarSlotId,
+    UnaryOp, ValueExpr,
 };
 
 /// A statically known value kind. Lists remember their element kind when
@@ -186,8 +187,8 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
         Expr::Function {
             function,
             arguments,
-        } if function.requires_numeric_input() => {
-            check_numeric_function(*function, &arguments[0], kinds)?;
+        } if function.argument_kind(0).is_some() => {
+            check_scalar_function(*function, arguments, kinds)?;
             None
         }
         Expr::Function {
@@ -261,13 +262,32 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
 
 // Keep function diagnostics out of the recursive check frame so deep graph
 // collections still fit on a normal debug-build thread stack.
-fn check_numeric_function(
+fn check_scalar_function(
     function: ScalarFunction,
-    argument: &Expr,
+    arguments: &[Expr],
     kinds: &mut Kinds,
 ) -> Result<(), String> {
-    let kind = check(argument, kinds)?;
-    expect_numeric(kind.as_ref(), &format!("{}()", function.name()))
+    for (index, argument) in arguments.iter().enumerate() {
+        let kind = check(argument, kinds)?;
+        let expected = function.argument_kind(index).expect("checked function");
+        let valid = match (&kind, expected) {
+            (None | Some(Kind::Null), _) => true,
+            (Some(kind), ScalarArgumentKind::Number) => kind.is_numeric(),
+            (Some(Kind::String), ScalarArgumentKind::String)
+            | (Some(Kind::Integer), ScalarArgumentKind::Integer) => true,
+            _ => false,
+        };
+        if !valid {
+            return Err(format!(
+                "{}() argument {} needs {}, not {}",
+                function.name(),
+                index + 1,
+                expected.name(),
+                kind.unwrap().name()
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Checks a predicate such as a `WHERE` clause, which must be a boolean.

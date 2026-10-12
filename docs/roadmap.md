@@ -991,6 +991,10 @@ the corresponding gates to pass.
   The fifteen numeric functions now enforce the same static/runtime distinction
   for non-numeric inputs, including composed expressions and mixed graph
   selections, while preserving the finite-result contract.
+  Ten string functions now check each text/integer argument with the same
+  static/runtime distinction. Null precedence, lazy branches, Unicode values,
+  cursor cleanup, and rollback are covered. Their existing negative-bound
+  behavior remains documented follow-up work, alongside aggregate error semantics.
   Add deterministic differential tests against a pinned reference for supported
   queries, preserving bags and minimizing failures into
   local regressions.
@@ -1015,8 +1019,9 @@ configuration; unsupported features remain explicit.
 1. Address known incorrect results and credible data-integrity risks in the
    documented surface. The finite-number contract now explicitly rejects
    unsupported NaN/infinity calculations. Review remaining error-semantics
-   deviations beyond the strict list and numeric function inputs and preserve
-   focused regressions. Fix observed application failures as they arise.
+   deviations beyond the strict list, numeric, and string function inputs,
+   including aggregate inputs and string bounds, and preserve focused
+   regressions. Fix observed application failures as they arise.
 2. Choose the next concrete Git Graph feature or another consumer requirement,
    with queries, data sizes, and acceptance criteria. Use it to identify missing
    capability and measure performance before selecting engine changes. Retain

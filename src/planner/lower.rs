@@ -3826,8 +3826,9 @@ impl<'source> Lowerer<'source> {
                 let arguments = function
                     .arguments
                     .iter()
-                    .map(|argument| {
-                        if scalar_function.requires_numeric_input() {
+                    .enumerate()
+                    .map(|(index, argument)| {
+                        if let Some(expected) = scalar_function.argument_kind(index) {
                             let value = self.output_expression_with_aliases(argument, aliases)?;
                             if !matches!(
                                 self.nested_shape(&value),
@@ -3835,7 +3836,11 @@ impl<'source> Lowerer<'source> {
                             ) {
                                 return Err(semantic(
                                     span,
-                                    format!("{name}() needs a number, not a graph value"),
+                                    format!(
+                                        "{name}() argument {} needs {}, not a graph value",
+                                        index + 1,
+                                        expected.name()
+                                    ),
                                 ));
                             }
                             require_scalar_context(value, span)

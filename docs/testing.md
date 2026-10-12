@@ -341,6 +341,14 @@ end-to-end result test for user-visible semantics.
   and exercises eager/incremental/buffered reads, terminal cursor reuse,
   statement/transaction rollback, constraints, immediate writer lock release,
   and reopening. `numeric_errors.rs` retains the separate finite-result checks.
+- `tests/string_input_errors.rs` covers all argument positions of the ten string
+  functions, including integer positions/lengths: static errors in unused
+  branches and empty matches, dynamic parameters and node/relationship
+  properties, mixed graph selections, type-only composition and aggregates,
+  null precedence, lazy branches, Unicode characters, empty strings, duplicate
+  rows, and retained boundary behavior. Eager and both cursor modes, terminal
+  cursor reuse, statement/transaction rollback, constraints, immediate writer
+  lock release, and reopening are checked through the public API.
 - `tests/list_input_errors.rs` covers strict inputs for `size`, `head`, `last`,
   `tail`, `reverse`, comprehensions, and quantifiers. It checks planning-time
   rejection, parameters/properties and mixed graph selections, nulls, empty
