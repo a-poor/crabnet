@@ -83,7 +83,6 @@ fn finite_results_nulls_and_unselected_branches_keep_their_semantics() {
         "RETURN 1 / null AS x",
         "RETURN null % 0 AS x",
         "RETURN sqrt(null) AS x",
-        "RETURN sqrt('bad') AS x",
         "RETURN exp(null) AS x",
     ] {
         assert_eq!(

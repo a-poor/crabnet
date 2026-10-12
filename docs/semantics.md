@@ -933,11 +933,11 @@ collection in an earlier `WITH` also works.
 kind they cannot take with a type error: `toInteger()` and `toString()` a list
 or map, `toFloat()` a boolean, list, or map, and `toBoolean()` a float, list,
 or map. The collection functions `size`, `head`, `last`, `tail`, and `reverse`
-also reject non-null arguments outside their accepted kinds. The remaining
-scalar functions still return null for an argument of the wrong kind, where
-Cypher raises a type error. Function names are
-case-insensitive, and calling one with the wrong number of
-arguments is a semantic error.
+also reject non-null arguments outside their accepted kinds, as do the numeric
+functions listed below. String functions still return null for an argument of
+the wrong kind, where Cypher raises a type error. Function names are
+case-insensitive, and calling one with the wrong number of arguments is a
+semantic error.
 
 - `coalesce(a, b, ...)` returns the first non-null argument, including graph
   values, and skips the remaining arguments (see [conditional graph values](#conditional-graph-values)).
@@ -969,8 +969,15 @@ arguments is a semantic error.
 - `abs` keeps the argument's numeric type and `sign` returns an integer;
   `ceil`, `floor`, `round`, `sqrt`, `exp`, `log`, `log10`, `sin`, `cos`,
   `tan`, `asin`, `acos`, and `atan` return floats. A non-finite result
-  such as `sqrt(-1)` or `exp(1000)` raises `Error::Argument`; null and
-  non-numeric arguments still produce null. `pi()` and `e()` are constants.
+  such as `sqrt(-1)` or `exp(1000)` raises `Error::Argument`. Null or missing
+  inputs produce null. Non-numeric inputs, including numeric strings and
+  booleans, are rejected without coercion: a kind known from the query raises
+  `Error::Semantic` during planning, and a parameter, property, or mixed graph
+  selection of the wrong kind raises `Error::Type` when evaluated. Static
+  checks also apply to unused branches and queries with no matching rows;
+  runtime checks preserve lazy `CASE` and `coalesce` branches. Composition
+  (including `IS NULL` and aggregates) preserves evaluated input errors.
+  `pi()` and `e()` are constants.
 - `rand()` draws a float in `[0, 1)` once per call site per row, so a value
   bound in `WITH` is stable across later references and a `CASE` whose
   condition uses `rand()` is decided once. Inside a list comprehension or

@@ -988,6 +988,9 @@ the corresponding gates to pass.
   deviations explicitly. List-input checks now reject wrong kinds in `size`,
   list functions, comprehensions, and quantifiers, with static and runtime
   diagnostics, nulls and lazy branches, cursor cleanup, and write rollback.
+  The fifteen numeric functions now enforce the same static/runtime distinction
+  for non-numeric inputs, including composed expressions and mixed graph
+  selections, while preserving the finite-result contract.
   Add deterministic differential tests against a pinned reference for supported
   queries, preserving bags and minimizing failures into
   local regressions.
@@ -1012,8 +1015,8 @@ configuration; unsupported features remain explicit.
 1. Address known incorrect results and credible data-integrity risks in the
    documented surface. The finite-number contract now explicitly rejects
    unsupported NaN/infinity calculations. Review remaining error-semantics
-   deviations beyond the strict list-input checks and preserve focused
-   regressions. Fix observed application failures as they arise.
+   deviations beyond the strict list and numeric function inputs and preserve
+   focused regressions. Fix observed application failures as they arise.
 2. Choose the next concrete Git Graph feature or another consumer requirement,
    with queries, data sizes, and acceptance criteria. Use it to identify missing
    capability and measure performance before selecting engine changes. Retain

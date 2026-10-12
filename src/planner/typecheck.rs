@@ -184,6 +184,13 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
             None
         }
         Expr::Function {
+            function,
+            arguments,
+        } if function.requires_numeric_input() => {
+            check_numeric_function(*function, &arguments[0], kinds)?;
+            None
+        }
+        Expr::Function {
             function: function @ (ScalarFunction::Keys | ScalarFunction::Properties),
             arguments,
         } => {
@@ -250,6 +257,17 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
             None
         }
     })
+}
+
+// Keep function diagnostics out of the recursive check frame so deep graph
+// collections still fit on a normal debug-build thread stack.
+fn check_numeric_function(
+    function: ScalarFunction,
+    argument: &Expr,
+    kinds: &mut Kinds,
+) -> Result<(), String> {
+    let kind = check(argument, kinds)?;
+    expect_numeric(kind.as_ref(), &format!("{}()", function.name()))
 }
 
 /// Checks a predicate such as a `WHERE` clause, which must be a boolean.

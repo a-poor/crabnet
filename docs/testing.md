@@ -333,6 +333,14 @@ end-to-end result test for user-visible semantics.
   nulls, lazy branches, eager/incremental/buffered reads, cursor reuse, and
   statement/transaction rollback with constraints, index lookups, immediate
   writer lock release, and reopening.
+- `tests/numeric_input_errors.rs` covers all fifteen numeric functions' input
+  checks: known invalid literals, aliases, list elements, and graph values fail
+  during planning; invalid parameters, node/relationship properties, and mixed
+  graph selections raise `Error::Type`. It preserves nulls, numeric result kinds,
+  duplicate rows, and lazy branches; checks type-only composition and aggregates;
+  and exercises eager/incremental/buffered reads, terminal cursor reuse,
+  statement/transaction rollback, constraints, immediate writer lock release,
+  and reopening. `numeric_errors.rs` retains the separate finite-result checks.
 - `tests/list_input_errors.rs` covers strict inputs for `size`, `head`, `last`,
   `tail`, `reverse`, comprehensions, and quantifiers. It checks planning-time
   rejection, parameters/properties and mixed graph selections, nulls, empty

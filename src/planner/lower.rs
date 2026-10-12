@@ -3826,7 +3826,23 @@ impl<'source> Lowerer<'source> {
                 let arguments = function
                     .arguments
                     .iter()
-                    .map(|argument| self.scalar_expression_with_aliases(argument, aliases))
+                    .map(|argument| {
+                        if scalar_function.requires_numeric_input() {
+                            let value = self.output_expression_with_aliases(argument, aliases)?;
+                            if !matches!(
+                                self.nested_shape(&value),
+                                NestedShape::Json | NestedShape::Null | NestedShape::Mixed
+                            ) {
+                                return Err(semantic(
+                                    span,
+                                    format!("{name}() needs a number, not a graph value"),
+                                ));
+                            }
+                            require_scalar_context(value, span)
+                        } else {
+                            self.scalar_expression_with_aliases(argument, aliases)
+                        }
+                    })
                     .collect::<Result<Vec<_>>>()?;
                 Ok(Expr::Function {
                     function: scalar_function,

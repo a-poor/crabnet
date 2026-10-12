@@ -3713,12 +3713,13 @@ impl Compiler {
         }
     }
 
-    /// Compiles a built-in scalar function. Arguments of the wrong kind
-    /// yield null. Results with one possible type use the `Nullable` kind so
+    /// Compiles a built-in scalar function with its input-kind checks.
+    /// Results with one possible type use the `Nullable` kind so
     /// their type follows from the value without repeating the argument.
     fn scalar_function(&mut self, function: ScalarFunction, arguments: &[Expr]) -> Result<Scalar> {
         let operands = arguments.iter().collect::<Vec<_>>();
         let numeric = |value_type: &str| format!("({value_type}) IN ('integer', 'real')");
+        let numeric_error = || type_error(&format!("{}() needs a number", function.name()));
         match function {
             // random() is a signed 64-bit integer; its top 53 bits become a
             // real in [0, 1). SQLite evaluates an uncorrelated scalar subquery
@@ -3761,15 +3762,19 @@ impl Compiler {
                 |_, parts| {
                     let (value, value_type) = &parts[0];
                     Ok(format!(
-                        "(CASE WHEN {} THEN abs(({value})) END)",
-                        numeric(value_type)
+                        "(CASE WHEN {} THEN NULL WHEN {} THEN abs(({value})) ELSE {} END)",
+                        is_null_type(value_type),
+                        numeric(value_type),
+                        numeric_error(),
                     ))
                 },
                 |types| {
                     format!(
-                        "(CASE WHEN {} THEN ({}) ELSE 'null' END)",
+                        "(CASE WHEN {} THEN 'null' WHEN {} THEN ({}) ELSE {} END)",
+                        is_null_type(&types[0]),
                         numeric(&types[0]),
-                        types[0]
+                        types[0],
+                        numeric_error(),
                     )
                 },
             ),
@@ -3777,8 +3782,10 @@ impl Compiler {
                 let value = self.scoped(&operands, |_, parts| {
                     let (value, value_type) = &parts[0];
                     Ok(format!(
-                        "(CASE WHEN {} THEN sign(({value})) END)",
-                        numeric(value_type)
+                        "(CASE WHEN {} THEN NULL WHEN {} THEN sign(({value})) ELSE {} END)",
+                        is_null_type(value_type),
+                        numeric(value_type),
+                        numeric_error(),
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "integer"))
@@ -3806,8 +3813,11 @@ impl Compiler {
                 let value = self.scoped(&operands, |_, parts| {
                     let (value, value_type) = &parts[0];
                     Ok(format!(
-                        "(CASE WHEN {} THEN CAST({sql_function}(({value})) AS REAL) END)",
-                        numeric(value_type)
+                        "(CASE WHEN {} THEN NULL \
+                         WHEN {} THEN CAST({sql_function}(({value})) AS REAL) ELSE {} END)",
+                        is_null_type(value_type),
+                        numeric(value_type),
+                        numeric_error(),
                     ))
                 })?;
                 Ok(Scalar::nullable(value, "real"))

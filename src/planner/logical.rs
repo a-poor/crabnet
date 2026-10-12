@@ -341,8 +341,8 @@ pub(crate) enum Expr {
     EntityProperties(SlotId),
 }
 
-/// Built-in scalar functions with fixed SQL translations. Arguments of the
-/// wrong kind yield null, matching the arithmetic operators.
+/// Built-in scalar functions with fixed SQL translations and function-specific
+/// input checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ScalarFunction {
     Rand,
@@ -386,6 +386,27 @@ pub(crate) enum ScalarFunction {
 }
 
 impl ScalarFunction {
+    pub(crate) fn requires_numeric_input(self) -> bool {
+        matches!(
+            self,
+            Self::Abs
+                | Self::Sign
+                | Self::Ceil
+                | Self::Floor
+                | Self::Round
+                | Self::Sqrt
+                | Self::Exp
+                | Self::Log
+                | Self::Log10
+                | Self::Sin
+                | Self::Cos
+                | Self::Tan
+                | Self::Asin
+                | Self::Acos
+                | Self::Atan
+        )
+    }
+
     /// Looks a function up by its lower-cased Cypher name.
     pub(crate) fn parse(name: &str) -> Option<Self> {
         Some(match name {
