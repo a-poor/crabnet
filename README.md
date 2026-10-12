@@ -1,10 +1,22 @@
 # crabnet
 
-Crabnet is an experiment in lowering a small, useful subset of openCypher into
-a logical row plan backed by SQLite. Read-only `MATCH`/`WITH` pipelines compile
-to parameterized SQL and CTEs; core `CREATE`, matched property, and matched
-deletion mutations run inside one SQLite transaction. It is intentionally not
-a production database or a stable library API yet.
+Crabnet is an experimental embedded property-graph database for Rust, backed by
+SQLite, with a substantial [documented subset of openCypher](docs/coverage.md).
+It combines parameterized SQL with Rust traversal and typed graph results, and
+supports multi-query transactions, uniqueness constraints, incremental reads,
+resource controls, migrations, and backup/restore.
+
+Good fits today include local developer tools, rebuildable graph indexes, and
+internal applications with controlled queries and backups. The downstream
+[Git Graph pilot](docs/git-graph-pilot.md) passed all 14 acceptance gates,
+including 100 update/query/reopen cycles and workloads of up to 10,000 commits,
+at its recorded revision and configuration. That is application evidence for
+the documented scope; broader workloads need their own validation.
+
+Crabnet remains experimental, with an evolving public API and incomplete Cypher
+compatibility. Production qualification is still in progress. Use the documented
+local-file configuration with one writer at a time, pin the library revision,
+and review the compatibility and recovery contracts when adopting it.
 
 The initial [support matrix and CI contract](docs/support.md) target Rust 1.99
 and current stable on Ubuntu 24.04 x86-64 and macOS 26 Apple Silicon with bundled

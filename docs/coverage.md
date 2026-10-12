@@ -164,25 +164,39 @@ must run this coverage. The repository workflow retains check results and larger
 lifecycle measurements. The first hosted matrix and workload runs passed at
 `683b8e9`; required-check enforcement remains blocked by the repository plan.
 
-Add a case here before or alongside implementation work. Once work starts, turn the
-smallest relevant case into a normal failing test, run it by name while iterating, and
-move the row into the matrix when green.
+Prioritize observed application failures, incorrect results, and credible
+data-integrity risks. Select capability and performance work from concrete
+consumer requirements and measured bottlenecks. Missing coverage alone does not
+make another fault case the next task: tie each proposed test to an application
+need, a specific risk, or a release qualification claim and define what passing
+it establishes.
+
+Add a case here before or alongside implementation work. Once work starts, turn
+the smallest relevant case into a normal failing test, run it by name while
+iterating, and move the row into the matrix when green.
 
 The active milestone and task status live in [roadmap.md](roadmap.md).
 Milestone 10 is complete for the recorded Git Graph pilot. Milestone 11 is in
 progress: initial hosted matrix validation is complete; qualification now needs
-named release-pair compatibility, known correctness gaps, failure behavior, and required-check
-enforcement. The following
-coverage extensions remain a backlog; promote them into release gates only when
-the declared contract requires them:
+named release-pair compatibility, known correctness gaps, failure behavior, and
+required-check enforcement. Application development can continue within the
+experimental contract alongside that bounded qualification work. The categories
+below collect candidate work; select the next case using the priorities above
+and promote extensions into release gates when the declared contract requires
+them:
 
-1. Further graph-value composition: scalar functions and ordering,
+- Query correctness and conformance: resolve known NaN wrong-answer cases or
+   explicitly reject unsupported inputs, review error-semantics deviations,
+   follow the upstream parser label-context fix, and add deterministic
+   differential tests for supported queries. Keep the pinned TCK outcomes as
+   regressions; broader temporal compatibility follows application requirements.
+- Further graph-value composition: scalar functions and ordering,
    and expression targets for whole-map/label mutations. Nested
    graph collections, entity-list indexing, slicing, comprehensions, quantifiers,
    graph-list concatenation, `head`/`last`/`tail`/`reverse`, graph-aware `coalesce`
    and `CASE`, direct path-list `size`, aggregation/grouping and predicates, and
    expression targets for DELETE and property SET/REMOVE are complete.
-2. Broader traversal cursor shapes and unconstrained graph-input loading.
+- Broader traversal cursor shapes and unconstrained graph-input loading.
    Single Rust trail projections, chained UNWINDs, and WITH projections/filters/DISTINCT/pages stream; constrained
    starts load neighbors on demand. Global sorts/aggregates, extra joins, multiple producers, and shortest
    paths retain fallback.
@@ -190,7 +204,7 @@ the declared contract requires them:
    Eligible fragments compose incrementally through UNION/UNION ALL,
    semantic DISTINCT, pagination, and batched hydration, with covered
    snapshot, partial-error, resource, retained-state, and early-drop contracts.
-3. Persistent-operation extensions: journal deletion at commit, native
+- Persistent-operation extensions: journal deletion at commit, native
    descriptor-close and partial staging creation/removal faults, filesystem
    ENOSPC, persistent/partial I/O and truncation/deletion errors,
    power-loss recovery, corruption repair, and broader filesystem/journal
@@ -211,6 +225,6 @@ the declared contract requires them:
    Staging lifecycle boundaries now cover cleanup-error precedence, retained
    artifacts, and successful publication despite cleanup failure.
 
-Continue checking the pinned TCK during these slices. Remaining NaN and other
-correctness gaps, the upstream parser label-context fix, temporal support,
-and deterministic differential tests remain explicit conformance follow-ups.
+Continue checking the pinned TCK during these slices. Production qualification
+and compatibility or durability claims remain subject to the roadmap's release
+gates and the documented fault models.

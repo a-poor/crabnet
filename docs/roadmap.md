@@ -6,11 +6,14 @@ Update it when implementation work teaches us something better.
 
 The core engine and application foundations are implemented for a substantial,
 documented subset. The Git Graph downstream Rust application pilot completed
-milestone 10 for its recorded workload and configuration. The next main milestone
-is **production qualification for a defined supported configuration** (milestone
-11), starting with the support matrix and automated release checks. Conformance
-and measured optimization support these gates; expanding the query language is
-a separate backlog.
+milestone 10 for its recorded workload and configuration. Crabnet is usable for
+local tools, rebuildable indexes, and controlled application workloads within
+that documented scope. Near-term work prioritizes known correctness problems
+and concrete application needs. **Production qualification for a defined
+supported configuration** remains an explicit workstream (milestone 11), with
+open release gates. Further language features, optimization, and fault coverage
+are selected by application evidence, data-integrity risk, and the claims a
+release needs to support.
 
 ## Project posture
 
@@ -879,6 +882,14 @@ repeatable release checks and compatibility commitments. The initial
 their first hosted matrix and lifecycle runs at `683b8e9`. Required-check
 enforcement and the remaining qualification gates are pending.
 
+For each candidate, turn the remaining gates below into a bounded checklist with
+named claims, fault models, required evidence, and acceptance criteria. Select
+additional fault tests for a concrete data-integrity risk or qualification gap;
+extend the checklist deliberately when new evidence or requirements justify it.
+Application development can proceed within the experimental contract while
+qualification continues. Stronger compatibility and durability claims require
+the corresponding gates to pass.
+
 - [x] **Define the supported configuration.** [support.md](support.md) records
   Ubuntu 24.04 x86-64 and macOS 26 arm64, Rust 1.99.0 plus rolling stable checks,
   the locked bundled SQLite build, local DELETE-journal files, the documented
@@ -990,37 +1001,31 @@ configuration; unsupported features remain explicit.
 
 ## Near-term working order
 
-1. Extend milestone 11's fault coverage to journal deletion failures at commit.
-   Source connection/initialization reads now have coverage for existing current-version
-   graphs in all access modes and during restore source opening. Hot-journal
-   replay now has one-shot journal read/sync and database write/sync coverage,
-   with recoverable partial progress and read-only/restore refusal. Historical
-   migration reads now cover retained schemas 1–4, repeated cold-cache reads,
-   exact old-file rollback, and successful outcomes after absorbed internal-check
-   diagnostics. Empty/new-file initialization now has read/write/sync coverage,
-   with exact rollback, released handles/locks, and retry on the leftover path.
-   Page-count-cap and one-shot commit, migration, restore, and
-   backup copy write/sync tests are in place, along with final backup
-   sync/publication errors, a competing-publisher race, and source-read
-   errors during backup/restore validation and copying. Staging creation/open/close
-   and cleanup now have API-boundary coverage, including error precedence,
-   retained artifacts, and success after publication. Native close failures,
-   partial creation/removal, filesystem ENOSPC, persistent/partial SQLite errors,
-   and journal deletion/truncation remain unqualified. The compatibility policy
-   and historical fixtures are in place;
-   named release pairs still need candidate-specific evidence. Keep durability
-   claims within the tested model.
-2. Configure and verify required checks when the repository's plan permits
+1. Address known incorrect results and credible data-integrity risks in the
+   documented surface. Resolve or explicitly reject unsupported NaN behavior,
+   review error-semantics deviations, and preserve focused regressions. Fix
+   observed application failures as they arise.
+2. Choose the next concrete Git Graph feature or another consumer requirement,
+   with queries, data sizes, and acceptance criteria. Use it to identify missing
+   capability and measure performance before selecting engine changes. Retain
+   the completed pilot as a regression baseline; validate newer revisions and
+   broader workloads independently.
+3. Advance milestone 11 against a bounded candidate checklist. Prioritize fault
+   tests by their effect on atomicity, recovery, and safe retries. Journal
+   deletion at commit remains a candidate because its outcome affects retry
+   safety; it is not an automatic prerequisite for the next application task.
+   Existing fault evidence and remaining limits are recorded in milestone 11
+   and [coverage.md](coverage.md). Named release-pair compatibility and a
+   reproducible qualification record remain required before production claims.
+4. Configure and verify required checks when the repository's plan permits
    protection. This account-level limitation does not prevent qualification
    work; review all four matrix results manually in the meantime. Keep the
    application, cursor, persistence, and pinned TCK tests as regressions.
-3. Qualify compatibility, correctness, and failure behavior under milestone 11,
-   then publish the reproducible release record. Make compatibility and durability
-   claims only when their gates are met.
 
-Correctness regressions remain immediate work throughout. Track release
-qualification in its checklist and preserve the completed pilot as a regression
-baseline. Promote feature work when a concrete requirement justifies it.
+Missing coverage alone does not determine the next task. Choose work by observed
+failures, incorrect results, data-integrity risk, concrete application needs, and
+measured bottlenecks. Keep durability claims within the tested model and track
+release qualification in its checklist.
 
 ### Feature follow-ups
 
