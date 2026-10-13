@@ -43,6 +43,15 @@ end-to-end result test for user-visible semantics.
   write-lock release, and persistence after reopening. Transaction unit tests
   cover cleanup after SQLite itself has already rolled back and after a
   failed commit.
+- `tests/compiled_reads.rs` covers owned plans and changing bindings, independent
+  connections and threads, all supported historical opening migrations,
+  read-only/reopen/restore/constraint changes, full-plan preflight and pagination,
+  typed bags/paths/unions/distinct/hydration, fresh controls, transaction rollback,
+  and immediate lock release. Compiled-read unit tests attempt concurrent writes
+  during both UNION branches before hydration and cancel execution after an
+  earlier branch has produced rows. The shared `repeated_reads` example/benchmark
+  fixture verifies changing-OID results and records planning amortization under
+  the [declared measurement protocol](compiled-reads.md).
 - `tests/transaction_cursors.rs` covers reads of earlier writes in both cursor
   modes, typed bags/parameters, DISTINCT/UNION/pagination and hydration, prepared
   reuse with fresh budgets, successful cleanup preserving the parent, rejection

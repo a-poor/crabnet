@@ -48,6 +48,9 @@ The implemented baseline includes:
 - read-only queries can cross standalone or chained `WITH` boundaries, carrying
   explicitly projected entity, path, and scalar bindings into later clauses
   while enforcing scope loss;
+- owned compiled reads amortize parsing/lowering/SQL generation across changing
+  parameters, with eager Database/Transaction execution, fresh per-call controls,
+  coherent snapshots, and explicit connection/schema compatibility;
 - aggregation/grouping, list expansion, query unions, and fixed-length optional
   matching compose through that read pipeline with explicit bag, type, and
   null-extension semantics;
@@ -559,6 +562,15 @@ No engine code changes were required. Release qualification remains milestone 11
 
 #### Implemented foundations
 
+- [x] **Reusable compiled reads.** Owned `CompiledRead` plans retain no
+  connection or bindings. Eager Database/Transaction calls bind fresh parameters
+  and controls, using a coherent standalone or parent snapshot through hydration.
+  Compilation has cancellation/deadline checks and explicitly rejects mutations.
+  Rebinding, preflight, typed hybrid/union results, resource reset, transaction
+  rollback, shared-plan/connection/schema compatibility, and lock release are
+  covered. [The changing-OID workload](compiled-reads.md) measures planning
+  amortization for Git Graph's repeated commit/parent reads; the application's
+  remaining merge-base latency gate requires its own new qualification run.
 - [x] **Transactions spanning multiple queries — complete.**
   `Database::transaction()` exposes parameterized execution, read-your-writes,
   explicit commit and rollback, and rollback on drop. Any query error aborts

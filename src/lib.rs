@@ -13,6 +13,7 @@ mod value;
 
 pub use database::{
     Database,
+    compiled::{CompiledRead, compile_read, compile_read_with_options},
     constraints::UniqueConstraint,
     cursor::{PreparedRead, ReadCursor, ReadMode},
     open::{OpenMode, OpenOptions},

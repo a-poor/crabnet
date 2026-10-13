@@ -24,6 +24,7 @@ use crate::{
 
 mod backup;
 mod comparison;
+pub(crate) mod compiled;
 pub(crate) mod cursor;
 mod nested;
 mod resources;
@@ -245,7 +246,7 @@ impl Database {
         let context = ExecutionContext::new(options);
         context.check()?;
         match planner::compile(cypher)? {
-            Plan::Read(plan) => self.execute_read(plan, parameters, &context),
+            Plan::Read(plan) => self.execute_read(&plan, parameters, &context),
             Plan::Mutate(plan) => {
                 // Resolving every property and RETURN expression here keeps a
                 // missing/invalid parameter from starting a partial write.
@@ -257,7 +258,7 @@ impl Database {
 
     fn execute_read(
         &mut self,
-        plan: ReadPlan,
+        plan: &ReadPlan,
         parameters: &Parameters,
         context: &ExecutionContext,
     ) -> Result<QueryResult> {
@@ -380,7 +381,7 @@ type PendingRow = Vec<PendingValue>;
 
 fn execute_read_plan(
     connection: &Connection,
-    plan: ReadPlan,
+    plan: &ReadPlan,
     parameters: &Parameters,
     context: &ExecutionContext,
 ) -> Result<QueryResult> {
@@ -3711,8 +3712,8 @@ mod tests {
         };
         let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(0));
 
-        let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
+        let error = execute_read_plan(&database.connection, &plan, &Parameters::new(), &budget)
+            .unwrap_err();
 
         assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
     }
@@ -3732,8 +3733,8 @@ mod tests {
         };
         let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(0));
 
-        let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
+        let error = execute_read_plan(&database.connection, &plan, &Parameters::new(), &budget)
+            .unwrap_err();
 
         assert!(matches!(error, crate::Error::MissingParameter(name) if name == "missing"));
     }
@@ -3751,8 +3752,8 @@ mod tests {
         };
         let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(0));
 
-        let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
+        let error = execute_read_plan(&database.connection, &plan, &Parameters::new(), &budget)
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -3774,8 +3775,8 @@ mod tests {
         };
         let budget = ExecutionContext::with_trails(traversal::TrailBudget::new(1));
 
-        let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
+        let error = execute_read_plan(&database.connection, &plan, &Parameters::new(), &budget)
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -3798,7 +3799,7 @@ mod tests {
             ExecutionContext::with_trails(traversal::TrailBudget::with_limits(100, usize::MAX));
         execute_read_plan(
             &database.connection,
-            single_plan,
+            &single_plan,
             &Parameters::new(),
             &measurement,
         )
@@ -3815,8 +3816,8 @@ mod tests {
             one_branch_payload,
         ));
 
-        let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
+        let error = execute_read_plan(&database.connection, &plan, &Parameters::new(), &budget)
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -3842,8 +3843,8 @@ mod tests {
         let budget =
             ExecutionContext::with_trails(traversal::TrailBudget::new(100).with_memory_limit(0));
 
-        let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &budget).unwrap_err();
+        let error = execute_read_plan(&database.connection, &plan, &Parameters::new(), &budget)
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -3867,7 +3868,7 @@ mod tests {
             ExecutionContext::with_trails(traversal::TrailBudget::with_limits(100, usize::MAX));
         execute_read_plan(
             &database.connection,
-            single_plan,
+            &single_plan,
             &Parameters::new(),
             &measurement,
         )
@@ -3887,7 +3888,7 @@ mod tests {
             traversal::TrailBudget::with_limits(100, usize::MAX).with_memory_limit(one_branch_peak),
         );
         let result =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &exact).unwrap();
+            execute_read_plan(&database.connection, &plan, &Parameters::new(), &exact).unwrap();
         assert_eq!(result.rows.len(), 2);
         assert_eq!(exact.trails.borrow().memory_peak(), one_branch_peak);
         assert_eq!(exact.trails.borrow().memory_used(), 0);
@@ -3900,7 +3901,7 @@ mod tests {
                 .with_memory_limit(one_branch_peak - 1),
         );
         let error =
-            execute_read_plan(&database.connection, plan, &Parameters::new(), &short).unwrap_err();
+            execute_read_plan(&database.connection, &plan, &Parameters::new(), &short).unwrap_err();
         assert!(matches!(
             error,
             crate::Error::ResourceLimit(message)

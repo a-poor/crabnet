@@ -3,8 +3,8 @@ use std::cell::Cell;
 use rusqlite::{Connection, Transaction as SqliteTransaction, TransactionBehavior};
 
 use crate::{
-    Error, Parameters, PreparedRead, QueryOptions, QueryResult, Result, UniqueConstraint,
-    planner::Plan,
+    CompiledRead, Error, Parameters, PreparedRead, QueryOptions, QueryResult, Result,
+    UniqueConstraint, planner::Plan,
 };
 
 use super::{
@@ -111,10 +111,45 @@ impl<'database> Transaction<'database> {
             context.check()?;
             let plan = planner::compile(cypher)?;
             context.run(transaction, || match plan {
-                Plan::Read(plan) => execute_read_plan(transaction, plan, parameters, &context),
+                Plan::Read(plan) => execute_read_plan(transaction, &plan, parameters, &context),
                 Plan::Mutate(plan) => {
                     execute_mutation_plan(transaction, (*plan).resolve(parameters)?, &context)
                 }
+            })
+        })
+    }
+
+    /// Executes a compiled read without named parameters in this transaction.
+    pub fn execute_compiled(&mut self, read: &CompiledRead) -> Result<QueryResult> {
+        self.execute_compiled_with(read, &Parameters::new())
+    }
+
+    /// Executes a compiled read with fresh bindings in this transaction.
+    pub fn execute_compiled_with(
+        &mut self,
+        read: &CompiledRead,
+        parameters: &Parameters,
+    ) -> Result<QueryResult> {
+        self.execute_compiled_with_options(read, parameters, &QueryOptions::default())
+    }
+
+    /// Executes a compiled read with fresh bindings, resource counters, and controls.
+    ///
+    /// Uses the parent's snapshot and sees earlier writes. Any binding,
+    /// execution, resource, or control error immediately aborts and rolls back
+    /// the whole transaction. Successful results remain provisional until commit.
+    /// The compiled plan remains reusable after the parent is closed or aborted.
+    pub fn execute_compiled_with_options(
+        &mut self,
+        read: &CompiledRead,
+        parameters: &Parameters,
+        options: &QueryOptions,
+    ) -> Result<QueryResult> {
+        self.run(|transaction| {
+            let context = ExecutionContext::new(options);
+            context.check()?;
+            context.run(transaction, || {
+                execute_read_plan(transaction, &read.plan, parameters, &context)
             })
         })
     }

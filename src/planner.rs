@@ -33,6 +33,7 @@ pub(crate) enum UnionKind {
     Distinct,
 }
 
+#[derive(Clone, Debug)]
 pub(crate) struct ReadPlan {
     pub(crate) columns: Vec<String>,
     pub(crate) root: PhysicalOperator,
@@ -57,9 +58,9 @@ impl ReadPlan {
         Self { columns, root }
     }
 
-    pub(crate) fn prepare(self, parameters: &Parameters) -> Result<PreparedReadPlan> {
+    pub(crate) fn prepare(&self, parameters: &Parameters) -> Result<PreparedReadPlan> {
         Ok(PreparedReadPlan {
-            columns: self.columns,
+            columns: self.columns.clone(),
             root: self.root.prepare(parameters)?,
         })
     }

@@ -185,6 +185,34 @@ process memory, and deadlines do not preempt parsing, an individual scalar or
 aggregate callback, or lock/I/O waits. See [resource semantics](docs/semantics.md#query-resource-controls)
 for accounting boundaries and cleanup behavior.
 
+## Reusable compiled reads
+
+Use `compile_read` to reuse planning across changing parameter values:
+
+```rust
+use crabnet::{Database, Parameters, compile_read};
+use serde_json::json;
+
+let read = compile_read("MATCH (p:Person {name:$name}) RETURN p.name")?;
+let mut database = Database::in_memory()?;
+database.execute("CREATE (:Person {name:'Ada'}), (:Person {name:'Grace'})")?;
+for name in ["Ada", "Grace"] {
+    let parameters = Parameters::from([("name".into(), json!(name))]);
+    let result = database.execute_compiled_with(&read, &parameters)?;
+    assert_eq!(result.rows[0][0].as_str(), Some(name));
+}
+# Ok::<(), crabnet::Error>(())
+```
+
+The owned `CompiledRead` retains no database borrow or bound parameters.
+`Database` and `Transaction` offer `execute_compiled`, `execute_compiled_with`,
+and `execute_compiled_with_options`; each execution has fresh bindings and
+resource counters. Results are eager, and standalone calls share one fresh
+snapshot through traversal and hydration. Transaction failures roll back the
+parent as usual. `compile_read_with_options` checks cancellation/deadlines
+around planning; execution receives its own options. See the
+[contract and measurements](docs/compiled-reads.md).
+
 ## Read cursors
 
 Use a prepared read to consume rows incrementally:

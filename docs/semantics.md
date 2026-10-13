@@ -2293,6 +2293,32 @@ or recursive removal, hostile path replacement, persistent SQLite I/O failure,
 filesystem ENOSPC, or power loss. Such failures require separate qualification;
 the source-read and destination write/sync models above retain their own limits.
 
+## Reusable compiled reads
+
+`compile_read` returns an owned, parameter-unbound `CompiledRead`. Compilation
+reports static errors and rejects mutations; it does not access a database.
+`columns()` is available immediately. `compile_read_with_options` checks
+cancellation and deadlines before and after successful planning, without
+preempting parser/planner operations or retaining the options. Execution budgets
+do not cap planning or parameter memory.
+
+`Database::execute_compiled*` and `Transaction::execute_compiled*` resolve fresh
+parameters through the complete plan before executing it, and start fresh
+resource counters with the supplied options. They skip parsing, lowering, and SQL
+generation but still bind values and prepare/reuse SQLite statements. Results
+are eager: an error returns no partial output. Standalone calls share a new read
+snapshot across all branches, traversal, and hydration, and release it on
+return. Transactional calls use the parent snapshot; any execution-call error
+aborts all earlier writes. Free-standing compilation errors cannot abort a
+transaction. Retaining a compiled plan or a returned result holds no locks.
+
+Plans can be shared across independent connections from the same engine build,
+including read-only or normally migrated databases. No stored data or installed
+constraint influences compilation, so supported writes, constraint changes, and
+restore do not invalidate a plan. There is no plan serialization or cross-version
+plan compatibility contract. External schema edits remain unsupported. See
+[compiled reads](compiled-reads.md) for the full contract and measurements.
+
 ## Read cursors
 
 `Database::prepare_read`, `prepare_read_with`, and `prepare_read_with_options`,

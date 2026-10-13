@@ -242,16 +242,16 @@ impl ValueOperator {
         }
     }
 
-    fn prepare(self, parameters: &Parameters) -> Result<PreparedValueOperator> {
+    fn prepare(&self, parameters: &Parameters) -> Result<PreparedValueOperator> {
         match self {
             Self::TrailExpand { output, spec } => Ok(PreparedValueOperator::TrailExpand {
-                output,
+                output: *output,
                 spec: spec.resolve(parameters)?,
             }),
             Self::ShortestExpand { output, mode, spec } => {
                 Ok(PreparedValueOperator::ShortestExpand {
-                    output,
-                    mode,
+                    output: *output,
+                    mode: *mode,
                     spec: spec.resolve(parameters)?,
                 })
             }
@@ -342,14 +342,15 @@ pub(crate) struct TrailPage<Page> {
 }
 
 impl TrailStageSpec {
-    fn prepare(self, parameters: &Parameters) -> Result<TrailStageSpec<usize>> {
+    fn prepare(&self, parameters: &Parameters) -> Result<TrailStageSpec<usize>> {
         Ok(TrailStageSpec {
-            sql: self.sql,
+            sql: self.sql.clone(),
             argument_count: self.argument_count,
             carried_count: self.carried_count,
-            distinct: self.distinct,
+            distinct: self.distinct.clone(),
             page: self
                 .page
+                .as_ref()
                 .map(|page| -> Result<_> {
                     Ok(TrailPage {
                         skip_index: page.skip_index,
@@ -380,9 +381,9 @@ impl SqlFragment {
         })
     }
 
-    fn prepare(self, parameters: &Parameters) -> Result<PreparedSqlFragment> {
+    fn prepare(&self, parameters: &Parameters) -> Result<PreparedSqlFragment> {
         let mut inputs = HashMap::with_capacity(self.inputs.len());
-        for input in self.inputs {
+        for input in &self.inputs {
             let output = input.output();
             if inputs.insert(output, input).is_some() {
                 return Err(Error::Data(format!(
@@ -395,7 +396,7 @@ impl SqlFragment {
         let mut prepared_inputs = Vec::new();
         let mut consumed_slots = HashSet::with_capacity(inputs.len());
         let mut arguments = Vec::with_capacity(self.arguments.len());
-        for argument in self.arguments {
+        for argument in &self.arguments {
             match argument {
                 FragmentArgument::Static(parameter) => arguments.push(
                     PreparedFragmentArgument::Value(parameter.resolve(parameters)?),
@@ -407,14 +408,14 @@ impl SqlFragment {
                             slot.0
                         )));
                     }
-                    let input = inputs.remove(&slot).ok_or_else(|| {
+                    let input = inputs.remove(slot).ok_or_else(|| {
                         Error::Data(format!(
                             "physical SQL fragment reads missing runtime slot %r{}",
                             slot.0
                         ))
                     })?;
                     prepared_inputs.push(input.prepare(parameters)?);
-                    arguments.push(PreparedFragmentArgument::Runtime(slot));
+                    arguments.push(PreparedFragmentArgument::Runtime(*slot));
                 }
             }
         }
@@ -426,31 +427,32 @@ impl SqlFragment {
         }
 
         Ok(PreparedSqlFragment {
-            sql: self.sql,
-            columns: self.columns,
-            output_shapes: self.output_shapes,
+            sql: self.sql.clone(),
+            columns: self.columns.clone(),
+            output_shapes: self.output_shapes.clone(),
             arguments,
             inputs: prepared_inputs,
             trail_cursor: self
                 .trail_cursor
+                .as_ref()
                 .map(|cursor| {
                     Ok::<_, Error>(Box::new(PreparedTrailCursor {
-                        sql: cursor.sql,
+                        sql: cursor.sql.clone(),
                         arguments: cursor
                             .arguments
-                            .into_iter()
+                            .iter()
                             .map(|argument| match argument {
                                 FragmentArgument::Static(parameter) => parameter
                                     .resolve(parameters)
                                     .map(PreparedFragmentArgument::Value),
                                 FragmentArgument::Runtime(slot) => {
-                                    Ok(PreparedFragmentArgument::Runtime(slot))
+                                    Ok(PreparedFragmentArgument::Runtime(*slot))
                                 }
                             })
                             .collect::<Result<Vec<_>>>()?,
                         stages: cursor
                             .stages
-                            .into_iter()
+                            .iter()
                             .map(|stage| stage.prepare(parameters))
                             .collect::<Result<Vec<_>>>()?,
                         offset: cursor
@@ -493,7 +495,7 @@ pub(crate) enum PhysicalOperator {
 }
 
 impl PhysicalOperator {
-    pub(crate) fn prepare(self, parameters: &Parameters) -> Result<PreparedPhysicalOperator> {
+    pub(crate) fn prepare(&self, parameters: &Parameters) -> Result<PreparedPhysicalOperator> {
         match self {
             Self::Sqlite(fragment) => fragment
                 .prepare(parameters)
@@ -526,7 +528,7 @@ impl PhysicalOperator {
             Self::Union { left, right, kind } => Ok(PreparedPhysicalOperator::Union {
                 left: Box::new(left.prepare(parameters)?),
                 right: Box::new(right.prepare(parameters)?),
-                kind,
+                kind: *kind,
             }),
             Self::BatchHydrate { input } => Ok(PreparedPhysicalOperator::BatchHydrate {
                 input: Box::new(input.prepare(parameters)?),

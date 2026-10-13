@@ -17,6 +17,38 @@ mod shortest_fixture;
 #[path = "../examples/cursor_traversal/fixture.rs"]
 mod traversal_cursor_fixture;
 
+#[path = "../examples/repeated_reads/fixture.rs"]
+mod repeated_reads_fixture;
+
+fn bench_compiled_reads(c: &mut Criterion) {
+    use repeated_reads_fixture::{COMMIT, Fixture, PARENTS};
+    let mut group = c.benchmark_group("compiled_reads");
+    for (name, query) in [("compile_commit", COMMIT), ("compile_parents", PARENTS)] {
+        group.bench_function(name, |b| {
+            b.iter(|| crabnet::compile_read(black_box(query)).unwrap())
+        });
+    }
+    for (name, compiled) in [
+        ("ordinary_changing_oid", false),
+        ("compiled_changing_oid", true),
+    ] {
+        let mut fixture = Fixture::new().unwrap();
+        for i in 0..4 {
+            Fixture::check(i, &fixture.read(compiled, i).unwrap());
+        }
+        group.throughput(Throughput::Elements(2));
+        group.bench_function(name, |b| {
+            let mut i = 0;
+            b.iter(|| {
+                let result = fixture.read(compiled, i).unwrap();
+                i = (i + 1) % 4;
+                black_box(result)
+            });
+        });
+    }
+    group.finish();
+}
+
 /// Nodes created by one multi-pattern `CREATE`; also the community size.
 const COMMUNITY: usize = 250;
 /// Outgoing `KNOWS` edges per person inside its community.
@@ -995,6 +1027,7 @@ fn bench_traversal_cursor(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_planning,
+    bench_compiled_reads,
     bench_reads,
     bench_traversal,
     bench_shortest_scaling,
