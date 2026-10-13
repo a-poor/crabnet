@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::logical::{
-    BinaryOp, EntityKind, Expr, ListVariableId, ScalarArgumentKind, ScalarFunction, ScalarSlotId,
-    UnaryOp, ValueExpr,
+    AggregateKind, BinaryOp, EntityKind, Expr, ListVariableId, ScalarArgumentKind, ScalarFunction,
+    ScalarSlotId, UnaryOp, ValueExpr,
 };
 
 /// A statically known value kind. Lists remember their element kind when
@@ -191,6 +191,14 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
             check_scalar_function(*function, arguments, kinds)?;
             None
         }
+        Expr::Aggregate {
+            kind: kind @ (AggregateKind::Sum | AggregateKind::Average),
+            argument: Some(argument),
+            ..
+        } => {
+            check_numeric_aggregate(*kind, argument, kinds)?;
+            None
+        }
         Expr::Function {
             function: function @ (ScalarFunction::Keys | ScalarFunction::Properties),
             arguments,
@@ -262,6 +270,22 @@ pub(crate) fn check(expression: &Expr, kinds: &mut Kinds) -> Result<Option<Kind>
 
 // Keep function diagnostics out of the recursive check frame so deep graph
 // collections still fit on a normal debug-build thread stack.
+fn check_numeric_aggregate(
+    kind: AggregateKind,
+    argument: &Expr,
+    kinds: &mut Kinds,
+) -> Result<(), String> {
+    let argument = check(argument, kinds)?;
+    expect_numeric(
+        argument.as_ref(),
+        if kind == AggregateKind::Sum {
+            "sum()"
+        } else {
+            "avg()"
+        },
+    )
+}
+
 fn check_scalar_function(
     function: ScalarFunction,
     arguments: &[Expr],

@@ -3925,6 +3925,23 @@ impl<'source> Lowerer<'source> {
                     "rand() is not allowed inside an aggregate function",
                 ));
             }
+            if matches!(kind, AggregateKind::Sum | AggregateKind::Average) {
+                if !matches!(
+                    self.nested_shape(&argument),
+                    NestedShape::Json | NestedShape::Null | NestedShape::Mixed
+                ) {
+                    let name = if kind == AggregateKind::Sum {
+                        "sum"
+                    } else {
+                        "avg"
+                    };
+                    return Err(semantic(
+                        span,
+                        format!("{name}() needs a number, not a graph value"),
+                    ));
+                }
+                argument = require_scalar_context(argument, span)?;
+            }
             if matches!(argument, Expr::Entity(_) | Expr::EntityValue { .. })
                 && !matches!(kind, AggregateKind::Count | AggregateKind::Collect)
             {

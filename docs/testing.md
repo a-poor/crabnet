@@ -341,6 +341,15 @@ end-to-end result test for user-visible semantics.
   and exercises eager/incremental/buffered reads, terminal cursor reuse,
   statement/transaction rollback, constraints, immediate writer lock release,
   and reopening. `numeric_errors.rs` retains the separate finite-result checks.
+- `tests/aggregate_input_errors.rs` covers strict numeric inputs for `sum` and
+  `avg`: static errors, parameters and node/relationship properties, grouped
+  bags, mixed graph selections, nulls, empty inputs, numeric promotion, and
+  parameter preflight. Composition preserves errors even in unselected
+  aggregate results, while lazy branches inside inputs still work. Eager reads,
+  both cursor modes, terminal cursor reuse, post-write projections and later
+  write stages, transaction rollback, restored constraints, immediate writer
+  lock release, and reopening are covered. `numeric_errors.rs` retains the
+  separate non-finite aggregate-result checks.
 - `tests/string_input_errors.rs` covers all argument positions of the ten string
   functions, including integer positions/lengths: static errors in unused
   branches and empty matches, dynamic parameters and node/relationship

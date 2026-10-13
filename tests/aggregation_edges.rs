@@ -202,7 +202,7 @@ fn min_and_max_order_mixed_kinds_by_cypher_orderability() {
 }
 
 #[test]
-fn sum_and_avg_return_null_when_any_non_null_value_has_the_wrong_kind() {
+fn sum_and_avg_reject_groups_with_non_numeric_values() {
     let mut database = Database::in_memory().unwrap();
     database
         .execute(
@@ -213,14 +213,13 @@ fn sum_and_avg_return_null_when_any_non_null_value_has_the_wrong_kind() {
         )
         .unwrap();
 
-    let result = database
-        .execute(
-            "MATCH (item:WrongNumericKind) \
-             RETURN sum(item.value) AS total, avg(item.value) AS mean",
-        )
-        .unwrap();
-
-    assert_eq!(result.rows, [vec![CypherValue::Null, CypherValue::Null]]);
+    for function in ["sum", "avg"] {
+        let query = format!("MATCH (item:WrongNumericKind) RETURN {function}(item.value)");
+        assert!(
+            matches!(database.execute(&query), Err(Error::Type(_))),
+            "{query}"
+        );
+    }
 }
 
 #[test]

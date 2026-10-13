@@ -4287,14 +4287,6 @@ impl Compiler {
         };
         let numeric_of = |value_type: &str| format!("({value_type}) IN ('integer', 'real')");
         let numeric = bind(&|_, value_type| numeric_of(value_type))?;
-        let invalid = bind(&|value, value_type| {
-            format!(
-                "({}) AND NOT ({})",
-                non_null_of(value, value_type),
-                numeric_of(value_type)
-            )
-        })?;
-        let value = bind(&|value, _| value.to_owned())?;
         let modifier = if distinct { "DISTINCT " } else { "" };
 
         match kind {
@@ -4314,31 +4306,43 @@ impl Compiler {
                     "'integer'",
                 ))
             }
-            AggregateKind::Sum => {
-                let sum = format!("SUM({modifier}{value}) FILTER (WHERE {numeric})");
+            AggregateKind::Sum | AggregateKind::Average => {
+                let name = if kind == AggregateKind::Sum {
+                    "sum"
+                } else {
+                    "avg"
+                };
+                // Validate in the aggregate input, before SQLite can coerce a
+                // value or a surrounding CASE can skip the aggregate result.
+                let invalid = type_error(&format!("{name}() needs a number"));
+                let checked = bind(&|value, value_type| {
+                    format!(
+                        "CASE WHEN NOT ({}) THEN NULL WHEN {} THEN ({value}) ELSE {invalid} END",
+                        non_null_of(value, value_type),
+                        numeric_of(value_type)
+                    )
+                })?;
+                let aggregate = format!("{name}({modifier}{checked})");
+                let empty = if kind == AggregateKind::Sum {
+                    "0"
+                } else {
+                    "NULL"
+                };
                 let value = format!(
-                    "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
-                     WHEN COUNT(*) FILTER (WHERE {numeric}) = 0 THEN 0 \
-                     ELSE crabnet_finite({sum}) END)"
+                    "(CASE WHEN COUNT(*) FILTER (WHERE {numeric}) = 0 THEN {empty} \
+                     ELSE crabnet_finite({aggregate}) END)"
                 );
+                if kind == AggregateKind::Average {
+                    return Ok(Scalar::sql(value, "'real'"));
+                }
                 // The sum is real as soon as one real was summed; deciding
                 // this from the argument types keeps the type from repeating
                 // the sum itself.
                 let real = bind(&|_, value_type| format!("({value_type}) = 'real'"))?;
                 let value_type = format!(
-                    "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN 'null' \
-                      WHEN COUNT(*) FILTER (WHERE {real}) > 0 THEN 'real' ELSE 'integer' END)"
+                    "(CASE WHEN COUNT(*) FILTER (WHERE {real}) > 0 THEN 'real' ELSE 'integer' END)"
                 );
                 Ok(Scalar::sql(value, value_type))
-            }
-            AggregateKind::Average => {
-                let average = format!("AVG({modifier}{value}) FILTER (WHERE {numeric})");
-                let value = format!(
-                    "(CASE WHEN COUNT(*) FILTER (WHERE {invalid}) > 0 THEN NULL \
-                     WHEN COUNT(*) FILTER (WHERE {numeric}) = 0 THEN NULL \
-                     ELSE crabnet_finite({average}) END)"
-                );
-                Ok(Scalar::sql(value, "'real'"))
             }
             AggregateKind::Minimum | AggregateKind::Maximum => {
                 // Cypher orders values of every type against each other, so

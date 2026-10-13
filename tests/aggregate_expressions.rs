@@ -127,13 +127,6 @@ fn aggregate_results_keep_dynamic_types_and_parameter_preflight() {
             false,
         ),
         (
-            json!([1, "2", null]),
-            CypherValue::Null,
-            CypherValue::Integer(99),
-            "2",
-            false,
-        ),
-        (
             json!([]),
             CypherValue::Float(0.5),
             CypherValue::Integer(99),
@@ -157,6 +150,17 @@ fn aggregate_results_keep_dynamic_types_and_parameter_preflight() {
             ]]
         );
     }
+    assert!(matches!(
+        database.execute_with(
+            query,
+            &Parameters::from([
+                ("values".into(), json!([1, "2", null])),
+                ("step".into(), json!(0.5)),
+                ("fallback".into(), json!(99)),
+            ])
+        ),
+        Err(Error::Type(_))
+    ));
     assert!(matches!(
         database.execute("UNWIND [] AS x RETURN CASE WHEN false THEN sum($missing) ELSE 1 END AS v"),
         Err(Error::MissingParameter(name)) if name == "missing"

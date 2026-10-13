@@ -154,8 +154,16 @@ null-extended entity.
 
 `sum` and `avg` ignore nulls and accept numeric inputs only. `sum` of an empty
 numeric bag is integer zero; `avg` of one is null. Mixed integer/float inputs
-use SQLite's numeric promotion. If any non-null input has another kind, the
-result is null instead of being coerced. A non-finite numeric `sum` or `avg`
+use SQLite's numeric promotion. A nonnumeric kind known from the query raises
+`Error::Semantic` during planning, including unused branches and empty matches.
+Any non-null input of another kind at runtime raises `Error::Type`, without
+coercing strings or booleans. Parameters, properties, and values selected from
+mixed graph collections follow the same rule. Aggregate inputs are checked
+before conditional selection of the aggregate result, so an outer `CASE` or
+`coalesce` cannot hide an invalid input; lazy branches within the input expression
+still skip unselected values. Empty input does not evaluate dynamic arguments,
+but missing parameters and static errors are always rejected before execution.
+A non-finite numeric `sum` or `avg`
 result raises `Error::Argument`, including an indeterminate accumulation that
 SQLite reports as null despite non-null numeric input. `min` and `max` ignore
 nulls and choose by the same global orderability as `ORDER BY`, so `max` over
