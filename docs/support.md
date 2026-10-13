@@ -1,34 +1,43 @@
 # Supported configuration and qualification
 
-This is the initial configuration targeted by milestone 11, defined on
-2026-10-09. Crabnet remains experimental. The first hosted matrix and lifecycle
-runs passed at `683b8e9`. The [compatibility policy](compatibility.md) and retained
-historical format fixtures are in place; required-check enforcement, named
+This records the configuration targeted by milestone 11 and the current CI
+coverage. Crabnet remains experimental. The initial configuration was defined on
+2026-10-09; the first hosted matrix and lifecycle runs passed at `683b8e9`.
+Routine CI was narrowed on 2026-10-13 to conserve Actions usage.
+The [compatibility policy](compatibility.md) and retained historical format
+fixtures are in place; required-check enforcement, named
 release-pair validation, fault testing, and the release record remain open gates in
 [roadmap](roadmap.md#11-production-qualification--in-progress).
 
-## Initial matrix
+## Current CI baseline
 
 | Operating system / architecture | Rust target | CI runner | Toolchains |
 | --- | --- | --- | --- |
-| Ubuntu 24.04 LTS, x86-64, glibc | `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | `1.99.0` and current `stable` |
-| macOS 26, Apple Silicon | `aarch64-apple-darwin` | `macos-26` | `1.99.0` and current `stable` |
+| Ubuntu 24.04 LTS, x86-64, glibc | `x86_64-unknown-linux-gnu` | `ubuntu-24.04` | `1.99.0` |
 
 Rust 1.99 is the deliberately conservative minimum declared in `Cargo.toml`,
 matching the measured engine and Git Graph baseline. Older toolchains have not
 been qualified; this is not a claim that they cannot compile the source.
-`1.99.0` is the reproducible compiler baseline. Rolling `stable` is a required
-compatibility check, with its exact version recorded in each run; it does not
-silently replace the baseline. Rustup, Cargo, a C compiler, and the platform SDK
-or development headers are build prerequisites. Lifecycle measurements also
-require Python 3.11 or newer; CI explicitly installs Python 3.14 and records its
+`1.99.0` is the reproducible compiler baseline and matches the local development
+compiler. A separate rolling `stable` job is paused; the first hosted stable
+jobs resolved to the same 1.99.0 compiler. Rustup, Cargo, a C compiler, and the
+platform SDK or development headers are build prerequisites. Lifecycle measurements
+also require Python 3.11 or newer; CI explicitly installs Python 3.14 and records its
 exact patch version rather than relying on the runner's system Python.
 
 Runner labels are selected from GitHub's
 [hosted runner matrix](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 Images receive updates; retain the runner image version, OS, compiler, and
-revision from the workflow logs when qualifying a release. No Windows, Intel
-macOS, Linux ARM, musl, mobile, WebAssembly, or other OS version is qualified
+revision from the workflow logs when qualifying a release.
+
+The original matrix also checked macOS 26 Apple Silicon (`aarch64-apple-darwin`,
+`macos-26`) on both Rust 1.99.0 and rolling stable. That hosted coverage is paused
+to conserve Actions usage. The historical evidence below remains valid for its
+recorded revisions; local macOS checks can still use the complete check script.
+Run fresh platform-specific checks, lifecycle measurements, and file-locking,
+recovery, and backup tests before qualifying a release for macOS.
+
+No Windows, Intel macOS, Linux ARM, musl, mobile, WebAssembly, or other OS version is qualified
 by these entries. Extending the matrix requires the same checks and a review
 of file locking, process recovery, and backup behavior on the new configuration.
 
@@ -63,7 +72,7 @@ of file locking, process recovery, and backup behavior on the new configuration.
   have documented boundaries; they are not a whole-process memory or time cap.
 - The [compatibility policy](compatibility.md) defines pre-1.0 API versioning,
   schema 1–4 upgrades to version 5, and rollback using a pre-upgrade backup.
-  Retained historical commit fixtures run in the regular matrix; named
+  Retained historical commit fixtures run in the regular checks; named
   release-to-release qualification remains a milestone 11 gate. Crabnet remains
   experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
   cover `SQLITE_FULL` during writes using a page-count cap.
@@ -109,17 +118,18 @@ of file locking, process recovery, and backup behavior on the new configuration.
   These and process-death recovery do not establish filesystem ENOSPC, persistent/partial
   I/O failure, or power-loss guarantees.
 
-Dependency, feature, compiler-baseline, and configuration changes require a full
-matrix run and refreshed workload evidence. Library consumers resolve their own
-lockfiles; a different resolution is outside this exact qualification record
+Dependency, feature, compiler-baseline, and configuration changes require the
+full checks and refreshed workload evidence on every platform claimed by the
+release. Routine CI currently covers only the baseline above. Library consumers
+resolve their own lockfiles; a different resolution is outside this exact qualification record
 until validated. Keep the baseline toolchain in the workflow and `rust-version`
 in `Cargo.toml` consistent when deliberately raising the minimum.
 
 ## Automated checks
 
 [CI](../.github/workflows/ci.yml) runs on pull requests, pushes to `main`, version
-tags (`v*`), Monday at 08:23 UTC, and manual dispatch. Every OS/toolchain pair runs
-the same [check script](../scripts/check.sh):
+tags (`v*`), and manual dispatch. Weekly scheduling is paused. One Ubuntu 24.04
+job on Rust 1.99.0 runs the complete [check script](../scripts/check.sh):
 
 ```sh
 bash scripts/check.sh
@@ -137,24 +147,26 @@ No TCK download, pin regeneration, or reduced benchmark-size override is needed.
 
 GitHub actions are pinned to immutable commits, checkout does not persist
 credentials, and workflow permissions are read-only. Failures propagate through
-log capture; matrix entries do not cancel each other. Check artifacts retain
-the tested revision, exact compiler, runner image, SQLite dependency features,
+log capture. New pushes cancel obsolete runs for the same branch or pull
+request; manual and tag runs are not automatically canceled. Check artifacts
+retain the tested revision, exact compiler, runner image, SQLite dependency features,
 and command output for 30 days. Preserve release evidence outside expiring
 artifacts. No automated publish, deployment, or release creation occurs.
 
-All four `Checks (...)` matrix jobs must pass before merging. Enforcement is
+`Checks (ubuntu-24.04, Rust 1.99.0)` must pass before merging. Enforcement is
 currently manual: on 2026-10-09, both the repository rulesets and classic branch
 protection APIs returned HTTP 403 for this private repository, stating that
 GitHub Pro or public visibility is required. Neither account nor repository
 settings were changed. When the repository's plan supports protection, require
-those four check names and verify enforcement. The workflow's successful runs
+that check name and verify enforcement. The workflow's successful runs
 do not close this remaining enforcement gate.
 
 ## Workload and release gates
 
-Weekly, `v*` tag, and manual runs with `workloads: true` additionally run the
-release-profile dependency-graph lifecycle on both platforms, after the full
-check matrix passes. Each job uses fresh databases and three serial trials at
+Only manual runs with `workloads: true` additionally run the release-profile
+dependency-graph lifecycle on Ubuntu 24.04 with Rust 1.99.0, after checks pass.
+Tag pushes still run the full checks; they do not automatically run measurements.
+The lifecycle job uses fresh databases and three serial trials at
 1,000 and 10,000 packages, with 20 warm query samples and batch size 128.
 The existing workload independently verifies graph bags, identities, rollback,
 deletion, and reopening. JSON records timings, RSS, and binary hashes; environment
@@ -180,6 +192,12 @@ correctness, and fault-model gates still apply before any production claim.
 
 ## Qualification evidence
 
+- On 2026-10-13, the [latest push run](https://github.com/a-poor/crabnet/actions/runs/38410873346)
+  at `53eb024` and the preceding three failed runs were blocked before any test
+  steps started. GitHub reported an account payment or spending-limit issue;
+  these are not test failures. The annotation does not identify whether the
+  included allowance, a budget, or a payment problem caused the block. Reducing
+  this workflow's usage does not itself clear that account-level restriction.
 - Existing application evidence: the [Git Graph pilot](git-graph-pilot.md),
   measured on macOS 26.5.1 arm64 with Rust 1.99.0 and Crabnet `7601cdd`.
 - Local validation on 2026-10-09, macOS 26.5.1 arm64 and Rust 1.99.0, for the

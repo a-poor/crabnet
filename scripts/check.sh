@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The same complete checks run locally and on every CI matrix entry.
+# The same complete checks run locally and in CI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

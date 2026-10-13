@@ -610,9 +610,11 @@ The [check script](../scripts/check.sh) uses the lockfile for all Cargo build/te
 commands and runs all targets (including the vendored TCK and both benchmark
 smoke sizes), doctests, formatting, Clippy, and whitespace checks. It rejects
 `CRABNET_TCK_UPDATE`; update pins separately and review every change. The
-[CI workflow](../.github/workflows/ci.yml) runs the same checks across the
-[initial support matrix](support.md), retains logs, and schedules larger
-lifecycle measurements. The first hosted matrix and workload runs passed at
+[CI workflow](../.github/workflows/ci.yml) runs the same checks on Ubuntu 24.04
+with Rust 1.99.0, retains logs, and offers larger lifecycle measurements through
+manual dispatch with `workloads: true`. macOS, rolling-stable, and scheduled CI
+are paused to conserve Actions usage; see the [current CI contract](support.md).
+The first hosted matrix and workload runs passed at
 `683b8e9`; [support.md](support.md#qualification-evidence) links their preserved
 evidence. Required-check enforcement is unavailable under the current private
 repository plan; successful checks alone do not complete production qualification.

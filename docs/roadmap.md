@@ -892,8 +892,10 @@ Qualify a release for an explicit query subset and operating configuration.
 The completed pilot supplies application evidence; this milestone establishes
 repeatable release checks and compatibility commitments. The initial
 [support matrix](support.md) and [CI workflow](../.github/workflows/ci.yml) passed
-their first hosted matrix and lifecycle runs at `683b8e9`. Required-check
-enforcement and the remaining qualification gates are pending.
+their first hosted matrix and lifecycle runs at `683b8e9`. Since 2026-10-13,
+routine CI uses only Ubuntu 24.04 and Rust 1.99.0 to conserve Actions usage;
+macOS and rolling-stable checks are paused, and lifecycle jobs are manual.
+Required-check enforcement and the remaining qualification gates are pending.
 
 For each candidate, turn the remaining gates below into a bounded checklist with
 named claims, fault models, required evidence, and acceptance criteria. Select
@@ -904,10 +906,11 @@ qualification continues. Stronger compatibility and durability claims require
 the corresponding gates to pass.
 
 - [x] **Define the supported configuration.** [support.md](support.md) records
-  Ubuntu 24.04 x86-64 and macOS 26 arm64, Rust 1.99.0 plus rolling stable checks,
-  the locked bundled SQLite build, local DELETE-journal files, the documented
-  query subset, and serial connections with one writer. Other configurations
-  require separate evidence. Defining this scope does not claim qualification.
+  the current Ubuntu 24.04 x86-64 / Rust 1.99.0 CI baseline and retained evidence
+  from the earlier macOS 26 arm64 / rolling-stable matrix, the locked bundled
+  SQLite build, local DELETE-journal files, the documented query subset, and
+  serial connections with one writer. Other configurations require separate
+  evidence. Defining this scope does not claim qualification.
 - [x] **Set API and storage compatibility policy and retain historical baselines.**
   [compatibility.md](compatibility.md) defines pre-1.0 versioning/deprecations,
   schema 1–4 upgrades to 5, recovery/rebuild choices, and application rollback
@@ -924,8 +927,9 @@ the corresponding gates to pass.
   environments, hashes, and 12 raw lifecycle reports. Both GitHub protection
   APIs returned HTTP 403 for the current private-repository plan. Complete this
   item when required checks can be configured and verified; until then, review
-  all four results manually before merging. The Git Graph sustained run remains
-  an explicit release gate. See [support.md](support.md) for the exact limits.
+  the current Ubuntu/Rust 1.99.0 result manually before merging. The Git Graph
+  sustained run remains an explicit release gate. See [support.md](support.md)
+  for the exact limits.
 - [ ] **Qualify failure behavior and durability claims.** The first
   [allocation-failure slice](semantics.md#storage-allocation-failures) covers real
   `SQLITE_FULL` errors under a page-count cap: node/relationship insert/update,
@@ -1052,8 +1056,8 @@ configuration; unsupported features remain explicit.
    reproducible qualification record remain required before production claims.
 4. Configure and verify required checks when the repository's plan permits
    protection. This account-level limitation does not prevent qualification
-   work; review all four matrix results manually in the meantime. Keep the
-   application, cursor, persistence, and pinned TCK tests as regressions.
+   work; review the current Ubuntu/Rust 1.99.0 check manually in the meantime.
+   Keep the application, cursor, persistence, and pinned TCK tests as regressions.
 
 Missing coverage alone does not determine the next task. Choose work by observed
 failures, incorrect results, data-integrity risk, concrete application needs, and

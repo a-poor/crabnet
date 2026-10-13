@@ -18,10 +18,11 @@ compatibility. Production qualification is still in progress. Use the documented
 local-file configuration with one writer at a time, pin the library revision,
 and review the compatibility and recovery contracts when adopting it.
 
-The initial [support matrix and CI contract](docs/support.md) target Rust 1.99
-and current stable on Ubuntu 24.04 x86-64 and macOS 26 Apple Silicon with bundled
-SQLite. Run `bash scripts/check.sh` for the complete local checks. The first hosted
-matrix and lifecycle runs passed; remaining production qualification gates are
+The current [support and CI contract](docs/support.md) runs one Ubuntu 24.04
+x86-64 job on Rust 1.99.0 with bundled SQLite. macOS and rolling-stable CI are
+paused to conserve Actions usage; earlier platform evidence is retained.
+Run `bash scripts/check.sh` for the complete local checks. Lifecycle measurements
+are available by manual dispatch. Remaining production qualification gates are
 tracked in the support document.
 
 The [compatibility policy](docs/compatibility.md) defines pre-1.0 API versioning,
