@@ -12,15 +12,25 @@ use crate::{Error, Result};
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum CypherValue {
+    /// An absent or unknown value.
     Null,
+    /// A boolean value.
     Boolean(bool),
+    /// A signed 64-bit integer.
     Integer(i64),
+    /// A binary64 floating-point value. Query results are finite.
     Float(f64),
+    /// A UTF-8 string, including any embedded NUL characters.
     String(String),
+    /// An ordered list that preserves duplicate and null members.
     List(Vec<Self>),
+    /// A map from string keys to recursively typed values.
     Map(BTreeMap<String, Self>),
+    /// A node snapshot with identity, labels, and properties.
     Node(NodeValue),
+    /// A relationship snapshot with identity and stored endpoints.
     Relationship(RelationshipValue),
+    /// An ordered graph path.
     Path(PathValue),
 }
 
@@ -30,8 +40,11 @@ pub enum CypherValue {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct NodeValue {
+    /// Opaque identity within this graph, preserved by reopen and supported copies.
     pub element_id: String,
+    /// Distinct labels in insertion order.
     pub labels: Vec<String>,
+    /// The properties captured in this result snapshot.
     pub properties: BTreeMap<String, CypherValue>,
 }
 
@@ -39,10 +52,15 @@ pub struct NodeValue {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct RelationshipValue {
+    /// Opaque identity within this graph, preserved by reopen and supported copies.
     pub element_id: String,
+    /// The relationship type.
     pub relationship_type: String,
+    /// The stored start-node identity, independent of traversal direction.
     pub start_node_element_id: String,
+    /// The stored end-node identity, independent of traversal direction.
     pub end_node_element_id: String,
+    /// The properties captured in this result snapshot.
     pub properties: BTreeMap<String, CypherValue>,
 }
 
@@ -55,15 +73,19 @@ pub struct RelationshipValue {
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct PathValue {
+    /// Node snapshots in traversal order, including both endpoints.
     pub nodes: Vec<NodeValue>,
+    /// Relationship snapshots in traversal order, retaining stored direction.
     pub relationships: Vec<RelationshipValue>,
 }
 
 impl CypherValue {
+    /// Returns whether this value is [`Self::Null`].
     pub fn is_null(&self) -> bool {
         matches!(self, Self::Null)
     }
 
+    /// Returns the boolean payload, or `None` for another variant.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Self::Boolean(value) => Some(*value),
@@ -71,6 +93,7 @@ impl CypherValue {
         }
     }
 
+    /// Returns the integer payload; floats are not coerced.
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Self::Integer(value) => Some(*value),
@@ -78,6 +101,7 @@ impl CypherValue {
         }
     }
 
+    /// Returns the float payload; integers are not coerced.
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Self::Float(value) => Some(*value),
@@ -85,6 +109,7 @@ impl CypherValue {
         }
     }
 
+    /// Borrows the string payload, or returns `None` for another variant.
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Self::String(value) => Some(value),
@@ -92,6 +117,7 @@ impl CypherValue {
         }
     }
 
+    /// Borrows the ordered list members, or returns `None` for another variant.
     pub fn as_list(&self) -> Option<&[Self]> {
         match self {
             Self::List(values) => Some(values),
@@ -99,6 +125,7 @@ impl CypherValue {
         }
     }
 
+    /// Borrows the map entries, or returns `None` for another variant.
     pub fn as_map(&self) -> Option<&BTreeMap<String, Self>> {
         match self {
             Self::Map(values) => Some(values),
@@ -106,6 +133,7 @@ impl CypherValue {
         }
     }
 
+    /// Borrows the node snapshot, or returns `None` for another variant.
     pub fn as_node(&self) -> Option<&NodeValue> {
         match self {
             Self::Node(node) => Some(node),
@@ -113,6 +141,7 @@ impl CypherValue {
         }
     }
 
+    /// Borrows the relationship snapshot, or returns `None` for another variant.
     pub fn as_relationship(&self) -> Option<&RelationshipValue> {
         match self {
             Self::Relationship(relationship) => Some(relationship),
@@ -120,6 +149,7 @@ impl CypherValue {
         }
     }
 
+    /// Borrows the path snapshot, or returns `None` for another variant.
     pub fn as_path(&self) -> Option<&PathValue> {
         match self {
             Self::Path(path) => Some(path),

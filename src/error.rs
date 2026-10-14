@@ -49,6 +49,7 @@ pub enum Error {
     Type(String),
 }
 
+/// The result of a Crabnet operation, with a structured [`Error`] on failure.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {

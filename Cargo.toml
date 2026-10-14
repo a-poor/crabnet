@@ -6,6 +6,10 @@ rust-version = "1.99"
 description = "An experimental embedded property-graph database for Rust, backed by SQLite"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/a-poor/crabnet"
+documentation = "https://docs.rs/crabnet"
+readme = "README.md"
+keywords = ["graph", "database", "sqlite", "cypher", "embedded"]
+categories = ["database"]
 
 [dependencies]
 open-cypher = "0.2.1"

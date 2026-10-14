@@ -31,16 +31,16 @@ evidence; record what was rerun and why.
 
 | Gate | Required result | Status / evidence |
 | --- | --- | --- |
-| Scope and compatibility | Review the public API, query/error contracts, schema 5, supported schema 1–4 upgrades, and pre-1.0 patch policy. List intentional deviations and limitations in release notes. | Scope proposed here; policy exists in [compatibility](compatibility.md); final review pending. |
+| Scope and compatibility | Review the public API, query/error contracts, schema 5, supported schema 1–4 upgrades, and pre-1.0 patch policy. List intentional deviations and limitations in release notes. | Public API, error/value contracts and patch boundaries reviewed in [package readiness](package-readiness.md); [draft release notes](release-notes-0.1.0.md) describe scope and limits. Final candidate review remains required. |
 | Known correctness blockers | Fix or explicitly reject incorrect results in the chosen surface. Initial queue: integer-conversion overflow/precision, plus review of the six remaining TCK expected-error exclusions against documented intentional behavior. | NUL and conversion fixes pass complete local checks in the working tree. Six exclusions reviewed below; no TCK expectations changed. Candidate validation remains required. |
 | Candidate checks | Run `bash scripts/check.sh` on the exact candidate on Ubuntu: all targets and 1k/10k benchmark smoke cases, doctests, unchanged TCK verification, formatting, Clippy, and diff checks. Retain revision, lockfile, toolchain, runner and filesystem details, commands, exit statuses and logs. | Pending. Current local checks are development evidence. |
 | Application acceptance | Git Graph pins the candidate in its isolated checkout. Pass correctness tests and the original 14 pilot gates, including 100 lifecycle cycles. Rerun the declared compare, containment, merge-base and history protocols against their existing thresholds; retain raw results and historical failures. | Pending candidate. Terminal rendering correctness is included; additional UI features are not required. |
 | Upgrade and rollback rehearsal | Use historical writer fixtures and Git Graph's previous pinned engine to create/verify a backup; open an upgraded copy with the candidate; verify identities, typed bags, constraints and application results; back up/restore the new copy; run the old application against a copy of the untouched old backup. Record writes lost by rollback and rebuild assumptions. | Historical fixture tests exist; candidate application rehearsal pending. There are no earlier named Crabnet releases, so do not claim release-to-release qualification. |
 | Failure and retry contract | Rerun existing allocation, one-shot I/O, migration, backup/restore, contention and process-recovery tests. Investigate journal deletion at commit specifically: record whether a reported failure can leave committed changes and what retry is safe. Resolve ambiguous public retry guidance before release. | Existing evidence is linked from [milestone 11](roadmap.md#11-production-qualification--in-progress); journal deletion investigation is complete locally: pre-delete errors recover the original state, while a modeled post-delete error leaves committed writes and blind retry can duplicate them. See [commit retry semantics](semantics.md#commit-io-failures). Candidate checks still repeat this evidence. |
 | Independent semantic checks | Add a bounded deterministic conversion/value-boundary corpus with independent expected values. Record which contracts it checks; do not call it full differential Cypher qualification. | Four tests in [integer_conversion.rs](../tests/integer_conversion.rs) cover explicit binary64 neighbors, exact integer text, null/error behavior, compiled/cursor execution and writes; complete local checks pass. Broader reference-engine differential work stays in milestone 11. |
-| Package readiness | Review name/version, description, repository/documentation metadata, licensing and third-party notices, dependency inventory, README examples, and archive contents. Build/test the packaged crate in a clean consumer project and verify the locked build. | Maintainer chose `MIT OR Apache-2.0` on 2026-10-13; both license texts and Cargo metadata are added. Initial offline metadata/file-list inspection is recorded below. Third-party/package review and clean consumer validation remain pending. |
+| Package readiness | Review name/version, description, repository/documentation metadata, licensing and third-party notices, dependency inventory, README examples, and archive contents. Build/test the packaged crate in a clean consumer project and verify the locked build. | Maintainer chose `MIT OR Apache-2.0` on 2026-10-13; both license texts and Cargo metadata are added. Initial offline metadata/file-list inspection is recorded below. Third-party inventory, public-doc audit and archive/clean-consumer rehearsal are recorded in [package readiness](package-readiness.md). Final candidate packaging and registry name/ownership checks remain required. |
 | Release record | Write release notes and a candidate report linking every gate, known limitations, upgrade/recovery instructions, exact commits and artifact hashes. Retain a writer fixture from the final source for future patch compatibility checks; after tagging, append the tag association without replacing historical artifacts. | Pending. |
-| Publication | Review final evidence, select the distribution channel (tag/source archive and/or crates.io), then explicitly authorize tagging/publishing. Verify the published artifact matches the qualified source. | Not authorized by this preparation task. |
+| Publication | Review final evidence for crates.io plus a Git tag/source archive, then explicitly authorize tagging/publishing. Verify the published artifact matches the qualified source. | Channels selected by the maintainer on 2026-10-14: crates.io plus Git tag/source archive. Publication is not authorized by this preparation task. |
 
 ## Boundaries and deferred work
 
@@ -79,12 +79,15 @@ or the required fresh Ubuntu run. No dependency lockfile or schema changed.
 ### Package inventory
 
 Initial packaging inspection used `cargo metadata --locked --offline` and
-`cargo package --list --allow-dirty --offline`. The current resolved inventory
-has 99 packages, each declaring a license. The 412-file package list includes
-both Crabnet license texts and the vendored TCK license, and emits no warnings.
-These checks establish inventory and inclusion only: they do not build the
+`cargo package --list --allow-dirty --offline`. The initial resolved inventory
+had 99 packages, each declaring a license. The initial 412-file package list included
+both Crabnet license texts and the vendored TCK license, and emitted no warnings.
+Those initial checks established inventory and inclusion only: they did not build the
 archive, validate a clean consumer, audit notices, or establish publication
-rights for third-party materials. Repeat them on the final candidate.
+rights for third-party materials. The subsequent [package review](package-readiness.md)
+records the 427-file archive build, eight README example compile checks,
+independent consumer, and 28 passing packaged tests/doctests. Repeat the
+rehearsal on the final clean candidate.
 
 ### Integer conversion and TCK deviations
 
@@ -130,10 +133,11 @@ exclusion or full Cypher conformance.
    tests/doctests, 147 benchmark smoke cases, formatting, and Clippy. The six
    focused commit tests also pass after the final test-helper lint cleanup.
    Candidate checks repeat this evidence.
-3. **Next:** review package/API/license readiness and assemble draft release
-   notes. Resolve the maintainer's distribution choice before packaging for release. The license
-   choice is recorded above.
-4. Select a candidate commit, run Ubuntu checks, and coordinate Git Graph's
+3. **Complete locally:** [package/API/license review](package-readiness.md),
+   reproducible offline package rehearsal, and [draft release notes](release-notes-0.1.0.md).
+   The selected distribution is crates.io plus a Git tag/source archive.
+   Registry name/ownership and final candidate artifact checks remain pending.
+4. **Next:** select a candidate commit, run Ubuntu checks, and coordinate Git Graph's
    candidate upgrade, rollback and workload qualification.
 5. Complete the evidence report, retain the writer fixture, and request final
    publication approval. Any failed gate stays visible and blocks publication

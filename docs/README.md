@@ -20,6 +20,7 @@ Use this index to find the authoritative document for each kind of question.
 | --- | --- |
 | What should we work on now? | [Roadmap](roadmap.md) |
 | What must the first release demonstrate? | [First-release checklist](first-release.md) |
+| Is the package and public API ready? | [Package review](package-readiness.md) and [draft release notes](release-notes-0.1.0.md) |
 | Where does code belong? | [Architecture and maintenance](architecture.md) |
 | How should a change be tested? | [Testing workflow](testing.md) |
 | Which suite covers a particular behavior? | [Test catalog](test-catalog.md) |
