@@ -251,7 +251,7 @@ fn string_functions_return_text_or_null() {
                     ltrim('  x ') AS d, rtrim('  x ') AS e, trim(null) AS g, \
                     reverse('abc') AS h, reverse([1, 'b', [3]]) AS i, reverse(null) AS j, \
                     substring('hello', 1) AS k, substring('hello', 1, 3) AS l, \
-                    substring('hello', -1) AS m, left('hello', 2) AS n, right('hello', 2) AS o, \
+                    substring('hello', null) AS m, left('hello', 2) AS n, right('hello', 2) AS o, \
                     right('hello', 0) AS p, right('hello', 9) AS q, \
                     replace('banana', 'an', 'AN') AS r, \
                     split('a,b,,c', ',') AS t, split('abc', '') AS u"

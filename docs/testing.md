@@ -367,6 +367,13 @@ end-to-end result test for user-visible semantics.
   rows, and retained boundary behavior. Eager and both cursor modes, terminal
   cursor reuse, statement/transaction rollback, constraints, immediate writer
   lock release, and reopening are checked through the public API.
+- `tests/string_bounds.rs` covers negative positions and lengths for
+  `substring`, `left`, and `right`: literals, parameters including `i64::MIN`,
+  node/relationship properties, computed and mixed graph selections, empty
+  strings, null/type precedence, lazy branches and empty matches, composed and
+  aggregate expressions, compiled rebinding after failure, Unicode result bags,
+  both cursor modes, rollback and restored constraints, immediate writer lock
+  release with an aborted transaction retained, and reopening.
 - `tests/list_input_errors.rs` covers strict inputs for `size`, `head`, `last`,
   `tail`, `reverse`, comprehensions, and quantifiers. It checks planning-time
   rejection, parameters/properties and mixed graph selections, nulls, empty

@@ -248,8 +248,8 @@ fn unicode_empty_strings_duplicates_and_integer_boundaries_are_preserved() {
         // Every string position accepts the empty string, including delimiters.
         db.execute(&format!("RETURN {expression}")).unwrap();
     }
-    assert_eq!(db.execute("RETURN substring('abc', 9), substring('abc', 1, 0), left('abc', 0), right('abc', 0), left('abc', 9), right('abc', 9), substring('abc', -1), substring('abc', 0, -1), left('abc', -1), right('abc', -1)").unwrap().rows,
-        [vec![json!(""), json!(""), json!(""), json!(""), json!("abc"), json!("abc"), Value::Null, Value::Null, json!(""), json!("")].into_iter().map(|value| CypherValue::try_from(value).unwrap()).collect::<Vec<_>>()]);
+    assert_eq!(db.execute("RETURN substring('abc', 9), substring('abc', 1, 0), left('abc', 0), right('abc', 0), left('abc', 9), right('abc', 9)").unwrap().rows,
+        [vec![json!(""), json!(""), json!(""), json!(""), json!("abc"), json!("abc")].into_iter().map(|value| CypherValue::try_from(value).unwrap()).collect::<Vec<_>>()]);
 }
 
 #[test]

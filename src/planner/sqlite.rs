@@ -3998,6 +3998,21 @@ impl Compiler {
                     type_error(&message)
                 ));
             }
+            // Check all kinds before checking values. Bounds are runtime
+            // argument errors even for literals, so lazy branches can skip them.
+            for (index, (value, _)) in parts.iter().enumerate().skip(1) {
+                if matches!(
+                    function.argument_kind(index),
+                    Some(ScalarArgumentKind::Integer)
+                ) {
+                    checks.push_str(&format!(
+                        " WHEN ({value}) < 0 THEN \
+                         crabnet_raise('{}() argument {} must not be negative')",
+                        function.name(),
+                        index + 1
+                    ));
+                }
+            }
             let text = &parts[0].0;
             let operation = match function {
                 ScalarFunction::ToLower
@@ -4014,23 +4029,17 @@ impl Compiler {
                 }
                 ScalarFunction::Substring => {
                     let start = &parts[1].0;
-                    let (length_condition, length) = match parts.get(2) {
-                        Some((length, _)) => {
-                            (format!(" AND ({length}) >= 0"), format!(", ({length})"))
-                        }
-                        None => (String::new(), String::new()),
+                    let length = match parts.get(2) {
+                        Some((length, _)) => format!(", ({length})"),
+                        None => String::new(),
                     };
-                    // Retain the existing null result for negative positions/lengths.
-                    format!(
-                        "(CASE WHEN ({start}) >= 0{length_condition} \
-                         THEN substr(({text}), ({start}) + 1{length}) END)"
-                    )
+                    format!("substr(({text}), ({start}) + 1{length})")
                 }
                 ScalarFunction::Left => format!("substr(({text}), 1, ({}))", parts[1].0),
                 ScalarFunction::Right => {
                     let count = &parts[1].0;
                     format!(
-                        "(CASE WHEN ({count}) <= 0 THEN '' \
+                        "(CASE WHEN ({count}) = 0 THEN '' \
                          ELSE substr(({text}), -({count})) END)"
                     )
                 }

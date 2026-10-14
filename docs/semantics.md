@@ -981,10 +981,14 @@ calling one with the wrong number of arguments is a semantic error.
   Null or missing arguments produce null. For ordinary dynamic argument values,
   null propagation takes priority over wrong-kind checks in another position;
   it does not suppress planning errors or errors while evaluating an argument.
-  This input-type check retains the existing boundary behavior: negative
-  `substring` positions or lengths produce null; `left`/`right` do not yet
-  reject negative lengths (for example, a length of `-1` produces an empty
-  string). Negative-bound error compatibility remains follow-up work.
+  Negative `substring` positions or lengths and negative `left`/`right`
+  lengths raise `Error::Argument` when evaluated, including literal bounds,
+  empty strings, and positions beyond the end paired with a negative length.
+  These value checks follow null propagation and argument-kind validation;
+  lazy branches and empty matches can skip them. Zero lengths produce empty
+  strings. These errors propagate through composed and
+  aggregate expressions, eager/compiled reads, and cursors; failed writes and
+  explicit transactions roll back under the normal error contract.
   Character indexing and empty-delimiter splitting preserve
   Unicode characters; case conversion is ASCII-only.
 - `abs` keeps the argument's numeric type and `sign` returns an integer;
