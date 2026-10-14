@@ -1,4 +1,5 @@
 {
+  "path_redaction_note": "Machine-specific paths have been sanitized: checkout paths are repo-relative; /example/artifacts/location-N and /example/toolchain are fictional locations scoped to this record. Measurements, revisions, and recorded hashes are unchanged.",
   "date": "2026-10-08",
   "baseline_commit": "3932cfd",
   "baseline_changes": "Only identical examples/cursor_traversal.rs and examples/cursor_traversal/fixture.rs copied into an isolated archive and built with its own target directory.",
@@ -416,7 +417,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "10"
           ]
@@ -459,7 +460,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "10"
           ]
@@ -502,7 +503,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "10"
           ]
@@ -545,7 +546,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "10"
           ]
@@ -588,7 +589,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "10"
           ]
@@ -631,7 +632,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "10"
           ]
@@ -674,7 +675,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "10"
           ]
@@ -717,7 +718,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "10"
           ]
@@ -760,7 +761,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "10"
           ]
@@ -803,7 +804,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "10"
           ]
@@ -846,7 +847,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "10"
           ]
@@ -889,7 +890,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "10"
           ]
@@ -932,7 +933,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "10"
           ]
@@ -975,7 +976,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "10"
           ]
@@ -1018,7 +1019,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "10"
           ]
@@ -1061,7 +1062,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "10"
           ]
@@ -1104,7 +1105,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "10"
           ]
@@ -1147,7 +1148,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "10"
           ]
@@ -1194,7 +1195,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "14"
           ]
@@ -1241,7 +1242,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "14"
           ]
@@ -1288,7 +1289,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "14"
           ]
@@ -1335,7 +1336,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "14"
           ]
@@ -1382,7 +1383,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "14"
           ]
@@ -1429,7 +1430,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "14"
           ]
@@ -1476,7 +1477,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "14"
           ]
@@ -1523,7 +1524,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "14"
           ]
@@ -1570,7 +1571,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "14"
           ]
@@ -1617,7 +1618,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "14"
           ]
@@ -1664,7 +1665,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "14"
           ]
@@ -1711,7 +1712,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "14"
           ]
@@ -1758,7 +1759,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "14"
           ]
@@ -1805,7 +1806,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "14"
           ]
@@ -1852,7 +1853,7 @@
           "architecture": "arm64",
           "binary_sha256": "b24d3c5d05cc94b7f0b1aeb83e9adce6723ab5e88e9aa5c38dbaa5af5eab6db4",
           "command": [
-            "/private/tmp/crabnet-traversal-cursor-baseline-6azpju1s/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "14"
           ]
@@ -1899,7 +1900,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "14"
           ]
@@ -1946,7 +1947,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "14"
           ]
@@ -1993,7 +1994,7 @@
           "architecture": "arm64",
           "binary_sha256": "730176cd470a141c33e6d2102a6f19c76835353b933a29f43dd2894b8faa59a0",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "14"
           ]

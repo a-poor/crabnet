@@ -1,4 +1,5 @@
 {
+  "path_redaction_note": "Machine-specific paths have been sanitized: checkout paths are repo-relative; /example/artifacts/location-N and /example/toolchain are fictional locations scoped to this record. Measurements, revisions, and recorded hashes are unchanged.",
   "date": "2026-10-09",
   "baseline_commit": "701b8e8",
   "baseline_changes": "Only identical examples/cursor_traversal.rs and examples/cursor_traversal/fixture.rs copied into an isolated archive and built with its own target directory. Baseline sources and Cargo files checked against git, and both fixture copies checked byte-for-byte before measurement.",
@@ -661,7 +662,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "10",
             "0",
@@ -715,7 +716,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "10",
             "0",
@@ -769,7 +770,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "10",
             "0",
@@ -823,7 +824,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "10",
             "0",
@@ -877,7 +878,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "10",
             "0",
@@ -931,7 +932,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "10",
             "0",
@@ -985,7 +986,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "10",
             "0",
@@ -1039,7 +1040,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "10",
             "0",
@@ -1093,7 +1094,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "10",
             "0",
@@ -1147,7 +1148,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "10",
             "0",
@@ -1201,7 +1202,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "10",
             "0",
@@ -1255,7 +1256,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "10",
             "0",
@@ -1309,7 +1310,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "10",
             "0",
@@ -1363,7 +1364,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "10",
             "0",
@@ -1417,7 +1418,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "10",
             "0",
@@ -1471,7 +1472,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "10",
             "0",
@@ -1525,7 +1526,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "10",
             "0",
@@ -1579,7 +1580,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "10",
             "0",
@@ -1630,7 +1631,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "7",
             "0",
@@ -1681,7 +1682,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "7",
             "0",
@@ -1732,7 +1733,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "7",
             "0",
@@ -1783,7 +1784,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "7",
             "0",
@@ -1834,7 +1835,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "7",
             "0",
@@ -1885,7 +1886,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "7",
             "0",
@@ -1936,7 +1937,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "7",
             "0",
@@ -1987,7 +1988,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "7",
             "0",
@@ -2038,7 +2039,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "7",
             "0",
@@ -2089,7 +2090,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "7",
             "0",
@@ -2140,7 +2141,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "7",
             "0",
@@ -2191,7 +2192,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "7",
             "0",
@@ -2242,7 +2243,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "7",
             "0",
@@ -2293,7 +2294,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "7",
             "0",
@@ -2344,7 +2345,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "7",
             "0",
@@ -2395,7 +2396,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "7",
             "0",
@@ -2446,7 +2447,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "7",
             "0",
@@ -2497,7 +2498,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "7",
             "0",
@@ -2542,7 +2543,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "1",
             "0",
@@ -2587,7 +2588,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "1",
             "0",
@@ -2632,7 +2633,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "1",
             "0",
@@ -2677,7 +2678,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "1",
             "0",
@@ -2722,7 +2723,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "1",
             "0",
@@ -2767,7 +2768,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "1",
             "0",
@@ -2812,7 +2813,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "1",
             "0",
@@ -2857,7 +2858,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "1",
             "0",
@@ -2902,7 +2903,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "1",
             "0",
@@ -2947,7 +2948,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "1",
             "0",
@@ -2992,7 +2993,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "1",
             "0",
@@ -3037,7 +3038,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "1",
             "0",
@@ -3082,7 +3083,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "first",
             "1",
             "0",
@@ -3127,7 +3128,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "eager",
             "1",
             "0",
@@ -3172,7 +3173,7 @@
           "architecture": "arm64",
           "binary_sha256": "5608b82877544a8eefad7d50d4698d0883edf4995a8dc1078cfe48d1faa80c45",
           "command": [
-            "/private/tmp/crabnet-cursor-unwind-baseline-4ma5ts_f/target/release/examples/cursor_traversal",
+            "/example/artifacts/location-1/target/release/examples/cursor_traversal",
             "cursor",
             "1",
             "0",
@@ -3217,7 +3218,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "first",
             "1",
             "0",
@@ -3262,7 +3263,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "eager",
             "1",
             "0",
@@ -3307,7 +3308,7 @@
           "architecture": "arm64",
           "binary_sha256": "930949798f4c22acdbf67a89a09daeb047cbc3d6a8735471463e6a125ecb0dfe",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/cursor_traversal",
+            "./target/release/examples/cursor_traversal",
             "cursor",
             "1",
             "0",

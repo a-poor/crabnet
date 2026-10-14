@@ -6,12 +6,11 @@ concurrency, process-interruption, and backup/restore gates passed. This is
 evidence for the [application pilot checklist](roadmap.md#pilot-completion-checklist);
 production release qualification remains a separate milestone.
 
-The application lives in the sibling checkout `../../../exp/git-graph` relative
-to this document. Its versioned [full report](../../../exp/git-graph/docs/pilot.md#milestone-2-acceptance-results-2026-10-09)
-and [raw acceptance JSON](../../../exp/git-graph/docs/milestone-2-acceptance.json)
-contain the protocol, every timing sample, cycle results, fault checkpoints,
-commands, fixture hashes, and source/binary fingerprints. These links assume the
-documented `code/libs/crabnet` and `code/exp/git-graph` development layout.
+The application is maintained in a separate Git Graph repository. Its
+`docs/pilot.md` report (Milestone 2 acceptance results, 2026-10-09) and
+`docs/milestone-2-acceptance.json` contain the protocol, every timing sample,
+cycle results, fault checkpoints, commands, fixture hashes, and source/binary
+fingerprints. These paths are within the Git Graph repository, not this one.
 
 ## Baseline and contract
 
@@ -23,7 +22,7 @@ documented `code/libs/crabnet` and `code/exp/git-graph` development layout.
   The measured source was subsequently committed as
   `52e62f9f3b2b61187fff5a46d3a7235cb66d6137`. Recomputing the harness fingerprint
   from that commit's 24 source/build files matches the recorded hash exactly.
-  The [post-acceptance provenance](../../../exp/git-graph/docs/pilot.md#post-acceptance-provenance)
+  The post-acceptance provenance section in Git Graph’s `docs/pilot.md`
   preserves the original run's base revision, dirty status, and measurements;
   the later commit identifies the source and does not imply an acceptance rerun.
 - Host: Apple M2, eight physical cores, 16 GiB RAM, macOS 26.5.1 arm64;
@@ -92,12 +91,13 @@ now documents an explicit writable recovery command that needs only the database
 this follows Crabnet's existing recovery contract. Both original preflight
 findings are preserved in the application's report.
 
-From the Git Graph checkout, with Crabnet clean at the recorded revision:
+From the Git Graph checkout, with Crabnet clean at the recorded revision
+(replace the fictional `/path/to/crabnet` below with your checkout):
 
 ```sh
 cargo build --release --locked --bin git-graph --example pilot
 python3 scripts/pilot.py --output /tmp/git-graph-m2-acceptance \
-  --real-repo ../../libs/crabnet
+  --real-repo /path/to/crabnet
 ```
 
 Use a new output directory. The harness creates all fixtures/databases there and

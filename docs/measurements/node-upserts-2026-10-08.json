@@ -1,4 +1,5 @@
 {
+  "path_redaction_note": "Machine-specific paths have been sanitized: checkout paths are repo-relative; /example/artifacts/location-N and /example/toolchain are fictional locations scoped to this record. Measurements, revisions, and recorded hashes are unchanged.",
   "date": "2026-10-08",
   "baseline_commit": "9453f5b",
   "baseline_changes": "None. Isolated archive checkout and target; all temporary instrumentation removed before comparison.",
@@ -378,7 +379,7 @@
     "reports": [
       {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/triggers-1000.sqlite",
+        "database": "/example/artifacts/location-2/triggers-1000.sqlite",
         "database_bytes": 2105344,
         "debug_assertions": false,
         "delete_ms": 1.5460829999999999,
@@ -592,7 +593,7 @@
       },
       {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/triggers-10000.sqlite",
+        "database": "/example/artifacts/location-2/triggers-10000.sqlite",
         "database_bytes": 20467712,
         "debug_assertions": false,
         "delete_ms": 3.226625,
@@ -1108,7 +1109,7 @@
       "engine": "before",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/1000-1-before.sqlite",
+        "database": "/example/artifacts/location-2/trials/1000-1-before.sqlite",
         "database_bytes": 2117632,
         "debug_assertions": false,
         "delete_ms": 2.2097919999999998,
@@ -1326,9 +1327,9 @@
           "architecture": "arm64",
           "binary_sha256": "ad41c27ff9de25b348656f467bb56be61de8aabc52e0cee5ba66deeb8ef1ef4c",
           "command": [
-            "/private/tmp/crabnet-upsert-baseline-uzvjr5zw/target/release/examples/dependency_graph",
+            "/example/artifacts/location-1/target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/1000-1-before.sqlite",
+            "/example/artifacts/location-2/trials/1000-1-before.sqlite",
             "1000",
             "20",
             "128"
@@ -1342,7 +1343,7 @@
       "engine": "after",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/1000-1-after.sqlite",
+        "database": "/example/artifacts/location-2/trials/1000-1-after.sqlite",
         "database_bytes": 2064384,
         "debug_assertions": false,
         "delete_ms": 2.8599580000000002,
@@ -1560,9 +1561,9 @@
           "architecture": "arm64",
           "binary_sha256": "f50fa8bd5f21d8865dfebf132468e15a5a86b694fc920cf9fd5ddc1f40e38094",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/dependency_graph",
+            "./target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/1000-1-after.sqlite",
+            "/example/artifacts/location-2/trials/1000-1-after.sqlite",
             "1000",
             "20",
             "128"
@@ -1576,7 +1577,7 @@
       "engine": "after",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/1000-2-after.sqlite",
+        "database": "/example/artifacts/location-2/trials/1000-2-after.sqlite",
         "database_bytes": 2080768,
         "debug_assertions": false,
         "delete_ms": 2.744916,
@@ -1794,9 +1795,9 @@
           "architecture": "arm64",
           "binary_sha256": "f50fa8bd5f21d8865dfebf132468e15a5a86b694fc920cf9fd5ddc1f40e38094",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/dependency_graph",
+            "./target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/1000-2-after.sqlite",
+            "/example/artifacts/location-2/trials/1000-2-after.sqlite",
             "1000",
             "20",
             "128"
@@ -1810,7 +1811,7 @@
       "engine": "before",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/1000-2-before.sqlite",
+        "database": "/example/artifacts/location-2/trials/1000-2-before.sqlite",
         "database_bytes": 2105344,
         "debug_assertions": false,
         "delete_ms": 2.3459589999999997,
@@ -2028,9 +2029,9 @@
           "architecture": "arm64",
           "binary_sha256": "ad41c27ff9de25b348656f467bb56be61de8aabc52e0cee5ba66deeb8ef1ef4c",
           "command": [
-            "/private/tmp/crabnet-upsert-baseline-uzvjr5zw/target/release/examples/dependency_graph",
+            "/example/artifacts/location-1/target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/1000-2-before.sqlite",
+            "/example/artifacts/location-2/trials/1000-2-before.sqlite",
             "1000",
             "20",
             "128"
@@ -2044,7 +2045,7 @@
       "engine": "before",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/1000-3-before.sqlite",
+        "database": "/example/artifacts/location-2/trials/1000-3-before.sqlite",
         "database_bytes": 2101248,
         "debug_assertions": false,
         "delete_ms": 2.87725,
@@ -2262,9 +2263,9 @@
           "architecture": "arm64",
           "binary_sha256": "ad41c27ff9de25b348656f467bb56be61de8aabc52e0cee5ba66deeb8ef1ef4c",
           "command": [
-            "/private/tmp/crabnet-upsert-baseline-uzvjr5zw/target/release/examples/dependency_graph",
+            "/example/artifacts/location-1/target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/1000-3-before.sqlite",
+            "/example/artifacts/location-2/trials/1000-3-before.sqlite",
             "1000",
             "20",
             "128"
@@ -2278,7 +2279,7 @@
       "engine": "after",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/1000-3-after.sqlite",
+        "database": "/example/artifacts/location-2/trials/1000-3-after.sqlite",
         "database_bytes": 2093056,
         "debug_assertions": false,
         "delete_ms": 1.745208,
@@ -2496,9 +2497,9 @@
           "architecture": "arm64",
           "binary_sha256": "f50fa8bd5f21d8865dfebf132468e15a5a86b694fc920cf9fd5ddc1f40e38094",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/dependency_graph",
+            "./target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/1000-3-after.sqlite",
+            "/example/artifacts/location-2/trials/1000-3-after.sqlite",
             "1000",
             "20",
             "128"
@@ -2512,7 +2513,7 @@
       "engine": "before",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/10000-1-before.sqlite",
+        "database": "/example/artifacts/location-2/trials/10000-1-before.sqlite",
         "database_bytes": 20582400,
         "debug_assertions": false,
         "delete_ms": 5.036583,
@@ -2730,9 +2731,9 @@
           "architecture": "arm64",
           "binary_sha256": "ad41c27ff9de25b348656f467bb56be61de8aabc52e0cee5ba66deeb8ef1ef4c",
           "command": [
-            "/private/tmp/crabnet-upsert-baseline-uzvjr5zw/target/release/examples/dependency_graph",
+            "/example/artifacts/location-1/target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/10000-1-before.sqlite",
+            "/example/artifacts/location-2/trials/10000-1-before.sqlite",
             "10000",
             "20",
             "128"
@@ -2746,7 +2747,7 @@
       "engine": "after",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/10000-1-after.sqlite",
+        "database": "/example/artifacts/location-2/trials/10000-1-after.sqlite",
         "database_bytes": 20418560,
         "debug_assertions": false,
         "delete_ms": 5.861459,
@@ -2964,9 +2965,9 @@
           "architecture": "arm64",
           "binary_sha256": "f50fa8bd5f21d8865dfebf132468e15a5a86b694fc920cf9fd5ddc1f40e38094",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/dependency_graph",
+            "./target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/10000-1-after.sqlite",
+            "/example/artifacts/location-2/trials/10000-1-after.sqlite",
             "10000",
             "20",
             "128"
@@ -2980,7 +2981,7 @@
       "engine": "after",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/10000-2-after.sqlite",
+        "database": "/example/artifacts/location-2/trials/10000-2-after.sqlite",
         "database_bytes": 20520960,
         "debug_assertions": false,
         "delete_ms": 4.249083,
@@ -3198,9 +3199,9 @@
           "architecture": "arm64",
           "binary_sha256": "f50fa8bd5f21d8865dfebf132468e15a5a86b694fc920cf9fd5ddc1f40e38094",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/dependency_graph",
+            "./target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/10000-2-after.sqlite",
+            "/example/artifacts/location-2/trials/10000-2-after.sqlite",
             "10000",
             "20",
             "128"
@@ -3214,7 +3215,7 @@
       "engine": "before",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/10000-2-before.sqlite",
+        "database": "/example/artifacts/location-2/trials/10000-2-before.sqlite",
         "database_bytes": 20516864,
         "debug_assertions": false,
         "delete_ms": 4.383541999999999,
@@ -3432,9 +3433,9 @@
           "architecture": "arm64",
           "binary_sha256": "ad41c27ff9de25b348656f467bb56be61de8aabc52e0cee5ba66deeb8ef1ef4c",
           "command": [
-            "/private/tmp/crabnet-upsert-baseline-uzvjr5zw/target/release/examples/dependency_graph",
+            "/example/artifacts/location-1/target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/10000-2-before.sqlite",
+            "/example/artifacts/location-2/trials/10000-2-before.sqlite",
             "10000",
             "20",
             "128"
@@ -3448,7 +3449,7 @@
       "engine": "before",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/10000-3-before.sqlite",
+        "database": "/example/artifacts/location-2/trials/10000-3-before.sqlite",
         "database_bytes": 20537344,
         "debug_assertions": false,
         "delete_ms": 4.002875,
@@ -3666,9 +3667,9 @@
           "architecture": "arm64",
           "binary_sha256": "ad41c27ff9de25b348656f467bb56be61de8aabc52e0cee5ba66deeb8ef1ef4c",
           "command": [
-            "/private/tmp/crabnet-upsert-baseline-uzvjr5zw/target/release/examples/dependency_graph",
+            "/example/artifacts/location-1/target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/10000-3-before.sqlite",
+            "/example/artifacts/location-2/trials/10000-3-before.sqlite",
             "10000",
             "20",
             "128"
@@ -3682,7 +3683,7 @@
       "engine": "after",
       "report": {
         "crabnet_version": "0.1.0",
-        "database": "/private/tmp/crabnet-upsert-measurements/trials/10000-3-after.sqlite",
+        "database": "/example/artifacts/location-2/trials/10000-3-after.sqlite",
         "database_bytes": 20439040,
         "debug_assertions": false,
         "delete_ms": 5.2222919999999995,
@@ -3900,9 +3901,9 @@
           "architecture": "arm64",
           "binary_sha256": "f50fa8bd5f21d8865dfebf132468e15a5a86b694fc920cf9fd5ddc1f40e38094",
           "command": [
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/dependency_graph",
+            "./target/release/examples/dependency_graph",
             "demo",
-            "/private/tmp/crabnet-upsert-measurements/trials/10000-3-after.sqlite",
+            "/example/artifacts/location-2/trials/10000-3-after.sqlite",
             "10000",
             "20",
             "128"

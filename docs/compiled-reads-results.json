@@ -1,4 +1,5 @@
 {
+  "path_redaction_note": "Machine-specific paths have been sanitized: checkout paths are repo-relative; /example/artifacts/location-N and /example/toolchain are fictional locations scoped to this record. Measurements, revisions, and recorded hashes are unchanged.",
   "metadata": {
     "recorded_utc": "2026-10-13T02:23:13.126843+00:00",
     "base_revision": "fabc8c4f3b8b1c028c467aa11e4948eafa127d45",
@@ -51,10 +52,10 @@
       "src/query.rs": "25f4b81d15c0ea2d12d61d0bf65f26a054d7c962ce64998c925c7d3da7e40245",
       "src/value.rs": "36c3cf55ff47df6023b7b4e4335bcaf5cc9656fffcb904a8902d857aaee1524a"
     },
-    "source_archive": "/private/tmp/crabnet-compiled-reads-20261012-qw58hhoi/source.tar.gz",
+    "source_archive": "/example/artifacts/location-2/source.tar.gz",
     "source_archive_sha256": "9739c3bf6354a39bcded2da1449908f143e15495f662616c98a7e045e9554c09",
     "runner_sha256": "3f5299d77acf4bf0a371cdd0997a458e914bc0f25938e42789a402667a92fa6c",
-    "output_directory": "/private/tmp/crabnet-compiled-reads-20261012-qw58hhoi",
+    "output_directory": "/example/artifacts/location-2",
     "protocol": "three fresh processes per mode; interleaved ordinary/compiled, compiled/ordinary, ordinary/compiled; 10000 changing-OID iterations, two queries per iteration, four warmups; other agents running; no latency gate"
   },
   "runs": [
@@ -63,7 +64,7 @@
       "command": [
         "/usr/bin/time",
         "-l",
-        "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+        "./target/release/examples/repeated_reads",
         "ordinary",
         "10000"
       ],
@@ -92,7 +93,7 @@
       "command": [
         "/usr/bin/time",
         "-l",
-        "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+        "./target/release/examples/repeated_reads",
         "compiled",
         "10000"
       ],
@@ -121,7 +122,7 @@
       "command": [
         "/usr/bin/time",
         "-l",
-        "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+        "./target/release/examples/repeated_reads",
         "compiled",
         "10000"
       ],
@@ -150,7 +151,7 @@
       "command": [
         "/usr/bin/time",
         "-l",
-        "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+        "./target/release/examples/repeated_reads",
         "ordinary",
         "10000"
       ],
@@ -179,7 +180,7 @@
       "command": [
         "/usr/bin/time",
         "-l",
-        "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+        "./target/release/examples/repeated_reads",
         "ordinary",
         "10000"
       ],
@@ -208,7 +209,7 @@
       "command": [
         "/usr/bin/time",
         "-l",
-        "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+        "./target/release/examples/repeated_reads",
         "compiled",
         "10000"
       ],
@@ -341,14 +342,14 @@
   ],
   "prior_attempts": [
     {
-      "output_directory": "/private/tmp/crabnet-compiled-reads-20261012-96vaiurs",
+      "output_directory": "/example/artifacts/location-1",
       "runs": [
         {
           "mode": "ordinary",
           "command": [
             "/usr/bin/time",
             "-l",
-            "/Users/austinpoor/code/libs/crabnet/target/release/examples/repeated_reads",
+            "./target/release/examples/repeated_reads",
             "ordinary",
             "10000"
           ],

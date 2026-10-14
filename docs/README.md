@@ -39,3 +39,7 @@ Historical reports describe the revision and configuration they measured. They
 are not proof that a newer candidate has passed. Preserve raw evidence and
 provenance when adding a new run. Keep current contracts in their owning document
 and link to them from plans and reports rather than copying a competing version.
+
+Before committing reports, replace machine-specific checkout and temporary paths
+with repo-relative paths or clearly labeled fictional locations. Record path
+redaction in measurement metadata while preserving timings, revisions, and hashes.

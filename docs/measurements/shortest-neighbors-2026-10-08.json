@@ -1,4 +1,5 @@
 {
+  "path_redaction_note": "Machine-specific paths have been sanitized: checkout paths are repo-relative; /example/artifacts/location-N and /example/toolchain are fictional locations scoped to this record. Measurements, revisions, and recorded hashes are unchanged.",
   "date": "2026-10-08",
   "baseline_commit": "519db19",
   "baseline_changes": "Only the identical shortest_path_scaling example and fixture were copied into an isolated archive checkout; timings use uninstrumented engine binaries.",
@@ -275,7 +276,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "0",
           "100"
         ]
@@ -402,7 +403,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "0",
           "100"
         ]
@@ -529,7 +530,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "1000",
           "100"
         ]
@@ -656,7 +657,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "1000",
           "100"
         ]
@@ -783,7 +784,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "10000",
           "100"
         ]
@@ -910,7 +911,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "10000",
           "100"
         ]
@@ -1037,7 +1038,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "0",
           "100"
         ]
@@ -1164,7 +1165,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "0",
           "100"
         ]
@@ -1291,7 +1292,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "1000",
           "100"
         ]
@@ -1418,7 +1419,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "1000",
           "100"
         ]
@@ -1545,7 +1546,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "10000",
           "100"
         ]
@@ -1672,7 +1673,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "10000",
           "100"
         ]
@@ -1799,7 +1800,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "0",
           "100"
         ]
@@ -1926,7 +1927,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "0",
           "100"
         ]
@@ -2053,7 +2054,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "1000",
           "100"
         ]
@@ -2180,7 +2181,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "1000",
           "100"
         ]
@@ -2307,7 +2308,7 @@
         "architecture": "arm64",
         "binary_sha256": "02d539853febce73a954926e4ac18f02ff0badcca9afffe6d29c3166bef80d7b",
         "command": [
-          "/private/tmp/crabnet-shortest-baseline-5nymavvx/target/release/examples/shortest_path_scaling",
+          "/example/artifacts/location-1/target/release/examples/shortest_path_scaling",
           "10000",
           "100"
         ]
@@ -2434,7 +2435,7 @@
         "architecture": "arm64",
         "binary_sha256": "da31b46d668b4df286595890fd934f8714acf8fc46ab41d8f9d813db3225245f",
         "command": [
-          "/Users/austinpoor/code/libs/crabnet/target/release/examples/shortest_path_scaling",
+          "./target/release/examples/shortest_path_scaling",
           "10000",
           "100"
         ]
