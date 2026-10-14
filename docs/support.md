@@ -225,10 +225,7 @@ correctness, and fault-model gates still apply before any production claim.
   Rust `stable` resolved to 1.99.0 on both platforms; lifecycle jobs used Python
   3.14.8. Runner images were `ubuntu24 20261004.327.1` and
   `macos26 20260907.0351.1`.
-- The versioned [hosted evidence record](measurements/hosted-ci-2026-10-09.json)
-  preserves run/job identities and results, environment logs, artifact file
-  SHA-256 hashes, and all 12 raw lifecycle reports. Artifact uploads succeeded
-  and the downloaded reports were reviewed. Shared-runner timings remain
-  observations, not a new performance guarantee. Required-check enforcement
+- Artifact uploads succeeded and the downloaded reports were reviewed.
+  Shared-runner timings remain observations, not a new performance guarantee. Required-check enforcement
   remains unavailable under the current private-repository plan, so the
   automated-release-check roadmap item remains open for that specific gap.

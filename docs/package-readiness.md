@@ -111,9 +111,8 @@ rehearsal, final writer fixture, clean artifact hashes, and publication approval
 
 `python3 scripts/check-package.py` passed from clean commit
 `82a905ea9de0550c45cdddae8331fea6b4cd373d`, without `--allow-dirty`, on
-Rust 1.99.0 / `aarch64-apple-darwin`. The
-[sanitized evidence record](measurements/package-candidate-2026-10-14.json)
-contains the exact commands, successful exit statuses, and artifact metadata.
+Rust 1.99.0 / `aarch64-apple-darwin`. The rehearsal completed successfully
+with the results below.
 
 - Archive: 427 files, 1,005,564 compressed bytes.
 - SHA-256: `d401ad4467b22482080b66702ef74a71b2b7b60fcc43840ceec9212af3b7fc55`.
@@ -124,13 +123,12 @@ contains the exact commands, successful exit statuses, and artifact metadata.
 - The 98-package dependency inventory matched. An archive scan found no
   machine-specific home, checkout, or temporary directory prefixes.
 
-This validates the archived source at that commit. This report and its evidence
-record were added afterward and are not included in that archive. Repackaging a
-later source revision produces a different artifact and requires a new check.
+This validates the archived source at that commit. This report was added
+afterward and is not included in that archive. Repackaging a later source
+revision produces a different artifact and requires a new check.
 The candidate's [Ubuntu CI run](https://github.com/a-poor/crabnet/actions/runs/38594191484)
 passed: 1,028 tests/doctests and 147 benchmark smoke cases, formatting, Clippy,
 whitespace checks, and unchanged dependency/TCK pins.
-[Sanitized logs and metadata](measurements/candidate-ci-2026-10-14/summary.json)
-retain the evidence. The optional lifecycle job was skipped. Git Graph
+The optional lifecycle job was skipped. Git Graph
 acceptance/rollback, registry verification, the final writer fixture, and
 publication approval remain open.

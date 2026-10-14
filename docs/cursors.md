@@ -590,9 +590,7 @@ and 0.37–0.78 ms after. These are local observations on a small graph with man
 paths, not a whole-query memory guarantee. This comparison predates indexed
 cursor neighbor loading: graph inputs loaded up front. Individual paths can
 still be large, and DISTINCT/hydration retain their
-own state. The [measurement record](measurements/cursor-traversal-2026-10-08.json)
-contains all trial reports, medians/ranges, binary and source hashes, and
-whole-process measurements.
+own state.
 
 ### Constrained cursor neighbor measurements
 
@@ -646,9 +644,7 @@ cursors. Process RSS still grows with the stored graph and setup allocations;
 the first-only reduction at 10,000 edges is about 16%. Endpoint domains and
 whole neighbor lists still load eagerly when needed. Broad start domains,
 high-degree reachable nodes, hydration, and unconstrained starts require
-separate measurements before extending this strategy. The
-[measurement record](measurements/cursor-neighbors-2026-10-08.json) contains
-all trial reports, medians/ranges, source and binary hashes, and platform data.
+separate measurements before extending this strategy.
 
 ### Traversal WITH measurements
 
@@ -712,8 +708,6 @@ when consuming everything, while avoiding full-result retention and permitting
 early exit. Indexed neighbor loading also remains available through plain WITH
 stages. These observations cover scalar final outputs and the documented
 fixture, rather than a whole-query memory guarantee or general throughput gain.
-The [measurement record](measurements/cursor-with-2026-10-08.json) includes all
-trial reports, medians/ranges, source/binary hashes, and platform information.
 
 ## Traversal UNWIND measurements
 
@@ -721,9 +715,7 @@ A 2026-10-09 release comparison uses baseline `701b8e8` and this implementation.
 Both engines use identical example/fixture sources; the baseline is an isolated
 archive with its own target directory. Three sequential fresh-process trials
 per engine, fixture, and mode alternate engine order and rotate mode order.
-All builds and tests finished first. The
-[54 raw trials](measurements/cursor-unwind-2026-10-09.json) include ranges,
-source/binary hashes, commands, compiler, and platform details.
+All builds and tests finished first.
 
 The parallel-edge chain expands either `nodes(trail)` at depth 10 (2,046 trails,
 20,480 members), a range of 128 values at depth 7 (254 trails, 32,512 members),
@@ -782,9 +774,7 @@ A 2026-10-09 release comparison uses baseline `d6bbf6f` and this implementation.
 The baseline is an isolated archive with its own target directory; both engines
 use identical example/fixture sources. Three sequential fresh-process trials
 per engine, fixture, and mode alternate engine order and rotate mode order.
-All builds and tests finished before measurement. The
-[54 raw trials](measurements/cursor-unwind-chain-2026-10-09.json) record commands,
-source/binary hashes, compiler/platform, medians, and ranges.
+All builds and tests finished before measurement.
 
 The parallel-edge fixture expands two dependent lists with plain WITH stages
 before, between, and after them:
@@ -851,9 +841,7 @@ A 2026-10-09 release comparison uses baseline `2937091` and the intermediate
 WITH pagination implementation. The baseline is an isolated archive with its
 own target directory and identical example/fixture sources. Three sequential
 fresh-process trials per engine, fixture, and mode alternate engine order and
-rotate mode order. All builds and tests finished before measurement. The
-[54 raw trials](measurements/cursor-pages-2026-10-09.json) include commands,
-source/binary hashes, compiler/platform, medians, and ranges. Source hashes
+rotate mode order. All builds and tests finished before measurement. Source hashes
 were checked again after the trials.
 
 The parallel-edge chain supports three shapes:
@@ -927,9 +915,7 @@ A 2026-10-09 release comparison uses baseline `0b57317` and the intermediate
 WITH DISTINCT implementation. The baseline is an isolated archive with its own
 target directory and identical example/fixture sources. Three sequential
 fresh-process trials per engine, fixture, and mode alternate engine order and
-rotate mode order. All builds and checks finished before measurement. The
-[54 raw trials](measurements/cursor-with-distinct-2026-10-09.json) include commands,
-source/binary hashes, compiler/platform, medians, and ranges. Baseline sources
+rotate mode order. All builds and checks finished before measurement. Baseline sources
 were checked against the commit, fixture copies were compared byte-for-byte,
 and source hashes were checked again after the trials.
 

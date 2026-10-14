@@ -1,1 +1,6 @@
 /target
+
+# Generated logs and measurement output stay out of source control.
+*.log
+/docs/measurements/
+/docs/compiled-reads-results.json

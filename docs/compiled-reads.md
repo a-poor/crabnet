@@ -86,8 +86,7 @@ to the ordinary all-targets validation.
 ## Recorded results (2026-10-13 UTC)
 
 Measured on macOS 26.5.1 arm64 with the locked release build, on top of `fabc8c4`
-and the compiled-read changes fingerprinted in the
-[raw report](compiled-reads-results.json). Three fresh processes per mode:
+and the compiled-read changes. Three fresh processes per mode:
 
 | Execution | Samples, ms | Median, ms | Peak process RSS, MiB |
 | --- | --- | --- | --- |

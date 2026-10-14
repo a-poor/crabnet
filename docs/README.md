@@ -30,16 +30,14 @@ Use this index to find the authoritative document for each kind of question.
 
 - [Dependency-graph application](dependency-graph.md) and its lifecycle workload.
 - [Git Graph pilot](git-graph-pilot.md), including its recorded acceptance scope.
-- [Measurements](measurements/) and [compiled-read results](compiled-reads-results.json).
 - [Historical testing notes](history/testing-notes.md) and regression provenance.
 - [TCK instructions and pinned outcomes](../tests/tck/README.md).
 - [Historical storage fixtures](../tests/fixtures/compatibility/README.md).
 
 Historical reports describe the revision and configuration they measured. They
-are not proof that a newer candidate has passed. Preserve raw evidence and
-provenance when adding a new run. Keep current contracts in their owning document
-and link to them from plans and reports rather than copying a competing version.
+are not proof that a newer candidate has passed. Record concise results,
+commands, revisions, and relevant limitations in the owning document.
 
-Before committing reports, replace machine-specific checkout and temporary paths
-with repo-relative paths or clearly labeled fictional locations. Record path
-redaction in measurement metadata while preserving timings, revisions, and hashes.
+Do not commit raw logs, generated measurement reports, or package archives.
+Keep test fixtures and dependency metadata needed by the repository. Use
+repo-relative paths or clearly labeled fictional locations in documentation.

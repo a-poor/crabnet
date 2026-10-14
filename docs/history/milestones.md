@@ -932,8 +932,7 @@ the corresponding gates to pass.
 - [ ] **Verify automated release checks — hosted validation passed; enforcement
   blocked by the repository plan.** Push and workload-enabled manual runs at
   `683b8e9` passed the four OS/toolchain checks and both lifecycle jobs. The
-  [evidence record](../measurements/hosted-ci-2026-10-09.json) preserves results,
-  environments, hashes, and 12 raw lifecycle reports. Both GitHub protection
+  workload runs passed all 12 lifecycle trials. Both GitHub protection
   APIs returned HTTP 403 for the current private-repository plan. Complete this
   item when required checks can be configured and verified; until then, review
   the current Ubuntu/Rust 1.99.0 result manually before merging. The Git Graph

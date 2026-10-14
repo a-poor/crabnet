@@ -156,9 +156,7 @@ Observed on 2026-10-04 with Rust 1.99.0, the release profile, bundled SQLite,
 and macOS 26.5.1 arm64. Three sequential fresh-file trials per scale used the
 same binary, batch size 128, and 20 repeated samples per query. The table shows
 medians across trials; query entries are medians of each trial's p50 / p95.
-These are local observations, not performance guarantees. The
-[measurement record](measurements/dependency-graph-2026-10-04.json) contains all
-trial timings, environment details, binary hashes, and the comparison below.
+These are local observations, not performance guarantees.
 
 | Metric | 1,000 packages / 1,952 edges | 10,000 packages / 19,529 edges |
 | --- | ---: | ---: |
@@ -219,9 +217,7 @@ Three sequential fresh-process, fresh-file trials per variant and scale used
 the release profile, Rust 1.99.0, macOS 26.5.1 arm64, batch size 128, and 20
 samples per read query. Variant order rotated between trials; builds and test
 runs finished before measurement. All 15 runs passed the complete lifecycle
-checks, and every repeat import created zero nodes and relationships. The
-[measurement record](measurements/computed-merge-keys-2026-10-08.json) retains
-each trial, binary hashes, import phases, whole-process wall time and peak RSS.
+checks, and every repeat import created zero nodes and relationships.
 
 | Packages | Engine / node-import key | Initial import | Repeat import |
 | ---: | --- | ---: | ---: |
@@ -307,10 +303,7 @@ search still explores that region, and neighbor probes have per-node overhead.
 At 10,000 unrelated edges, trial p50s ranged from 16.326–17.852 ms before and
 0.331–0.486 ms after. Whole-process peak RSS ranged from 25.56–26.19 MiB before
 and 22.19–22.30 MiB after. These are local observations, not guarantees or
-isolated query-memory measurements. The
-[measurement record](measurements/shortest-neighbors-2026-10-08.json) contains
-all samples, phase-profile medians, environment details, source and binary
-hashes, and process measurements.
+isolated query-memory measurements.
 
 ### Bulk node upserts: 2026-10-08 follow-up
 
@@ -352,17 +345,6 @@ both imports. Initial imports executed 50,000 property updates and 10,000
 node inserts; repeats changed only the 10,000 generation fields. These
 measurements support reducing index writes and SQL preparation overhead.
 They do not justify a general query-plan cache.
-
-The [measurement record](measurements/node-upserts-2026-10-08.json) retains
-profiles for both scales and the uninstrumented comparison trials. The
-[profiling patch](measurements/node-upserts-profile-2026-10-08.patch) applies
-to an isolated archive of `9453f5b`; build that archive with its own target
-directory and run the normal `demo` command on fresh files. Stderr contains
-`UPSERT_PROFILE` JSON and `UPSERT_NODES_BEGIN`/`UPSERT_NODES_END` markers.
-Sum the per-query counters between each pair of markers for initial/repeat
-node imports. Inclusive spans contain child spans; exclusive spans subtract
-them. Trigger measurements exclude setup/dispatch outside the bracketed body.
-Use uninstrumented binaries and fresh files for end-to-end comparisons.
 
 The end-to-end comparison used uninstrumented release binaries: unchanged
 commit `9453f5b` in an isolated archive/target, and the updated working tree.
