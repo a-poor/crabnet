@@ -223,19 +223,27 @@ impl Database {
     }
 
     /// Executes a Cypher query without parameters.
+    ///
+    /// A write can report a commit I/O error after its changes have persisted.
+    /// Reconcile the operation's outcome before retrying a failed write; an
+    /// error does not by itself guarantee rollback.
     pub fn execute(&mut self, cypher: &str) -> Result<QueryResult> {
         self.execute_with(cypher, &Parameters::new())
     }
 
     /// Executes a Cypher query with named `$parameter` values.
+    ///
+    /// Commit errors have the same retry caveat as [`Self::execute`].
     pub fn execute_with(&mut self, cypher: &str, parameters: &Parameters) -> Result<QueryResult> {
         self.execute_with_options(cypher, parameters, &QueryOptions::default())
     }
 
     /// Executes a parameterized query with per-query resource controls.
     ///
-    /// Limits cover all branches and write stages. Failures roll back the
-    /// statement; no partial result is returned. Existing execution methods
+    /// Commit errors have the same retry caveat as [`Self::execute`].
+    ///
+    /// Limits cover all branches and write stages. Limit and cancellation
+    /// failures roll back the statement; no partial result is returned. Existing execution methods
     /// use [`QueryOptions::default`].
     pub fn execute_with_options(
         &mut self,

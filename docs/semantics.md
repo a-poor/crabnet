@@ -1568,7 +1568,9 @@ already rolled back, cleanup does not replace the original error with a
 redundant-rollback error. Further query execution and commit return
 `Error::TransactionAborted`; explicit rollback on an aborted handle succeeds
 as a no-op. A failed SQLite commit consumes the handle and attempts rollback
-on drop. Applications must handle the error rather than assuming persistence.
+on drop. An error proves neither persistence nor rollback: applications must
+reconcile the stored outcome before retrying. See [commit I/O failures](#commit-io-failures)
+for tested outcomes on either side of journal deletion.
 
 Each call completes planning and parameter validation before that query's
 execution, although the outer transaction is already open. Read results are
@@ -1813,9 +1815,13 @@ earlier provisional results do not represent committed work.
 ## Commit I/O failures
 
 Statements in an application transaction can succeed before `commit()` returns
-an I/O error. Their earlier results remain provisional. For the one-shot
-failures covered here, both explicit commit and a standalone write's implicit
-commit preserve `Error::Sqlite(rusqlite::Error::SqliteFailure(...))`, with
+an I/O error. Their earlier results remain provisional. **A commit error does
+not guarantee rollback.** Once journal deletion has succeeded, a subsequent
+error can accompany committed writes. The same applies to a standalone write
+that reports an error during its implicit commit.
+
+For the one-shot pre-call write/sync failures covered here, both explicit commit
+and a standalone write's implicit commit preserve `Error::Sqlite(rusqlite::Error::SqliteFailure(...))`, with
 `ErrorCode::SystemIoFailure` and the extended `SQLITE_IOERR_WRITE` or
 `SQLITE_IOERR_FSYNC` code. Rollback restores the graph, derived indexes, and
 uniqueness declarations, and releases locks before the failing API returns.
@@ -1845,13 +1851,48 @@ using the same VFS and that it is consumed without an explicit reset. The VFS
 is never the default, its fault state is scoped to a fixture path, and no public
 raw-connection or fault-control API is added.
 
-This is a model of one failed SQLite I/O call with healthy rollback I/O. It does
+`src/database/storage_failures/commit_delete.rs` separately covers journal
+finalization. The VFS can return `SQLITE_IOERR_DELETE` before native `xDelete`,
+or invoke native deletion successfully and then return
+`SQLITE_IOERR_DIR_FSYNC`. The latter models a reported error after unlink; it
+**does not** actually fail the host's directory synchronization or simulate
+loss of the directory entry after power failure. The bundled SQLite Unix VFS
+performs unlink before its optional directory sync, so this ordering matters.
+Deletion interception is opt-in and leaves earlier write/sync traces unchanged.
+
+| Injected commit failure | State when the API returns | State after healthy recovery / reopen | Retry implication |
+| --- | --- | --- | --- |
+| Before journal deletion (`SQLITE_IOERR_DELETE`) | Main-file writes have completed; the journal remains and the connection is in autocommit mode. | Healthy access recovers the journal and restores the original graph, derived indexes, and constraint declarations. | The tested operation can be retried after verifying recovery restored the original state. |
+| After successful native deletion (`SQLITE_IOERR_DIR_FSYNC`) | The journal is absent and the connection is in autocommit mode despite the reported error. | The complete committed graph, indexes, and constraint changes remain visible. | Blindly repeating a non-idempotent write can duplicate it. |
+
+Both standalone writes and explicit transactions match a healthy commit trace
+through the final database sync and the exact deletion event. Pre-deletion
+faults run with FULL and EXTRA synchronization; post-deletion faults use EXTRA,
+which requests directory sync. Tests independently exercise recovery through
+an already-open observer before touching the original handle, through the
+original connection first, and after closing the original connection. They
+check exact typed graph bags and stored index/key rows, constraint changes,
+lock release to another writer, integrity, reopen, and retry after recovered
+rollback. A separate path-isolation/one-shot test leaves the fault controller
+armed across retry and demonstrates two persisted copies of an unconditional
+CREATE after the post-deletion error.
+
+Applications should resolve the storage problem, allow healthy writable
+recovery, and reconcile the operation's outcome before retrying a failed
+commit. Use an application operation identifier or another durable check made
+in the same transaction to distinguish applied work from unapplied work;
+autocommit state and an error return alone do not establish rollback. Retrying
+an operation designed to be idempotent avoids duplicating already-applied work.
+These tests preserve the original SQLite error; Crabnet does not automatically
+retry commits or promise that an extended error code alone classifies every
+possible storage failure.
+
+These are models of one failed SQLite I/O call with healthy later I/O. They do
 not exhaust the host disk, inject OS-level ENOSPC, partially perform a failed
-write, or model persistent errors during rollback. It also excludes journal
-deletion/truncation faults, WAL, torn writes, and
-power loss. In particular, these tests do not establish that every possible
-commit error implies rollback: resolve the storage problem and verify recovery
-before retrying after faults outside this model.
+write, or model persistent errors during rollback. Journal truncation, WAL,
+torn writes, and power loss remain outside this coverage. In particular,
+reopening successfully after an injected error is not evidence of durability
+under a later power failure.
 
 ## Migration I/O failures
 

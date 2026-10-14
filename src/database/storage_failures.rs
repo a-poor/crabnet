@@ -7,6 +7,7 @@
 
 mod backup_io;
 mod backup_lifecycle;
+mod commit_delete;
 mod commit_io;
 mod initialization_io;
 mod io_vfs;

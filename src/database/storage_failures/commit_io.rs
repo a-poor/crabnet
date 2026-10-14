@@ -16,12 +16,12 @@ use std::sync::{
 };
 
 #[derive(Clone, Copy, Debug)]
-enum Mode {
+pub(super) enum Mode {
     Standalone,
     Transaction,
 }
 
-fn configure(database: &Database) {
+pub(super) fn configure(database: &Database) {
     let connection = &database.connection;
     connection
         .pragma_update(None, "synchronous", "FULL")
@@ -43,6 +43,15 @@ fn apply(
     control: &Control,
     fail_at: Option<usize>,
 ) -> crate::Result<QueryResult> {
+    let control = control.clone();
+    apply_armed(database, mode, move || control.start(fail_at))
+}
+
+pub(super) fn apply_armed(
+    database: &mut Database,
+    mode: Mode,
+    arm: impl Fn() + Send + 'static,
+) -> crate::Result<QueryResult> {
     let parameters = Parameters::from([(
         "extra".into(),
         json!([null, true, {"precise": 9007199254740993_i64}]),
@@ -54,12 +63,11 @@ fn apply(
             // Cypher row has already run; all injected I/O is in implicit commit.
             let armed = Arc::new(AtomicUsize::new(0));
             let callback_armed = armed.clone();
-            let callback_control = control.clone();
             database
                 .connection
                 .commit_hook(Some(move || {
                     callback_armed.fetch_add(1, Ordering::Relaxed);
-                    callback_control.start(fail_at);
+                    arm();
                     false
                 }))
                 .unwrap();
@@ -100,7 +108,7 @@ fn apply(
                     .rows,
                 [vec![json!("changed")]]
             );
-            control.start(fail_at);
+            arm();
             transaction.commit()?;
             Ok(provisional)
         }
@@ -115,7 +123,7 @@ fn assert_io_error(error: Error, operation: Operation) {
     assert_eq!(code.extended_code, operation.error_code());
 }
 
-fn assert_committed(database: &mut Database, mode: Mode, result: QueryResult) {
+pub(super) fn assert_committed(database: &mut Database, mode: Mode, result: QueryResult) {
     let copies = match mode {
         Mode::Standalone => 2,
         Mode::Transaction => 1,

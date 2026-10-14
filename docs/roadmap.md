@@ -210,7 +210,7 @@ mark these stronger gates complete. See the checklist below.
 | Supported configuration | Defined in [support.md](support.md); definition alone is not qualification. |
 | Compatibility policy and historical baselines | Defined and retained in [compatibility.md](compatibility.md); named release-pair evidence is still required when those releases exist. |
 | Automated release checks | Earlier hosted matrix passed; current CI targets Ubuntu/Rust 1.99.0. Required-check enforcement remains blocked by the repository plan. Fresh candidate validation is required. |
-| Failure behavior and durability claims | Extensive allocation, one-shot I/O, migration, backup/restore and process-recovery tests exist. Persistent/partial I/O, filesystem ENOSPC, journal deletion/truncation, and power-loss models remain unqualified. See [support.md](support.md) and the linked semantic contracts for tested boundaries. |
+| Failure behavior and durability claims | Extensive allocation, one-shot I/O, migration, backup/restore and process-recovery tests exist. Commit journal-deletion tests now distinguish recovered rollback from persisted writes after an error and document reconciliation before retry. Persistent/partial I/O, filesystem ENOSPC, journal truncation, and power-loss models remain unqualified. See [support.md](support.md) and the linked semantic contracts for tested boundaries. |
 | Correctness of the declared surface | Recent numeric, string, aggregate and conversion fixes are covered. Continue resolving observed defects; broader pinned-reference differential testing remains open. |
 | Reproducible qualification record | Candidate workload/compatibility/recovery evidence, release notes, package review and final report remain pending. |
 

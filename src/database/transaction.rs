@@ -259,7 +259,10 @@ impl<'database> Transaction<'database> {
     ///
     /// An aborted transaction returns [`Error::TransactionAborted`]. If SQLite
     /// rejects the commit, its transaction guard attempts rollback on drop;
-    /// the returned error must be handled before assuming writes persisted.
+    /// an error does not guarantee rollback. For example, journal deletion can
+    /// succeed before a later I/O error is reported, leaving writes committed.
+    /// Resolve the storage problem and reconcile the operation's persisted
+    /// outcome before retrying; blindly repeating a write can duplicate it.
     pub fn commit(self) -> Result<()> {
         self.state.check()?;
         self.inner.commit()?;

@@ -77,7 +77,10 @@ of file locking, process recovery, and backup behavior on the new configuration.
   experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
   cover `SQLITE_FULL` during writes using a page-count cap.
   [Commit I/O tests](semantics.md#commit-io-failures) cover modeled one-shot
-  journal/database write and sync errors with healthy rollback I/O.
+  journal/database write and sync errors with healthy rollback I/O. Separate
+  journal-deletion tests distinguish recovered rollback before unlink from
+  committed writes after a reported post-deletion error. Commit errors do not
+  guarantee rollback: reconcile the persisted outcome before retrying.
   [Migration I/O tests](semantics.md#migration-io-failures) apply that model to
   retained schema 1–4 upgrades, verifying the old format before public retry.
   [Migration read tests](semantics.md#migration-read-failures) cover header,

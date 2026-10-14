@@ -87,9 +87,19 @@ end-to-end result test for user-visible semantics.
   and successful retry are checked for every point. The VFS is never made the
   default; registrations and fault state are scoped to temporary database paths.
   This model uses DELETE journaling, FULL synchronization, no cache spill, and
-  healthy rollback I/O. Persistent/partial I/O errors, OS ENOSPC, and journal
-  deletion remain follow-ups. Migration, restore, and backup copying use the
-  same model in the sweeps below.
+  healthy rollback I/O. Migration, restore, and backup copying use the same
+  model in the sweeps below.
+  The `commit_delete` child adds three tests for journal finalization. Pre-delete
+  faults (FULL/EXTRA) retain the journal and recover the original state;
+  modeled post-delete errors (EXTRA) leave committed writes. Both standalone
+  and explicit transactions verify healthy trace prefixes, exact extended
+  errors, journal presence, autocommit, observer-first/original-first/close-first
+  recovery, typed graph/index/constraint state, locks, integrity, reopen and
+  retry after rollback. A separate path-isolation/one-shot check proves that
+  blind retry can duplicate a committed CREATE. Native deletion succeeds before
+  the injected post-delete error; no actual directory-sync or power failure is
+  simulated. Persistent/partial I/O errors, OS ENOSPC, and journal truncation
+  remain follow-ups.
   The `migration_io` child adds two sweeps over retained schema 1–4 files,
   arming the same VFS before initialization. It covers both a retained failed
   connection and the owning constructor's cleanup. A commit-hook marker proves

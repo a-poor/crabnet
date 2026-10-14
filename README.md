@@ -154,6 +154,9 @@ without committing rolls back all its writes. Any query error, including
 invalid syntax or missing parameters, immediately rolls back the whole
 transaction; later execution or commit returns `Error::TransactionAborted`.
 Results and mutation summaries are per query and provisional until commit.
+A commit I/O error can occur after writes have persisted, including for standalone
+writes. Reconcile the stored outcome before retrying; see
+[commit failure and retry semantics](docs/semantics.md#commit-io-failures).
 The transaction reserves SQLite's writer immediately and borrows the database
 until consumed or dropped. Nested transactions and savepoints are not exposed.
 
@@ -578,7 +581,8 @@ and stored property values are resolved and validated before a write
 transaction begins, including integer range, map shape, and recursive depth.
 Match materialization, every
 mutation, and post-write result evaluation then share one immediate transaction;
-any runtime failure rolls the whole statement back.
+query-evaluation failures roll the whole statement back. Commit I/O errors have
+the separate [retry caveat](docs/semantics.md#commit-io-failures) described above.
 
 Notable omissions include multiple or boolean relationship types in patterns,
 the label wildcard `%`, postfix graph quantifiers, modern path selectors, expression-position

@@ -1,13 +1,14 @@
-//! Test-only forwarding VFS for DELETE-journal read/write/sync fault injection.
+//! Test-only forwarding VFS for DELETE-journal I/O fault injection.
 //!
 //! One process-lifetime registration (never the default VFS) delegates to the
 //! original native VFS. Per-path registrations are removed on drop; open files
 //! retain their own Arc so even a connection outliving its controller is safe.
 //! Registration can precede connection construction to cover header reads;
 //! per-path live-file counts check failed-open cleanup without changing I/O.
-//! Only xRead/xWrite/xSync are intercepted, before the native operation. A fault is
-//! consumed once, leaving rollback I/O healthy. Version-1 file methods exclude
-//! WAL and mmap; neither is part of this harness's contract.
+//! xRead/xWrite/xSync faults precede the native operation. Opt-in journal
+//! xDelete faults precede deletion or follow successful native deletion. Each
+//! fault is consumed once, leaving later I/O healthy. Version-1 file methods
+//! exclude WAL and mmap; neither is part of this harness's contract.
 //!
 //! FFI invariants: SQLite allocates an aligned, szOsFile-sized File; its repr(C)
 //! header is first. Native file storage comes from sqlite3_malloc64 and stays
@@ -38,6 +39,7 @@ pub(super) enum Operation {
     Read,
     Write,
     Sync,
+    Delete,
 }
 
 impl Operation {
@@ -46,6 +48,23 @@ impl Operation {
             Self::Read => ffi::SQLITE_IOERR_READ,
             Self::Write => ffi::SQLITE_IOERR_WRITE,
             Self::Sync => ffi::SQLITE_IOERR_FSYNC,
+            Self::Delete => ffi::SQLITE_IOERR_DELETE,
+        }
+    }
+}
+
+/// Before unlink, or after successful native deletion (a directory-sync error).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum DeleteFault {
+    Before,
+    After,
+}
+
+impl DeleteFault {
+    pub(super) fn error_code(self) -> c_int {
+        match self {
+            Self::Before => ffi::SQLITE_IOERR_DELETE,
+            Self::After => ffi::SQLITE_IOERR_DIR_FSYNC,
         }
     }
 }
@@ -55,7 +74,7 @@ pub(super) struct Event {
     pub file: FileKind,
     pub operation: Operation,
     pub offset: i64,
-    // Read/write byte count or sync flags.
+    // Read/write byte count, file sync flags, or xDelete directory-sync flag.
     pub amount: c_int,
     pub result: c_int,
 }
@@ -65,6 +84,8 @@ struct State {
     open_files: usize,
     recording: bool,
     reads: bool,
+    deletes: bool,
+    delete_fault: Option<DeleteFault>,
     fail_at: Option<usize>,
     target: Option<Target>,
     events: Vec<Event>,
@@ -100,10 +121,20 @@ impl Control {
             open_files: state.open_files,
             recording: true,
             reads: false,
+            deletes: false,
+            delete_fault: None,
             fail_at,
             target: None,
             events: Vec::new(),
         };
+    }
+
+    /// Deletion recording is opt-in so existing read/write/sync traces stay intact.
+    pub(super) fn start_deletes(&self, fault: Option<DeleteFault>) {
+        self.start(None);
+        let mut state = lock(&self.0);
+        state.deletes = true;
+        state.delete_fault = fault;
     }
 
     /// Keep existing write/sync sweeps unchanged; source-read sweeps opt in.
@@ -134,6 +165,7 @@ impl Control {
     pub(super) fn stop(&self) -> Vec<Event> {
         let mut state = lock(&self.0);
         state.recording = false;
+        state.delete_fault = None;
         state.fail_at = None;
         state.target = None;
         std::mem::take(&mut state.events)
@@ -443,8 +475,45 @@ macro_rules! vfs_forward {
     };
 }
 
+// SAFETY: SQLite supplies a live VFS and a NUL-terminated filename. Unlike
+// file callbacks, xDelete has no file handle; scope it by the exact journal path.
+unsafe extern "C" fn delete(vfs: *mut ffi::sqlite3_vfs, name: *const c_char, sync: c_int) -> c_int {
+    unsafe {
+        let native = native_vfs(vfs);
+        let forward = || (*native).xDelete.unwrap()(native, name, sync);
+        let state = CStr::from_ptr(name)
+            .to_bytes()
+            .strip_suffix(b"-journal")
+            .and_then(|path| lock(registry()).get(path).cloned());
+        let Some(state) = state else { return forward() };
+        let mut state = lock(&state);
+        if !state.recording || !state.deletes {
+            return forward();
+        }
+        // Consume before returning, leaving recovery and later commits healthy.
+        let result = match state.delete_fault.take() {
+            Some(DeleteFault::Before) => DeleteFault::Before.error_code(),
+            Some(DeleteFault::After) => {
+                let result = forward();
+                if result == ffi::SQLITE_OK {
+                    DeleteFault::After.error_code()
+                } else {
+                    result
+                }
+            }
+            None => forward(),
+        };
+        state.events.push(Event {
+            file: FileKind::Journal,
+            operation: Operation::Delete,
+            offset: 0,
+            amount: sync,
+            result,
+        });
+        result
+    }
+}
 type DlSymbol = Option<unsafe extern "C" fn(*mut ffi::sqlite3_vfs, *mut c_void, *const c_char)>;
-vfs_forward!(delete, xDelete, (name: *const c_char, sync: c_int) -> c_int);
 vfs_forward!(access, xAccess, (name: *const c_char, flags: c_int, out: *mut c_int) -> c_int);
 vfs_forward!(full_path, xFullPathname, (name: *const c_char, size: c_int, out: *mut c_char) -> c_int);
 vfs_forward!(dl_open, xDlOpen, (name: *const c_char) -> *mut c_void);

@@ -36,7 +36,7 @@ evidence; record what was rerun and why.
 | Candidate checks | Run `bash scripts/check.sh` on the exact candidate on Ubuntu: all targets and 1k/10k benchmark smoke cases, doctests, unchanged TCK verification, formatting, Clippy, and diff checks. Retain revision, lockfile, toolchain, runner and filesystem details, commands, exit statuses and logs. | Pending. Current local checks are development evidence. |
 | Application acceptance | Git Graph pins the candidate in its isolated checkout. Pass correctness tests and the original 14 pilot gates, including 100 lifecycle cycles. Rerun the declared compare, containment, merge-base and history protocols against their existing thresholds; retain raw results and historical failures. | Pending candidate. Terminal rendering correctness is included; additional UI features are not required. |
 | Upgrade and rollback rehearsal | Use historical writer fixtures and Git Graph's previous pinned engine to create/verify a backup; open an upgraded copy with the candidate; verify identities, typed bags, constraints and application results; back up/restore the new copy; run the old application against a copy of the untouched old backup. Record writes lost by rollback and rebuild assumptions. | Historical fixture tests exist; candidate application rehearsal pending. There are no earlier named Crabnet releases, so do not claim release-to-release qualification. |
-| Failure and retry contract | Rerun existing allocation, one-shot I/O, migration, backup/restore, contention and process-recovery tests. Investigate journal deletion at commit specifically: record whether a reported failure can leave committed changes and what retry is safe. Resolve ambiguous public retry guidance before release. | Existing evidence is linked from [milestone 11](roadmap.md#11-production-qualification--in-progress); journal deletion investigation pending. |
+| Failure and retry contract | Rerun existing allocation, one-shot I/O, migration, backup/restore, contention and process-recovery tests. Investigate journal deletion at commit specifically: record whether a reported failure can leave committed changes and what retry is safe. Resolve ambiguous public retry guidance before release. | Existing evidence is linked from [milestone 11](roadmap.md#11-production-qualification--in-progress); journal deletion investigation is complete locally: pre-delete errors recover the original state, while a modeled post-delete error leaves committed writes and blind retry can duplicate them. See [commit retry semantics](semantics.md#commit-io-failures). Candidate checks still repeat this evidence. |
 | Independent semantic checks | Add a bounded deterministic conversion/value-boundary corpus with independent expected values. Record which contracts it checks; do not call it full differential Cypher qualification. | Four tests in [integer_conversion.rs](../tests/integer_conversion.rs) cover explicit binary64 neighbors, exact integer text, null/error behavior, compiled/cursor execution and writes; complete local checks pass. Broader reference-engine differential work stays in milestone 11. |
 | Package readiness | Review name/version, description, repository/documentation metadata, licensing and third-party notices, dependency inventory, README examples, and archive contents. Build/test the packaged crate in a clean consumer project and verify the locked build. | Maintainer chose `MIT OR Apache-2.0` on 2026-10-13; both license texts and Cargo metadata are added. Initial offline metadata/file-list inspection is recorded below. Third-party/package review and clean consumer validation remain pending. |
 | Release record | Write release notes and a candidate report linking every gate, known limitations, upgrade/recovery instructions, exact commits and artifact hashes. Retain a writer fixture from the final source for future patch compatibility checks; after tagging, append the tag association without replacing historical artifacts. | Pending. |
@@ -122,10 +122,16 @@ exclusion or full Cypher conformance.
 1. **Complete locally:** integer-conversion boundary fix and review of the six
    expected-error exclusions, without expanding the language surface. Candidate
    checks still repeat this evidence on the release revision.
-2. **Next:** investigate commit journal deletion and make retry guidance match observed
-   outcomes under the documented fault model.
-3. Review package/API/license readiness and assemble draft release notes. Resolve
-   the maintainer's distribution choice before packaging for release. The license
+2. **Complete locally:** [journal deletion fault tests](../src/database/storage_failures/commit_delete.rs)
+   and public retry guidance.
+   A reported commit error can accompany persisted writes; the documented model
+   distinguishes recovered rollback from post-deletion commit and proves the
+   duplicate-write risk of blind retry. Local validation passes: 1,024
+   tests/doctests, 147 benchmark smoke cases, formatting, and Clippy. The six
+   focused commit tests also pass after the final test-helper lint cleanup.
+   Candidate checks repeat this evidence.
+3. **Next:** review package/API/license readiness and assemble draft release
+   notes. Resolve the maintainer's distribution choice before packaging for release. The license
    choice is recorded above.
 4. Select a candidate commit, run Ubuntu checks, and coordinate Git Graph's
    candidate upgrade, rollback and workload qualification.
