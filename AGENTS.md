@@ -5,9 +5,9 @@
 Crabnet is a Rust 2024 embedded property-graph database backed by SQLite, using `open-cypher` for parsing.
 
 - `src/lib.rs` defines the public API; `database.rs`, `value.rs`, and `error.rs` handle execution, typed values, and errors.
-- `src/planner/` separates logical lowering, type checking, SQLite generation, physical planning, and explanations. `src/database/` contains traversal and comparison helpers.
+- `src/planner/` separates logical lowering, type checking, SQLite generation, physical planning, and explanations. `src/database/` contains execution support; `functions.rs` registers SQLite helpers and `tests.rs` holds the database module's internal regressions. See `docs/architecture.md` for ownership.
 - `tests/*.rs` holds integration tests; inline `#[cfg(test)]` modules cover internals. `tests/tck/` contains conformance helpers and outcome manifests.
-- `benches/queries.rs` contains Criterion benchmarks. `docs/` records semantics, coverage, testing practices, and the roadmap.
+- `benches/queries.rs` contains Criterion benchmarks. Start at `docs/README.md`; `roadmap.md` and `first-release.md` track active work, `history/milestones.md` retains implementation history, and `test-catalog.md` maps suites to contracts.
 
 ## Build, Test, and Development Commands
 

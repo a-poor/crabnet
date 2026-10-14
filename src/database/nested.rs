@@ -580,7 +580,7 @@ pub(super) fn register(connection: &Connection) -> Result<()> {
         |context| {
             let op: String = context.get(0)?;
             let args = (1..context.len())
-                .map(|i| super::json_argument(context, i))
+                .map(|i| super::functions::json_argument(context, i))
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             evaluate(&op, &args)
                 .and_then(|v| {
@@ -614,7 +614,7 @@ pub(super) fn register(connection: &Connection) -> Result<()> {
         1,
         FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
         |context| {
-            let value = super::json_argument(context, 0)?;
+            let value = super::functions::json_argument(context, 0)?;
             identity(&value)
                 .map(|value| semantic_json_key(&value))
                 .map_err(sql_error)

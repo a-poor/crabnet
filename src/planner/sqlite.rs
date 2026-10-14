@@ -3386,7 +3386,7 @@ impl Compiler {
                     Ok(format!(
                         "(CASE WHEN {} THEN NULL \
                           WHEN ({value_type}) = 'array' THEN json_array_length(({value})) \
-                          WHEN ({value_type}) = 'text' THEN length(({value})) ELSE {} END)",
+                          WHEN ({value_type}) = 'text' THEN crabnet_text_size(({value})) ELSE {} END)",
                         is_null_type(value_type),
                         type_error("size() requires a list or string"),
                     ))
@@ -3827,7 +3827,7 @@ impl Compiler {
                     let (value, value_type) = &parts[0];
                     Ok(format!(
                         "(CASE ({value_type}) WHEN 'integer' THEN ({value}) \
-                          WHEN 'real' THEN CAST(({value}) AS INTEGER) \
+                          WHEN 'real' THEN crabnet_float_to_integer(({value})) \
                           WHEN 'true' THEN 1 WHEN 'false' THEN 0 \
                           WHEN 'text' THEN crabnet_to_integer(({value})) \
                           WHEN 'array' THEN {invalid} WHEN 'object' THEN {invalid} END)",
@@ -4030,21 +4030,18 @@ impl Compiler {
                 ScalarFunction::Substring => {
                     let start = &parts[1].0;
                     let length = match parts.get(2) {
-                        Some((length, _)) => format!(", ({length})"),
-                        None => String::new(),
+                        Some((length, _)) => format!("({length})"),
+                        None => "NULL".to_owned(),
                     };
-                    format!("substr(({text}), ({start}) + 1{length})")
+                    format!("crabnet_substring(({text}), ({start}), {length})")
                 }
-                ScalarFunction::Left => format!("substr(({text}), 1, ({}))", parts[1].0),
-                ScalarFunction::Right => {
-                    let count = &parts[1].0;
-                    format!(
-                        "(CASE WHEN ({count}) = 0 THEN '' \
-                         ELSE substr(({text}), -({count})) END)"
-                    )
-                }
+                ScalarFunction::Left => format!("crabnet_substring(({text}), 0, ({}))", parts[1].0),
+                ScalarFunction::Right => format!("crabnet_right(({text}), ({}))", parts[1].0),
                 ScalarFunction::Replace => {
-                    format!("replace(({text}), ({}), ({}))", parts[1].0, parts[2].0)
+                    format!(
+                        "crabnet_replace(({text}), ({}), ({}))",
+                        parts[1].0, parts[2].0
+                    )
                 }
                 ScalarFunction::Split => format!("crabnet_split(({text}), ({}))", parts[1].0),
                 _ => unreachable!("only string functions reach string_function"),
@@ -4633,11 +4630,7 @@ impl Compiler {
             let (right_value, right_type) = &parts[1];
             let predicate = match operator {
                 BinaryOp::StartsWith => format!("instr(({left_value}), ({right_value})) = 1"),
-                BinaryOp::EndsWith => format!(
-                    "length(({left_value})) >= length(({right_value})) AND \
-                 substr(({left_value}), length(({left_value})) - length(({right_value})) + 1) \
-                 = (({right_value}) COLLATE BINARY)"
-                ),
+                BinaryOp::EndsWith => format!("crabnet_ends_with(({left_value}), ({right_value}))"),
                 BinaryOp::Contains => format!("instr(({left_value}), ({right_value})) > 0"),
                 _ => unreachable!("only string predicates reach string_predicate"),
             };

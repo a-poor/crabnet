@@ -111,7 +111,7 @@ pub(super) fn register(connection: &Connection) -> Result<()> {
         |context| {
             // Decode the original property object in Rust. Extracting through
             // SQLite JSON first would round some floating-point values.
-            let properties = super::json_argument(context, 0)?;
+            let properties = super::functions::json_argument(context, 0)?;
             let property = context.get::<String>(1)?;
             Ok(properties
                 .get(&property)

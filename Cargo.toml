@@ -3,6 +3,9 @@ name = "crabnet"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
+description = "An experimental embedded property-graph database for Rust, backed by SQLite"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/a-poor/crabnet"
 
 [dependencies]
 open-cypher = "0.2.1"

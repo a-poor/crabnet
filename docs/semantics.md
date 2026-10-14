@@ -653,7 +653,8 @@ null, and any other non-list right-hand operand is a type error.
 
 `STARTS WITH`, `CONTAINS`, and `ENDS WITH` require two strings and return a
 boolean. They are case-sensitive, treat `%` and `_` literally, and support
-empty and Unicode strings. If either operand is null, missing, or not a string,
+empty strings, Unicode, and embedded NUL characters. Text after a NUL remains
+part of the value, including when matching a suffix. If either operand is null, missing, or not a string,
 the result is null; there is no string coercion. These predicates and `IN` may
 appear in `WHERE` or as computed read projections, where their result is a
 typed boolean or null cell.
@@ -748,6 +749,9 @@ Path-derived inputs retain the existing restrictions on path-fed writes and
 may materialize the full source entity list internally.
 
 `size(list)` is the element count and `size(string)` the character count.
+String counts use Unicode scalar values, including embedded NUL; combining
+marks count separately. For example, the three-character string `a\0b` has
+size 3 (here `\0` denotes a NUL character, not a Cypher escape spelling).
 `size(null)` is null; other non-null kinds are type errors.
 `size` of a statically known path or graph entity is a semantic error;
 paths use `length`.
@@ -967,6 +971,16 @@ calling one with the wrong number of arguments is a semantic error.
   accepts booleans, the strings `true` and `false` in any letter case, and
   integers (zero is false). Anything else, including text that does not
   parse, is null.
+  `toInteger` also returns null when the truncated result is outside the signed
+  64-bit range; it never clamps to an endpoint. Trimmed text consisting of an
+  optional sign and decimal digits is parsed exactly as an integer, so
+  `'-9223372036854775809'` is null rather than rounded to `i64::MIN`. Decimal
+  point/exponent text uses binary64 parsing before truncation, just like a float
+  input. In particular, the float `2^63` is out of range, whereas the integer
+  string `'9223372036854775807'` remains exact. Non-finite numeric text returns
+  null; errors evaluating an argument (such as arithmetic overflow) still
+  propagate before conversion. These rules apply equally to parameters,
+  properties, eager/compiled execution, and cursors.
 - `toLower`, `toUpper`, `trim`, `ltrim`, `rtrim`, `substring(s, start[,
   length])` (zero-based), `left(s, n)`,
   `right(s, n)`, `replace(s, search, replacement)`, and `split(s, delimiter)`
@@ -989,8 +1003,14 @@ calling one with the wrong number of arguments is a semantic error.
   strings. These errors propagate through composed and
   aggregate expressions, eager/compiled reads, and cursors; failed writes and
   explicit transactions roll back under the normal error contract.
-  Character indexing and empty-delimiter splitting preserve
-  Unicode characters; case conversion is ASCII-only.
+  Character indexing and empty-delimiter splitting preserve Unicode scalar
+  values, including embedded NUL. `substring`, `left`, and `right` retain text
+  after NUL and count combining marks separately. Nonnegative positions beyond
+  the end produce an empty substring, and lengths exceeding the available text
+  return the available characters, including bounds up to `i64::MAX`.
+  `replace` matches complete search strings, including those beginning with
+  NUL, and preserves NUL in replacement text. Matches do not overlap; an empty
+  search string leaves the input unchanged. Case conversion is ASCII-only.
 - `abs` keeps the argument's numeric type and `sign` returns an integer;
   `ceil`, `floor`, `round`, `sqrt`, `exp`, `log`, `log10`, `sin`, `cos`,
   `tan`, `asin`, `acos`, and `atan` return floats. A non-finite result

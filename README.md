@@ -1,5 +1,8 @@
 # crabnet
 
+See the [documentation guide](docs/README.md) for current contracts, development
+instructions, release planning, and historical evidence.
+
 Crabnet is an experimental embedded property-graph database for Rust, backed by
 SQLite, with a substantial [documented subset of openCypher](docs/coverage.md).
 It combines parameterized SQL with Rust traversal and typed graph results, and
@@ -17,6 +20,13 @@ Crabnet remains experimental, with an evolving public API and incomplete Cypher
 compatibility. Production qualification is still in progress. Use the documented
 local-file configuration with one writer at a time, pin the library revision,
 and review the compatibility and recovery contracts when adopting it.
+
+The [first-release checklist](docs/first-release.md) tracks preparation of an
+experimental 0.1.0 release, its acceptance gates, and explicitly deferred work.
+
+Crabnet is dual-licensed under [MIT](LICENSE-MIT) or
+[Apache-2.0](LICENSE-APACHE), at your option. Vendored third-party materials
+retain their own licenses.
 
 The current [support and CI contract](docs/support.md) runs one Ubuntu 24.04
 x86-64 job on Rust 1.99.0 with bundled SQLite. macOS and rolling-stable CI are
@@ -804,26 +814,12 @@ the probed nodes. A list or map value can equal a stored value with different
 JSON text (`[1]` and `[1.0]`), so for those the probe returns every node that
 has the key. Relationship properties are not indexed yet.
 
-Run the full acceptance suite with:
+Run the complete repository checks with:
 
 ```console
-cargo test --all-targets
+bash scripts/check.sh
 ```
 
-The milestone 3 expression contracts have focused coverage in
-`tests/arithmetic_and_distinct.rs` and
-`tests/membership_and_string_predicates.rs`. Milestone 4 clause and scope
-contracts are covered in `tests/with_pipeline.rs`. Milestone 5 property and
-deletion contracts are covered in `tests/matched_mutations.rs` and
-`tests/delete_mutations.rs`. Milestone 6 query-composition contracts are
-covered in `tests/aggregation.rs`, `tests/aggregation_edges.rs`,
-`tests/unwind.rs`, `tests/union.rs`, and `tests/optional_match.rs`. Milestone 7's
-SQLite-bounded traversal is covered in `tests/bounded_traversal.rs`. Milestone
-8's path/list transport and hybrid deep/open-ended traversal slices are covered
-in `tests/path_values.rs`, `tests/relationship_list_values.rs`, and
-`tests/unbounded_traversal.rs`; its legacy shortest-path slice is covered in
-`tests/shortest_paths.rs`. Milestone 9's deterministic planner, generated-SQL,
-relationship-property, finite predicate, unusual-identifier, and recursive
-property invariants are covered by planner and database unit tests plus
-`tests/read_semantics.rs`, `tests/predicate_truth_tables.rs`, and
-`tests/property_invariants.rs`.
+See the [testing workflow](docs/testing.md) for focused commands and benchmark
+practices, the [test catalog](docs/test-catalog.md) for suite ownership, and the
+[architecture guide](docs/architecture.md) for module responsibilities.
