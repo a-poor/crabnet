@@ -1,0 +1,78 @@
+{
+  "development_rehearsal": false,
+  "source_commit": "82a905ea9de0550c45cdddae8331fea6b4cd373d",
+  "source_status": "",
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)\nbinary: rustc\ncommit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4\ncommit-date: 2026-09-28\nhost: aarch64-apple-darwin\nrelease: 1.99.0\nLLVM version: 23.1.1\n",
+  "cargo": "cargo 1.99.0 (5f94df478 2026-08-27)",
+  "archive": "crabnet-0.1.0.crate",
+  "archive_sha256": "d401ad4467b22482080b66702ef74a71b2b7b60fcc43840ceec9212af3b7fc55",
+  "archive_bytes": 1005564,
+  "archive_members": 427,
+  "readme_examples_compiled": 1,
+  "lockfile_sha256": "62ecc54c0470425e7555184d9883f8ae99395ec8445f79e3f36b4e1314c6e102",
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "package",
+        "--locked",
+        "--offline"
+      ],
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "check",
+        "--locked",
+        "--offline",
+        "--bins"
+      ],
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "run",
+        "--locked",
+        "--offline",
+        "--bin",
+        "crabnet-package-consumer",
+        "--",
+        "/example/rehearsal/consumer-data"
+      ],
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--doc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "--locked",
+        "--offline",
+        "--test",
+        "tck",
+        "--test",
+        "storage_compatibility",
+        "--test",
+        "transactions"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "path_redaction_note": "Checkout paths are repo-relative; /example/rehearsal is a fictional location for the isolated package rehearsal. Artifact hashes are unchanged.",
+  "additional_checks": {
+    "dependency_inventory_records_verified": 98,
+    "archive_machine_path_scan": "passed (427 files)",
+    "packaged_tests_and_doctests_passed": 31
+  }
+}

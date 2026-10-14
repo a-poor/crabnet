@@ -1,0 +1,128 @@
+82a905ea9de0550c45cdddae8331fea6b4cd373d
+rustc 1.99.0 (b940084d7 2026-09-28)
+binary: rustc
+commit-hash: b940084d7eb6a299eb4bfeb8e34901bc051e7ac4
+commit-date: 2026-09-28
+host: x86_64-unknown-linux-gnu
+release: 1.99.0
+LLVM version: 23.1.1
+cargo 1.99.0 (5f94df478 2026-08-27)
+Linux runnervmmprz5 6.17.0-1022-azure #22-Ubuntu SMP Mon Jul 27 17:24:03 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+Copyright (C) 2023 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+
+Runner image: ubuntu24 20261004.327.1
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded ciborium v0.2.2
+  Downloaded autocfg v1.5.1
+  Downloaded ciborium-ll v0.2.2
+  Downloaded errno v0.3.14
+  Downloaded cfg-if v1.0.4
+  Downloaded ciborium-io v0.2.2
+  Downloaded cast v0.3.0
+  Downloaded clap_lex v1.1.1
+  Downloaded anes v0.1.6
+  Downloaded crossbeam-deque v0.8.8
+  Downloaded anstyle v1.0.14
+  Downloaded either v1.18.0
+  Downloaded criterion-plot v0.6.0
+  Downloaded crossbeam-epoch v0.9.21
+  Downloaded crossbeam-utils v0.8.23
+  Downloaded bitflags v2.13.1
+  Downloaded fallible-streaming-iterator v0.1.9
+  Downloaded shlex v2.0.1
+  Downloaded clap v4.6.7
+  Downloaded plotters-svg v0.3.7
+  Downloaded foldhash v0.2.0
+  Downloaded serde_core v1.0.229
+  Downloaded itoa v1.0.18
+  Downloaded once_cell v1.21.4
+  Downloaded walkdir v2.5.0
+  Downloaded smallvec v1.15.2
+  Downloaded plotters-backend v0.3.7
+  Downloaded logos-derive v0.16.1
+  Downloaded num-traits v0.2.19
+  Downloaded cc v1.4.4
+  Downloaded fnv v1.0.7
+  Downloaded pkg-config v0.3.34
+  Downloaded oorandom v11.1.5
+  Downloaded zmij v1.0.23
+  Downloaded half v2.7.1
+  Downloaded logos-codegen v0.16.1
+  Downloaded proc-macro2 v1.0.107
+  Downloaded tinytemplate v1.2.1
+  Downloaded fallible-iterator v0.3.0
+  Downloaded fastrand v2.5.0
+  Downloaded lalrpop-util v0.23.1
+  Downloaded quote v1.0.47
+  Downloaded same-file v1.0.6
+  Downloaded find-msvc-tools v0.1.11
+  Downloaded hashlink v0.12.1
+  Downloaded logos v0.16.1
+  Downloaded serde_derive v1.0.229
+  Downloaded criterion v0.7.0
+  Downloaded getrandom v0.4.3
+  Downloaded tempfile v3.27.0
+  Downloaded unicode-ident v1.0.24
+  Downloaded zerocopy-derive v0.8.57
+  Downloaded rayon-core v1.13.0
+  Downloaded memchr v2.8.3
+  Downloaded serde v1.0.229
+  Downloaded aho-corasick v1.1.5
+  Downloaded clap_builder v4.6.7
+  Downloaded rusqlite v0.40.2
+  Downloaded hashbrown v0.17.1
+  Downloaded itertools v0.13.0
+  Downloaded regex v1.13.1
+  Downloaded serde_json v1.0.151
+  Downloaded plotters v0.3.7
+  Downloaded rayon v1.12.0
+  Downloaded vcpkg v0.2.15
+  Downloaded syn v3.0.3
+  Downloaded zerocopy v0.8.57
+  Downloaded syn v2.0.119
+  Downloaded rustix v1.1.4
+  Downloaded regex-syntax v0.8.11
+  Downloaded regex-automata v0.4.18
+  Downloaded libc v0.2.189
+  Downloaded open-cypher v0.2.1
+  Downloaded linux-raw-sys v0.12.1
+  Downloaded libsqlite3-sys v0.38.2
+libsqlite3-sys v0.38.2
+├── libsqlite3-sys feature "bundled"
+│   └── rusqlite feature "bundled"
+│       └── crabnet v0.1.0 (.)
+│           └── crabnet feature "default" (command-line)
+├── libsqlite3-sys feature "bundled_bindings"
+│   ├── rusqlite feature "modern_sqlite"
+│   │   └── rusqlite feature "bundled" (*)
+│   └── libsqlite3-sys feature "bundled" (*)
+├── libsqlite3-sys feature "cc"
+│   └── libsqlite3-sys feature "bundled" (*)
+├── libsqlite3-sys feature "default"
+│   └── rusqlite v0.40.2
+│       ├── rusqlite feature "backup"
+│       │   └── crabnet v0.1.0 (.) (*)
+│       ├── rusqlite feature "bundled" (*)
+│       ├── rusqlite feature "cache"
+│       │   └── rusqlite feature "default"
+│       │       └── crabnet v0.1.0 (.) (*)
+│       ├── rusqlite feature "default" (*)
+│       ├── rusqlite feature "ffi-sqlite-wasm-rs"
+│       │   └── rusqlite feature "default" (*)
+│       ├── rusqlite feature "functions"
+│       │   └── crabnet v0.1.0 (.) (*)
+│       ├── rusqlite feature "hashlink"
+│       │   └── rusqlite feature "cache" (*)
+│       ├── rusqlite feature "hooks"
+│       │   └── crabnet v0.1.0 (.) (*)
+│       └── rusqlite feature "modern_sqlite" (*)
+├── libsqlite3-sys feature "min_sqlite_version_3_34_1"
+│   └── libsqlite3-sys feature "default" (*)
+├── libsqlite3-sys feature "pkg-config"
+│   └── libsqlite3-sys feature "min_sqlite_version_3_34_1" (*)
+└── libsqlite3-sys feature "vcpkg"
+    └── libsqlite3-sys feature "min_sqlite_version_3_34_1" (*)
