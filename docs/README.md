@@ -32,7 +32,6 @@ Use this index to find the authoritative document for each kind of question.
 - [Git Graph pilot](git-graph-pilot.md), including its recorded acceptance scope.
 - [Historical testing notes](history/testing-notes.md) and regression provenance.
 - [TCK instructions and pinned outcomes](../tests/tck/README.md).
-- [Historical storage fixtures](../tests/fixtures/compatibility/README.md).
 
 Historical reports describe the revision and configuration they measured. They
 are not proof that a newer candidate has passed. Record concise results,

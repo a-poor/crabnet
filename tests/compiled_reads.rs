@@ -346,7 +346,7 @@ fn plans_see_fresh_data_across_connections_constraints_reopen_and_restore() {
 }
 
 #[test]
-fn owned_plans_can_be_shared_between_independent_connections_and_migrated_files() {
+fn owned_plans_can_be_shared_between_independent_connections() {
     let read = std::sync::Arc::new(compile_read("RETURN $value").unwrap());
     let threads = [1, 2].map(|value| {
         let read = read.clone();
@@ -361,24 +361,6 @@ fn owned_plans_can_be_shared_between_independent_connections_and_migrated_files(
             thread.join().unwrap().rows,
             [vec![CypherValue::Integer(index as i64 + 1)]]
         );
-    }
-    let query = "MATCH (n) RETURN n ORDER BY elementId(n)";
-    let read = compile_read(query).unwrap();
-    let dir = tempfile::tempdir().unwrap();
-    for version in 1..=5 {
-        let path = dir.path().join(format!("v{version}.sqlite"));
-        std::fs::copy(
-            format!(
-                "{}/tests/fixtures/compatibility/v{version}.sqlite",
-                env!("CARGO_MANIFEST_DIR")
-            ),
-            &path,
-        )
-        .unwrap();
-        let mut db = Database::open(&path).unwrap();
-        let result = db.execute_compiled(&read).unwrap();
-        assert_eq!(result.rows.len(), 5);
-        assert_eq!(result, db.execute(query).unwrap());
     }
 }
 

@@ -39,8 +39,8 @@ change its bytes, ordering, error mapping or connection-registration sequence.
 - Keep mutation input stable and transactions atomic. Cursor drop/error/exhaustion
   must release the appropriate snapshot and resources.
 - Treat streaming versus buffering as an explicit supported-shape contract.
-- Keep schema upgrades and compatibility fixtures aligned. Do not rewrite old
-  fixtures or measurement reports to match new behavior.
+- Keep current-format opening, backup/restore, and refusal tests aligned with
+  storage behavior. Add released-format migration tests when an upgrade is needed.
 
 See [semantics](semantics.md) for the actual contracts and the
 [test catalog](test-catalog.md) for their checks.

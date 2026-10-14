@@ -379,7 +379,7 @@ Early schema-1/2 writers stored explicit top-level null entries. Upgrading those
 files preserves the entries, and whole-entity maps can still expose them until
 they are removed. Property access, `keys()`, `properties()`, and uniqueness
 constraints treat them as absent. See the [compatibility policy](compatibility.md)
-and retained fixtures for this historical-file boundary.
+for the scope of pre-release format handling.
 
 `NodeValue` contains an opaque `element_id`, a `labels` vector, and a recursive
 `properties` map. Nodes carry zero or more distinct labels in insertion order.
@@ -1896,95 +1896,16 @@ under a later power failure.
 
 ## Migration I/O failures
 
-For the one-shot write/sync fault model above, a failed upgrade from a valid
-main schema 1–4 file restores the original schema and contents, including
-`application_id`, `user_version`, SQLite's schema cookie, table/index/trigger
-definitions, and all table rows. The error retains `Error::Sqlite` and the
-extended `SQLITE_IOERR_WRITE` or `SQLITE_IOERR_FSYNC` code. After the fault
-clears, a normal writable open can retry the upgrade; a read-only open still
-refuses the older format until that upgrade succeeds.
-
-Two tests in `src/database/storage_failures/migration_io.rs` copy the retained
-[historical files and independent graph oracles](../tests/fixtures/compatibility/README.md)
-and arm the forwarding VFS before initialization. One calls the initialization
-routine used by public opens while retaining the failed connection; the other
-uses the owning connection constructor to exercise cleanup on failed open.
-For each historical input and path, a healthy upgrade supplies the write/sync
-trace. Every event is then failed in a fresh copy. A commit-hook marker proves
-coverage both during migration statements and at their final commit. Assertions
-match the healthy I/O prefix and exact failed event, and check successful
-rollback page writes after main-file faults.
-
-Before any retry, raw SQLite readers compare every stored object and table row
-with the original snapshot. Row comparisons retain SQLite types, real-value
-bits, BLOB keys, and multiplicity; integrity and foreign-key checks cover the
-physical indexes as well. Another connection with zero busy timeout can write
-and commit while the retained failed connection is still alive. Closing and
-reopening raw readers must still show the old format, so a later migration
-cannot hide partial DDL, backfills, or a prematurely advanced version marker.
-Retry uses the public existing-file opener with the native VFS. Typed graph
-results must match the historical JSON oracle after upgrade and read-only
-reopen, including IDs, label order, nested values, relationship bags, and
-constraints. Subsequent writes exercise migrated label/property/uniqueness
-maintenance and must survive another reopen.
-
-These tests use DELETE journaling, FULL synchronization, disabled cache spill,
-and one failed call before native I/O with healthy rollback afterward. They
-do not model persistent/partial I/O errors, allocation failure during migration,
-journal deletion/truncation, WAL, or power loss. Retained
-inputs are pinned historical commits; published release-pair qualification is
-still a separate gate under the [compatibility policy](compatibility.md).
+Historical pre-release migration fault sweeps were removed for the first
+release. No published older format exists to qualify. Current-format
+initialization, commit, backup/restore, and recovery fault tests remain.
+See the [compatibility policy](compatibility.md) for future release upgrades.
 
 ## Migration read failures
 
-Opening and upgrading retained main schema 1–4 files also has one-shot `xRead`
-coverage. When SQLite reports the injected error to the opener, Crabnet retains
-`Error::Sqlite`, `ErrorCode::SystemIoFailure`, and `SQLITE_IOERR_READ`. The failed
-upgrade leaves the original file bytes, schema/version markers, and typed table
-contents intact, releases locks and owned file handles, and permits a later
-public writable open to retry. Read-only opening still refuses the old format
-until migration succeeds.
-
-A failed `xRead` does not necessarily make SQLite reject the migration.
-Schema 1's `ALTER TABLE ... ADD COLUMN` runs an internal `quick_check` whose SQL
-filters constraint/type diagnostics. With the bundled SQLite and these valid
-fixtures, a one-shot read error in that check can be absorbed and migration can
-complete after healthy subsequent I/O. Tests pin those outcomes separately:
-success must produce exactly the same persisted schema and typed rows as the
-healthy upgrade, checked **before** another public open could conceal an
-incomplete migration. The independently retained graph oracle, integrity,
-constraints, and later writes must also remain correct. This is not a claim
-about persistent faults or damaged inputs.
-
-Two tests in `src/database/storage_failures/migration_read_io.rs` sweep every
-database/journal read in healthy traces for each retained format. One retains
-the connection after initialization failure, with a cold one-page cache and
-spill disabled to force repeated reads during schema changes and backfills.
-It runs alone in a child test process because SQLite pools cache budgets across
-connections; unrelated live caches could otherwise prevent those evictions.
-The other registers the VFS before connection construction and uses the shared
-public opening path in both `ReadWrite` and `OpenOrCreate` modes with default
-cache settings. Connection and commit markers identify header, initialization,
-migration-statement, and final-commit reads. Each target is selected by file,
-byte range, and occurrence; the successful I/O prefix and exact failed event
-must match. SQLite's normal short read when probing beyond the journal's end
-is distinguished from the injected `SQLITE_IOERR_READ`, which fails commit.
-
-Before retrying a rejected upgrade, tests compare file bytes, all raw schema
-objects and typed table-row bags, integrity and foreign keys, and acquire and
-commit a competing write while the retained failed connection remains alive.
-They check autocommit, file counts, sidecar cleanup, read-only refusal, and raw
-reopening. Public retries and successful upgrades must match the historical
-JSON oracle, survive read-only reopen, enforce uniqueness, and maintain migrated
-indexes through writes and another reopen. These sweeps join the source-cache
-guard so another test's deliberate cache eviction cannot change their traces.
-
-The model uses existing valid local DELETE-journal files, FULL synchronization,
-and one failure before native I/O, followed by healthy I/O. Healthy traces must
-show no main-file writes before commit. Empty/new-file initialization, allocation
-failures, persistent/partial I/O, hot journals on historical files, native
-open/close/lock errors, journal
-truncation/deletion faults, WAL, and power loss remain outside this model.
+There is no first-release compatibility guarantee for databases written by
+unreleased development commits. Synthetic migration unit tests exercise the
+remaining legacy implementation, but do not qualify historical-file recovery.
 
 ## Empty and new-file initialization I/O failures
 
@@ -2238,8 +2159,8 @@ the opening header fault.
 This model uses existing current-version local files with DELETE journaling,
 no hot journal, and mmap disabled by the test VFS. It covers actual `xRead`
 failures, not synthetic open API errors. It does not inject native `xOpen`,
-lock, or descriptor-close failures. Hot-journal recovery has its own model below,
-and [migration reads](#migration-read-failures) are qualified separately.
+lock, or descriptor-close failures. Hot-journal recovery has its own model below.
+Historical migration reads are not a first-release gate.
 [Empty/new-file initialization](#empty-and-new-file-initialization-io-failures)
 also has a separate model. Persistent/partial reads, WAL, filesystem ENOSPC,
 and power loss remain outside this qualification.

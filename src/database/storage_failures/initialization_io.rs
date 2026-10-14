@@ -11,10 +11,9 @@ use std::{
 use rusqlite::{Connection, ErrorCode, OpenFlags, TransactionBehavior, ffi};
 
 use super::{
-    assert_connection_integrity, assert_integrity, io_vfs,
-    migration_io::{Stored, raw_open, stored},
-    pragma, seed, snapshot,
+    assert_connection_integrity, assert_integrity, io_vfs, pragma, seed, snapshot,
     source_read_io::{assert_files, read_only, source_cache_guard, verify_replacement},
+    stored_state::{Stored, raw_open, stored},
 };
 use crate::{Database, Error, OpenMode, OpenOptions};
 use io_vfs::{Control, Event, FileKind, Operation};

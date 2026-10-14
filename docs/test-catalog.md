@@ -14,7 +14,7 @@ end-to-end result test for user-visible semantics.
   cover cleanup after SQLite itself has already rolled back and after a
   failed commit.
 - `tests/compiled_reads.rs` covers owned plans and changing bindings, independent
-  connections and threads, all supported historical opening migrations,
+  connections and threads,
   read-only/reopen/restore/constraint changes, full-plan preflight and pagination,
   typed bags/paths/unions/distinct/hydration, fresh controls, transaction rollback,
   and immediate lock release. Compiled-read unit tests attempt concurrent writes
@@ -46,15 +46,6 @@ end-to-end result test for user-visible semantics.
   corrupted sources, lock failures, and connection/staging cleanup. Corruption
   fixtures use raw SQLite to violate foreign keys and persisted CHECK clauses;
   restore must reject them before touching the destination.
-- `tests/storage_compatibility.rs` uses immutable SQLite files from pinned
-  historical writers and independent JSON graph oracles. It checks all main
-  formats 1–5 for upgrades, typed data/identity and bags, maintained indexes and
-  constraints, failed-migration rollback/retry, refusal without mutation, and
-  backup restoration while retaining the original rollback source. Ordinary
-  tests use temporary copies and never rebuild historical code. Fixture
-  provenance, hash verification, and authoring instructions live in the
-  [fixture README](../tests/fixtures/compatibility/README.md). Add tagged release
-  writers before claiming release-to-release qualification.
 - `tests/recovery.rs` launches its own test binary as a controlled child writer.
   A readiness message follows either a spilled uncommitted transaction or a
   completed commit. The parent checks the journal/main-file evidence before
@@ -87,7 +78,7 @@ end-to-end result test for user-visible semantics.
   and successful retry are checked for every point. The VFS is never made the
   default; registrations and fault state are scoped to temporary database paths.
   This model uses DELETE journaling, FULL synchronization, no cache spill, and
-  healthy rollback I/O. Migration, restore, and backup copying use the same
+  healthy rollback I/O. Restore and backup copying use the same
   model in the sweeps below.
   The `commit_delete` child adds three tests for journal finalization. Pre-delete
   faults (FULL/EXTRA) retain the journal and recover the original state;
@@ -100,29 +91,6 @@ end-to-end result test for user-visible semantics.
   the injected post-delete error; no actual directory-sync or power failure is
   simulated. Persistent/partial I/O errors, OS ENOSPC, and journal truncation
   remain follow-ups.
-  The `migration_io` child adds two sweeps over retained schema 1–4 files,
-  arming the same VFS before initialization. It covers both a retained failed
-  connection and the owning constructor's cleanup. A commit-hook marker proves
-  statement and commit coverage. Before any retry, raw SQLite checks the old
-  application/version markers, schema cookie, every schema object, and every
-  table's typed row bag, plus integrity, foreign keys, and writer lock release.
-  Public retry and read-only reopen must match the independent historical JSON
-  graph oracle; subsequent index/constraint writes must persist. Fixture files
-  are copied, never modified.
-  The `migration_read_io` child adds two read sweeps over the same historical
-  inputs: retained initialization with a cold one-page cache and spill disabled,
-  and both writable public open modes armed before connecting. Every healthy
-  database/journal read is faulted by byte range and occurrence, including
-  repeated backfill reads and commit's journal-end probe. Exact prefixes and
-  connection/commit markers verify the targets. Reported errors must preserve
-  `SQLITE_IOERR_READ`, original file bytes and raw schema/typed rows, autocommit,
-  handle/lock release, and public retry. SQLite absorbs some schema-1 internal
-  `quick_check` read diagnostics; those outcomes are pinned separately and must
-  match the healthy migrated storage before reopening. Independent graph
-  oracles, integrity, constraints, and subsequent writes verify both paths.
-  These sweeps share the source-cache guard and never modify retained fixtures.
-  The tiny-cache sweep runs alone in a child test process so other connections'
-  shared cache budgets cannot eliminate its repeated-read fault points.
   The `initialization_io` child adds three tests. Public opening sweeps missing
   paths, zero-byte files, and empty SQLite files; retained-connection sweeps
   cover both existing empty forms. Every healthy database/journal read, write,

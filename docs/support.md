@@ -71,22 +71,15 @@ of file locking, process recovery, and backup behavior on the new configuration.
   or an explicit rejection before qualification. Resource counters and deadlines
   have documented boundaries; they are not a whole-process memory or time cap.
 - The [compatibility policy](compatibility.md) defines pre-1.0 API versioning,
-  schema 1–4 upgrades to version 5, and rollback using a pre-upgrade backup.
-  Retained historical commit fixtures run in the regular checks; named
-  release-to-release qualification remains a milestone 11 gate. Crabnet remains
-  experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
+  the current schema-5 format, and future release upgrades. There is no
+  first-release compatibility obligation for unpublished development formats.
+  Crabnet remains experimental. [Allocation-failure tests](semantics.md#storage-allocation-failures)
   cover `SQLITE_FULL` during writes using a page-count cap.
   [Commit I/O tests](semantics.md#commit-io-failures) cover modeled one-shot
   journal/database write and sync errors with healthy rollback I/O. Separate
   journal-deletion tests distinguish recovered rollback before unlink from
   committed writes after a reported post-deletion error. Commit errors do not
   guarantee rollback: reconcile the persisted outcome before retrying.
-  [Migration I/O tests](semantics.md#migration-io-failures) apply that model to
-  retained schema 1–4 upgrades, verifying the old format before public retry.
-  [Migration read tests](semantics.md#migration-read-failures) cover header,
-  schema/backfill, and commit journal reads. Reported errors preserve the old
-  file and allow retry; transient reads absorbed by SQLite's internal check
-  must still produce exactly the healthy migrated storage and historical graph.
   [Initialization I/O tests](semantics.md#empty-and-new-file-initialization-io-failures)
   cover missing paths, zero-byte files, and empty SQLite databases. They verify
   uninitialized contents after failure, exact rollback, released handles/locks,

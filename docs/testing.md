@@ -126,7 +126,7 @@ repository plan; successful checks alone do not complete production qualificatio
 
 For release packaging, follow the [package rehearsal](package-readiness.md#repeating-the-local-package-rehearsal).
 It builds the Cargo archive and checks an independent consumer, README examples,
-doctests, TCK and historical fixtures from the unpacked sources. It is a local
+doctests, TCK, opening, backup and transaction tests from the unpacked sources. It is a local
 release check, not another recurring CI job.
 
 The full suite need not run after every edit; focused commands keep the inner

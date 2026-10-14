@@ -9,7 +9,7 @@ not select or publish a release candidate.
 Cargo metadata names `crabnet` 0.1.0, Rust 2024 / Rust 1.99, with the repository,
 README, docs.rs destination, searchable keywords and database category declared.
 The package remains a library; no default executable or build script is added.
-Both project license texts, the TCK license and NOTICE, fixtures, pinned TCK
+Both project license texts, the TCK license and NOTICE, pinned TCK
 outcomes, examples and documentation remain in the source archive. No dependency
 source archives are vendored into it. The archive is approximately 1 MiB
 compressed, so this review does not remove reproducibility evidence for size.
@@ -32,7 +32,7 @@ files; the inventory records that explicitly. Cargo.lock remains unchanged.
 | Compiled/prepared reads, cursors | Owned unbound plans versus borrowing bound handles; snapshot lifetime, iterator errors, and incremental/buffered mode remain explicit. |
 | Query options | Cooperative limits/deadlines/cancellation; no claim of a whole-process memory bound. |
 | Errors | Non-exhaustive categories remain public. `Busy`/`Sqlite` expose rusqlite error types, and `Value` exposes serde_json's type; dependency changes must preserve these source contracts. |
-| Backup/restore and schema | New backup paths, quiescent replacement, supported migration inputs and no automatic downgrade. |
+| Backup/restore and schema | New backup paths, quiescent replacement, first-release storage baseline and no automatic downgrade. |
 
 `OpenMode`, `OpenOptions`, `TraversalLimits`, and `QueryOptions` are exhaustive
 public types today. Preserve their source compatibility in 0.1 patch releases;
@@ -66,7 +66,7 @@ retains its temporary directory and `evidence.json` for inspection. It:
    versions, compiles each Rust README example, and runs the public-API smoke
    client for typed values, constraints, commit/rollback, compiled rebinding,
    cursors, backup/restore, identity and read-only reopening.
-3. Runs the unpacked crate's doctests, pinned TCK, historical storage fixtures
+3. Runs the unpacked crate's doctests, pinned TCK, current-format opening, backup
    and transaction integration tests without access to repository history.
 4. Records the source revision/status, toolchain, archive and lockfile hashes,
    member count, README example count, and successful command exit statuses.
@@ -98,14 +98,13 @@ contains the archive, extracted sources, independent consumer, and full
 `evidence.json`. Rebuild from the final clean candidate rather than publishing
 this development artifact.
 
-A read-only crates.io
-name lookup returned HTTP 403; package-name availability and ownership are
-therefore **unverified**. Recheck them with registry access before publication.
+The maintainer verified on 2026-10-14 that `crabnet` is available on crates.io.
+Automated API lookups returned HTTP 403. Publishing credentials and registry
+access still need verification; name availability does not establish either.
 No credentials, tags, remote branches, or registry entries were changed.
 
 The [draft release notes](release-notes-0.1.0.md) and [first-release gates](first-release.md)
-retain the required Ubuntu candidate run, Git Graph acceptance and rollback
-rehearsal, final writer fixture, clean artifact hashes, and publication approval.
+retain the required Ubuntu candidate run, Git Graph acceptance, clean artifact hashes, and publication approval.
 
 ## Clean candidate rehearsal: 2026-10-14
 
@@ -130,5 +129,30 @@ The candidate's [Ubuntu CI run](https://github.com/a-poor/crabnet/actions/runs/3
 passed: 1,028 tests/doctests and 147 benchmark smoke cases, formatting, Clippy,
 whitespace checks, and unchanged dependency/TCK pins.
 The optional lifecycle job was skipped. Git Graph
-acceptance/rollback, registry verification, the final writer fixture, and
+acceptance, publishing access, and
 publication approval remain open.
+
+## Package after log cleanup: 2026-10-14
+
+The clean `465c78995db12acf0f54264a7c5deb0883343613` archive passed
+`python3 scripts/check-package.py`: one README example compiled, the independent
+consumer passed, and all 31 packaged tests/doctests passed. Cargo's archived
+VCS metadata confirms the exact revision and clean source. The final local
+script status also sees later fixture/documentation work, which is outside
+this already-built archive.
+
+- Archive: 413 files, 900,190 compressed bytes.
+- SHA-256: `af35ed2fcc14a78f13d28b92d3a7da8b784ebc2e4d52b8c964e57025f540a352`.
+- Machine-path scan passed across all archived files.
+
+Raw logs and generated reports remain local. Subsequent test cleanup and
+documentation are not part of this archive; packaging must be
+repeated if those changes are included in the published source.
+
+## First-release fixture cleanup
+
+Historical and candidate writer fixtures and their dependent tests were removed
+because no published earlier release exists. Prior test/archive counts above
+remain records of those earlier runs. The package rehearsal now checks opening,
+backup and transactions alongside doctests and the TCK; rebuild the package
+from the final source after this cleanup. No fixture-retention gate remains.

@@ -45,7 +45,7 @@ reads initially support eager execution; cursor binding can be a later slice.
 `tests/compiled_reads.rs` covers changing scalar/list/map/null bindings, owned
 source lifetime, static/mutation rejection, whole-plan preflight, pagination,
 bags and typed graph values, hybrid/shortest traversal, union/distinct/hydration,
-fresh controls, read-only/reopened/restored/migrated files, independent connections,
+fresh controls, read-only/reopened/restored files, independent connections,
 transaction rollback, constraint restoration, and immediate writer lock release.
 Unit tests attempt competing writes during path production in both UNION
 branches before hydration, and cancel execution after a previous branch has

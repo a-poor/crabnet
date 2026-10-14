@@ -21,14 +21,11 @@ define the exact surface; this is not full openCypher conformance.
 
 ## Storage and compatibility
 
-Schema 5 is current. Valid main schemas 1–4 upgrade on writable opening;
-read-only opening and restore sources require the current schema. Keep a
-verified pre-upgrade backup and the old application until acceptance. There
-is no automatic downgrade; rolling back through an older backup loses later
-writes unless the application separately replays them. Follow the
-[upgrade and rollback procedure](compatibility.md#upgrade-and-application-rollback).
-There are no earlier named Crabnet releases; historical writer fixtures are
-regression evidence, not release-to-release qualification.
+Schema 5 is current. The first published release establishes the compatibility
+baseline; unreleased development databases are not supported upgrade inputs.
+Read-only opening and restore sources require the current schema. Current-format
+reopening, backup/restore, recovery, and invalid-file rejection remain tested.
+See the [compatibility policy](compatibility.md).
 
 Within the 0.1 minor line, patch releases preserve the documented Rust source,
 query, value and error-category contracts and schema 5. Exact error messages,
@@ -69,7 +66,8 @@ retain their own licenses and notices; see [third-party materials](../THIRD_PART
 
 ## Still required before publication
 
-Select a clean candidate; qualify it on Ubuntu; complete Git Graph acceptance
-and upgrade/rollback rehearsal; retain the final writer fixture and artifact
-hashes; verify crates.io name/ownership and registry checks; finalize these
-notes and explicitly approve publication. See the [release gates](first-release.md#release-gates).
+Finalize the publication source and package hash; complete its Ubuntu checks
+and Git Graph application acceptance; verify publishing access; finalize these
+notes and explicitly approve publication. The maintainer has verified crates.io
+name availability. Candidate package results and hashes are recorded in
+[package readiness](package-readiness.md). See the [release gates](first-release.md#release-gates).

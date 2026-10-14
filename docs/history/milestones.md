@@ -920,15 +920,10 @@ the corresponding gates to pass.
   SQLite build, local DELETE-journal files, the documented query subset, and
   serial connections with one writer. Other configurations require separate
   evidence. Defining this scope does not claim qualification.
-- [x] **Set API and storage compatibility policy and retain historical baselines.**
-  [compatibility.md](../compatibility.md) defines pre-1.0 versioning/deprecations,
-  schema 1–4 upgrades to 5, recovery/rebuild choices, and application rollback
-  through an unchanged pre-upgrade backup. Five pinned historical writers supply
-  retained files/oracles for upgrade, identity/type/bag preservation, maintained
-  indexes/constraints, failed-upgrade rollback, refusal, and backup restoration.
-  These are main-commit baselines, not published release-pair qualification;
-  retain tagged writer fixtures and validate them against the candidate as part
-  of the release record below.
+- [x] **Set API and storage compatibility policy.**
+  The first published release establishes the baseline. Historical development
+  fixtures and their qualification gates were subsequently removed; see the
+  current [compatibility policy](../compatibility.md).
 - [ ] **Verify automated release checks — hosted validation passed; enforcement
   blocked by the repository plan.** Push and workload-enabled manual runs at
   `683b8e9` passed the four OS/toolchain checks and both lifecycle jobs. The
@@ -948,16 +943,8 @@ the corresponding gates to pass.
   traces, including after earlier page writes, with exact rollback, original
   error codes, lock release, reopening, and successful retry. Its forwarding VFS
   fails before the selected native call and permits healthy rollback I/O.
-  [Migration I/O sweeps](../semantics.md#migration-io-failures) extend that model to
-  historical schema 1–4 files, both during statements and at commit, through
-  retained-connection and failed-open cleanup paths. They check the old format
-  with raw SQLite before public retry, then verify typed historical oracles,
-  index/constraint writes, and reopening.
-  [Migration read sweeps](../semantics.md#migration-read-failures) cover the same
-  retained formats through both writable open modes and cold-cache retained
-  initialization, including repeated reads and commit's journal probe. They
-  check exact old-file preservation and original errors for rejected upgrades,
-  and exact successful contents when SQLite absorbs internal check diagnostics.
+  Historical migration fault sweeps were subsequently removed with the
+  unreleased-format fixture sets; they are not current qualification evidence.
   [Initialization I/O sweeps](../semantics.md#empty-and-new-file-initialization-io-failures)
   cover missing paths, zero-byte files, and empty SQLite databases. They fail
   every read/write/sync in healthy traces, verify exact uninitialized contents
@@ -1040,8 +1027,8 @@ the corresponding gates to pass.
   belongs to the chosen surface.
 - [ ] **Publish a reproducible qualification record.** Repeat sustained workload,
   contention, resource-limit, upgrade, and restore checks for the release
-  candidate. Add retained tagged-release writer fixtures for every supported
-  release pair and rehearse the application's upgrade/rollback procedure under
+  candidate. When a future release needs an upgrade from a published format,
+  add targeted migration tests and an upgrade/rollback procedure under
   the [compatibility policy](../compatibility.md). Review package metadata/licensing
   and dependencies, record known limitations and measured regressions, and provide
   release/upgrade notes.

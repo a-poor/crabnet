@@ -76,7 +76,7 @@ env = dict(os.environ, CARGO_TARGET_DIR=str(work / "target"))
 run(["cargo", "check", "--locked", "--offline", "--bins"], consumer, env)
 run(["cargo", "run", "--locked", "--offline", "--bin", "crabnet-package-consumer", "--", str(work / "consumer-data")], consumer, env)
 run(["cargo", "test", "--locked", "--offline", "--doc"], extracted, env)
-run(["cargo", "test", "--locked", "--offline", "--test", "tck", "--test", "storage_compatibility", "--test", "transactions"], extracted, env)
+run(["cargo", "test", "--locked", "--offline", "--test", "tck", "--test", "opening", "--test", "backup", "--test", "transactions"], extracted, env)
 report = {
     "development_rehearsal": args.allow_dirty,
     "source_commit": capture(["git", "rev-parse", "HEAD"]).strip(),
