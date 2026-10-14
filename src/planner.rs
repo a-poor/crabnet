@@ -1,3 +1,10 @@
+//! Converts parsed Cypher into executable graph plans.
+//!
+//! Lowering builds a logical row plan and checks supported expression kinds.
+//! SQLite generation produces parameterized fragments; physical planning connects
+//! them to Rust traversal and hydration operators. Explanation helpers expose
+//! the logical and physical plans without executing them.
+
 mod explain;
 mod logical;
 mod lower;

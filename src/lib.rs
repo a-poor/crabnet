@@ -1,9 +1,11 @@
 //! An experimental, embedded property-graph database backed by SQLite.
 //!
-//! Crabnet implements a documented subset of openCypher. Queries are parsed
-//! with `open-cypher` and lowered to parameterized SQLite reads and transactional
-//! mutations. It is intended for local tools and rebuildable graph indexes;
-//! it is not a claim of full Cypher conformance or production qualification.
+//! `crabnet` lets you store connected data and query it with Cypher, directly
+//! from your Rust application. Model nodes and relationships, follow paths,
+//! and get typed values back without running a separate database server.
+//!
+//! It is intended for local tools and rebuildable graph indexes. The API is
+//! still evolving, and only a subset of openCypher is supported.
 //!
 //! # Quickstart
 //!
@@ -35,9 +37,17 @@
 //! - [`Database::backup_to`] creates a new snapshot; [`Database::restore_from`]
 //!   replaces a quiescent destination graph. There is no automatic downgrade.
 //!
-//! The packaged README and `docs/` describe the supported query subset,
-//! DELETE-journal storage configuration, compatibility policy, and recovery
-//! limits. The crate includes bundled SQLite through `rusqlite`.
+//! # Further reading
+//!
+//! - [Supported queries](https://github.com/a-poor/crabnet/blob/main/docs/coverage.md)
+//!   describes the supported openCypher subset and limitations.
+//! - [Compatibility](https://github.com/a-poor/crabnet/blob/main/docs/compatibility.md)
+//!   covers API changes, storage upgrades, and rollback.
+//! - [Support](https://github.com/a-poor/crabnet/blob/main/docs/support.md)
+//!   describes tested platforms, storage configuration, and recovery limits.
+//!
+//! These guides track the main branch; the crate archive includes the `docs/`
+//! files for this version. SQLite is bundled through `rusqlite`.
 
 #![warn(missing_docs)]
 
@@ -62,7 +72,7 @@ pub use value::{CypherValue, NodeValue, PathValue, RelationshipValue};
 
 use std::collections::BTreeMap;
 
-/// Parses, validates, and renders Crabnet's normalized logical plan.
+/// Parses, validates, and renders `crabnet`’s normalized logical plan.
 ///
 /// The explanation describes graph operators rather than generated SQLite SQL,
 /// so it is useful while experimenting with lowering and planner behavior.
@@ -70,7 +80,7 @@ pub fn explain(cypher: &str) -> Result<String> {
     planner::explain_logical(cypher)
 }
 
-/// Parses, validates, and renders Crabnet's current SQLite execution plan.
+/// Parses, validates, and renders `crabnet`’s current SQLite execution plan.
 ///
 /// Unlike [`explain`], this experimental view includes generated SQL and bind
 /// positions. It currently supports read pipelines only.

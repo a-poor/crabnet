@@ -1,3 +1,9 @@
+//! Connection ownership and execution of planned graph operations.
+//!
+//! Reads combine SQLite fragments with Rust traversal and typed-value hydration.
+//! Writes materialize their inputs before applying mutations within a transaction.
+//! Child modules own opening, transactions, cursors, backups, and constraints.
+
 use std::{
     collections::{BTreeSet, HashMap},
     path::Path,
@@ -224,6 +230,12 @@ impl Database {
 
     /// Executes a Cypher query without parameters.
     ///
+    /// Returns all rows eagerly, preserving duplicates. Use `ORDER BY` when
+    /// row order matters, or [`Self::prepare_read`] for cursor consumption.
+    /// See [`Self::execute_with`] for parameters and query errors.
+    ///
+    /// # Commit failures
+    ///
     /// A write can report a commit I/O error after its changes have persisted.
     /// Reconcile the operation's outcome before retrying a failed write; an
     /// error does not by itself guarantee rollback.
@@ -233,7 +245,35 @@ impl Database {
 
     /// Executes a Cypher query with named `$parameter` values.
     ///
-    /// Commit errors have the same retry caveat as [`Self::execute`].
+    /// Parameter keys omit the `$` prefix. Values are JSON-compatible inputs;
+    /// returned cells use [`CypherValue`]. Execution is eager and returns either
+    /// all rows or an error. Commit errors have the retry caveat described in
+    /// [`Self::execute`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use crabnet::{Database, Parameters, Value};
+    ///
+    /// let mut graph = Database::in_memory()?;
+    /// let parameters = Parameters::from([("name".into(), Value::from("Ada"))]);
+    /// let result = graph.execute_with(
+    ///     "CREATE (person:Person {name: $name}) RETURN person.name",
+    ///     &parameters,
+    /// )?;
+    /// assert_eq!(result.rows[0][0].as_str(), Some("Ada"));
+    /// # Ok::<(), crabnet::Error>(())
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Invalid syntax returns [`crate::Error::Parse`]; unsupported query forms
+    /// return [`crate::Error::Unsupported`]. Planning-time name/type errors
+    /// return [`crate::Error::Semantic`], and absent parameters return
+    /// [`crate::Error::MissingParameter`]. Runtime errors include
+    /// [`crate::Error::Type`], [`crate::Error::Argument`], and
+    /// [`crate::Error::Constraint`]. See [`crate::Error`] for storage and
+    /// resource failures.
     pub fn execute_with(&mut self, cypher: &str, parameters: &Parameters) -> Result<QueryResult> {
         self.execute_with_options(cypher, parameters, &QueryOptions::default())
     }

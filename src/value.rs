@@ -1,3 +1,8 @@
+//! Public typed result snapshots and conversion from JSON inputs.
+//!
+//! Rust value equality compares snapshots structurally. Query-time Cypher
+//! comparison is implemented separately by the planner and database helpers.
+
 use std::collections::BTreeMap;
 
 use serde_json::Value as JsonValue;
@@ -9,6 +14,47 @@ use crate::{Error, Result};
 /// Unlike JSON, this type can distinguish graph entities from ordinary maps.
 /// Lists may contain nodes and relationships as well as property values.
 /// Lists and maps preserve the types of their nested values.
+///
+/// # Equality
+///
+/// Rust's [`PartialEq`] compares variants and their contents, not Cypher query
+/// equality. `Integer(1)` and `Float(1.0)` differ in Rust but compare equal in
+/// Cypher. Node and relationship snapshots compare all fields in Rust, whereas
+/// Cypher compares their identities. Rust considers two `Null` values equal;
+/// Cypher's `null = null` evaluates to null. Collections follow these rules
+/// recursively, and Rust path equality compares the contained snapshots.
+///
+/// ```
+/// use crabnet::{CypherValue, Database};
+///
+/// assert_ne!(CypherValue::Integer(1), CypherValue::Float(1.0));
+/// let mut graph = Database::in_memory()?;
+/// let result = graph.execute("RETURN 1 = 1.0, null = null")?;
+/// assert_eq!(result.rows[0][0].as_bool(), Some(true));
+/// assert!(result.rows[0][1].is_null());
+/// # Ok::<(), crabnet::Error>(())
+/// ```
+///
+/// # JSON conversion
+///
+/// [`Self::try_from`] converts owned or borrowed [`crate::Value`] inputs
+/// recursively. JSON objects become ordinary maps, never graph entities.
+/// Integers must fit `i64`; larger unsigned integers return [`Error::Semantic`]
+/// rather than being rounded to floats. Floating-point negative zero is
+/// normalized to positive zero. A number without a supported numeric
+/// representation returns [`Error::Data`]. Conversion from borrowed JSON
+/// produces owned values.
+///
+/// ```
+/// use crabnet::{CypherValue, Error, Value};
+///
+/// assert_eq!(CypherValue::try_from(Value::from(42))?, CypherValue::Integer(42));
+/// assert!(matches!(
+///     CypherValue::try_from(Value::from(u64::MAX)),
+///     Err(Error::Semantic(_)),
+/// ));
+/// # Ok::<(), crabnet::Error>(())
+/// ```
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum CypherValue {
@@ -68,7 +114,7 @@ pub struct RelationshipValue {
 ///
 /// Nodes follow traversal order. Relationships retain their stored start/end
 /// direction, which may be opposite the traversal order for incoming or
-/// undirected patterns. Values produced by Crabnet always contain exactly one
+/// undirected patterns. Values produced by `crabnet` always contain exactly one
 /// more node than relationship.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -158,6 +204,7 @@ impl CypherValue {
     }
 }
 
+/// Converts owned JSON into typed values; see [JSON conversion](CypherValue#json-conversion).
 impl TryFrom<JsonValue> for CypherValue {
     type Error = Error;
 
@@ -166,6 +213,7 @@ impl TryFrom<JsonValue> for CypherValue {
     }
 }
 
+/// Copies borrowed JSON into typed values; see [JSON conversion](CypherValue#json-conversion).
 impl TryFrom<&JsonValue> for CypherValue {
     type Error = Error;
 

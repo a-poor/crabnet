@@ -13,7 +13,7 @@ use super::{Database, resources::ExecutionContext};
 /// no database, SQLite statement, snapshot, parameter values, or query counters.
 /// Cloning copies the plan; an `Arc<CompiledRead>` can share it across callers.
 ///
-/// A plan can execute on any database opened by the same Crabnet build, including
+/// A plan can execute on any database opened by the same `crabnet` build, including
 /// read-only connections. Planning does not specialize to a database's data or
 /// uniqueness declarations, so supported writes, constraint changes, and restore
 /// do not invalidate it. Opening handles supported storage migrations. Plans

@@ -8,7 +8,7 @@ pub enum Error {
     EmptyQuery,
     /// The input is not syntactically valid openCypher.
     Parse(String),
-    /// The input is valid Cypher but outside Crabnet's current subset.
+    /// The input is valid Cypher but outside `crabnet`’s current subset.
     Unsupported(String),
     /// The syntax is supported, but names or types do not make sense.
     Semantic(String),
@@ -49,7 +49,7 @@ pub enum Error {
     Type(String),
 }
 
-/// The result of a Crabnet operation, with a structured [`Error`] on failure.
+/// The result of a `crabnet` operation, with a structured [`Error`] on failure.
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl fmt::Display for Error {

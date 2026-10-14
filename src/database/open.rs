@@ -10,7 +10,7 @@ pub enum OpenMode {
     /// Open a graph or initialize an empty/new file. Existing graphs may migrate.
     #[default]
     OpenOrCreate,
-    /// Open an existing Crabnet graph for reads and writes, migrating if needed.
+    /// Open an existing `crabnet` graph for reads and writes, migrating if needed.
     ReadWrite,
     /// Open an existing, current-version graph without permitting writes or migration.
     ReadOnly,

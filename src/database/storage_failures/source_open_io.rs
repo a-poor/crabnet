@@ -1,5 +1,5 @@
 //! One-shot main-file reads while opening a current-version source graph.
-//! Arm before SQLite connects; separate connection and Crabnet initialization
+//! Arm before SQLite connects; separate connection and `crabnet` initialization
 //! phases. No hot journals, migrations, empty files, or partial/persistent I/O.
 
 use super::{

@@ -42,12 +42,15 @@ impl CancellationToken {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TraversalLimits {
     /// Total explored states across every traversal producer in one query.
+    /// Defaults to 100,000.
     pub max_states: usize,
     /// Total compact JSON bytes passed from traversal producers to SQLite.
     /// Incremental trails count the framing of each singleton input array.
+    /// Defaults to 128 MiB (134,217,728 bytes).
     pub max_payload_bytes: usize,
     /// Peak retained traversal memory, using deterministic per-ID costs.
     /// This is an accounting budget, not a bound on process memory.
+    /// Defaults to 256 MiB (268,435,456 bytes).
     pub max_memory_bytes: usize,
 }
 
@@ -63,7 +66,12 @@ impl Default for TraversalLimits {
 
 /// Resource controls for one query, including all its branches and write stages.
 ///
-/// Existing execution methods use these defaults. Counters reset on each call,
+/// By default, only [`TraversalLimits`] budgets are enabled; all optional
+/// limits, the deadline, and cancellation are unset.
+///
+/// # Execution behavior
+///
+/// Counters reset on each call,
 /// including within an application transaction, and for each prepared-read
 /// cursor. Limits fail with a structured error rather than silently truncating.
 /// A write failure rolls back the statement, or the entire explicit transaction.
@@ -94,7 +102,7 @@ impl Default for TraversalLimits {
 /// ```
 #[derive(Clone, Debug, Default)]
 pub struct QueryOptions {
-    /// Budgets for Rust-backed traversal. Defaults preserve the existing limits.
+    /// Budgets for Rust-backed traversal. See [`TraversalLimits`] for defaults.
     pub traversal: TraversalLimits,
     /// Absolute deadline, checked cooperatively. `None` means no deadline.
     pub deadline: Option<Instant>,

@@ -208,7 +208,7 @@ pub(super) fn open(path: &Path) -> (Database, Registration) {
     (Database::from_connection(connection).unwrap(), registration)
 }
 
-/// Connect without running Crabnet initialization, so migration faults can be
+/// Connect without running `crabnet` initialization, so migration faults can be
 /// armed before any schema work. The fixture file must already exist.
 pub(super) fn connect(path: &Path) -> (Connection, Registration) {
     connect_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
