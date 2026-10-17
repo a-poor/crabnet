@@ -435,9 +435,9 @@ checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
 
 [[package]]
 name = "open-cypher"
-version = "0.2.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c73fa6d1dd29f35d1aa5d80d83b644b4b2bb03cc1cf859efba68e382ebf93d3b"
+checksum = "37be720acf2c3a31d0f5ed6a79705800311f3dad0caf45774092bf685df793f4"
 dependencies = [
  "lalrpop-util",
  "logos",
